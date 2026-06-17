@@ -81,12 +81,14 @@
         import { createSeededRng, simulateDelayDiscountingChoice } from "./experiments/delay_discounting/dd_simulation.js";
         import { createDelayDiscountingTimeline } from "./experiments/delay_discounting/delay_discounting_timeline.js";
         import { createMockAdoController } from "./experiments/delay_discounting/controllers/mock_ado_controller.js";
-        import { createApiAdoController } from "./experiments/delay_discounting/controllers/api_ado_controller.js";
+        import { createStanAdoController } from "./experiments/delay_discounting/controllers/stan_ado_controller.js";
+        import hyperbolicModel from "./experiments/delay_discounting/models/hyperbolic/model.js";
 
         const using_jatos = typeof jatos !== 'undefined';
         const url_params = new URLSearchParams(window.location.search);
-        const ado_mode = url_params.get("ado") || "mock";
-        const api_base = url_params.get("api") || "http://127.0.0.1:8000";
+        // "stan" = in-browser Stan inference + ADO (the live path); "mock" = fast
+        // deterministic dev controller with no WASM.
+        const ado_mode = url_params.get("ado") || "stan";
         const debug = url_params.get("debug") === "1";
         const requested_simulation_mode = url_params.get("simulate");
         const simulation_mode = ["data-only", "visual"].includes(requested_simulation_mode) ? requested_simulation_mode : null;
@@ -115,15 +117,20 @@
         }
 
         let adaptive_controller;
-        if (ado_mode === "api") {
-            adaptive_controller = createApiAdoController(default_dd_config, api_base);
-        } else {
+        if (ado_mode === "mock") {
             adaptive_controller = createMockAdoController(default_dd_config);
+        } else {
+            adaptive_controller = createStanAdoController({
+                model: hyperbolicModel,
+                grid_design: default_dd_config.grid_design,
+                stan: default_dd_config.stan,
+                session_id: using_jatos ? jatos.studyResultId : "local-" + Date.now(),
+            });
         }
 
         const run_context = {
             ado_mode: ado_mode,
-            api_base: api_base,
+            model_id: hyperbolicModel.id,
             debug: debug,
             simulation_mode: simulation_mode,
             using_jatos: using_jatos,
@@ -179,7 +186,7 @@
         jsPsych = initializeExperiment();
         jsPsych.data.addProperties({
             ado_mode: ado_mode,
-            api_base: api_base,
+            model_id: hyperbolicModel.id,
             debug: debug,
             simulate: simulation_mode,
             simulation_seed: default_dd_simulation_config.seed,

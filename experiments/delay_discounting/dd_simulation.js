@@ -1,7 +1,10 @@
 // This file defines the simulated participant used by jsPsych.simulate().
-// It does not choose adaptive designs or update the posterior; ADOpy does that
-// in API mode. The model below only decides which button a simulated participant
-// clicks for the current SS/LL design.
+// It does not choose adaptive designs or update the posterior; the Stan controller
+// does that. The model math (hyperbolic value + logistic choice rule) is imported
+// from the hyperbolic model adapter so the simulator, the ADO mutual-information
+// engine, and hyperbolic.stan all use one likelihood.
+
+import { getHyperbolicValue, logistic } from "./models/hyperbolic/model.js";
 
 /**
  * @typedef {Object} DelayDiscountingDesign
@@ -58,34 +61,7 @@ function createSeededRng(seed) {
 }
 
 /**
- * Transform any real value to the [0, 1] probability scale.
- *
- * @param {number} value - Real-valued input.
- * @returns {number} Logistic transform of value.
- */
-function logistic(value) {
-  if (value >= 0) {
-    return 1 / (1 + Math.exp(-value));
-  }
-
-  const exp_value = Math.exp(value);
-  return exp_value / (1 + exp_value);
-}
-
-/**
- * Compute hyperbolically discounted subjective value.
- *
- * @param {number} reward - Objective reward amount.
- * @param {number} delay - Delay until reward.
- * @param {number} k - Discount rate.
- * @returns {number} Subjective value after temporal discounting.
- */
-function getHyperbolicValue(reward, delay, k) {
-  return reward / (1 + k * delay);
-}
-
-/**
- * Compute ADOpy ModelHyp-style choice probability for one SS/LL design.
+ * Compute ModelHyp-style choice probability for one SS/LL design.
  *
  * @param {DelayDiscountingDesign} design - Current delay-discounting design.
  * @param {DelayDiscountingSimulationParams} params - Simulated participant parameters.

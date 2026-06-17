@@ -6,26 +6,15 @@ function range(start, stop, step) {
   return values;
 }
 
-function linspace(start, stop, count) {
-  let values = [];
-  const step = (stop - start) / (count - 1);
-  for (let i = 0; i < count; i++) {
-    values.push(start + step * i);
-  }
-  return values;
-}
-
-function logspace(start, stop, count, base = 10) {
-  return linspace(start, stop, count).map(value => Math.pow(base, value));
-}
-
 /**
- * Delay-discounting task and ADO grid configuration.
+ * Delay-discounting task and ADO configuration.
  *
- * grid_design defines the candidate SS/LL designs available to the adaptive
- * controller. grid_param defines the k/tau parameter grid used by the backend
- * ADO model. response_labels must match the jsPsych button indices used in the
- * timeline: 0 = SS, 1 = LL.
+ * grid_design defines the candidate SS/LL designs the adaptive controller scores
+ * by mutual information. stan holds the NUTS sampler settings used by the
+ * in-browser Stan controller. The parameter prior now lives in the model adapter
+ * (models/<name>/model.js), co-located with the priors in its .stan file.
+ * response_labels must match the jsPsych button indices used in the timeline:
+ * 0 = SS, 1 = LL.
  */
 const default_dd_config = {
   n_trials: 42,
@@ -40,9 +29,11 @@ const default_dd_config = {
     r_ss: range(12.5, 800, 12.5),
     r_ll: [800],
   },
-  grid_param: {
-    k: logspace(-5, 0, 50, 10),
-    tau: linspace(0, 5, 11).slice(1),
+  stan: {
+    num_chains: 2,
+    num_warmup: 500,
+    num_samples: 500,
+    seed: 123,
   },
   response_labels: {
     0: "SS",
@@ -53,7 +44,7 @@ const default_dd_config = {
 /**
  * Editable simulated-participant settings used only when jsPsych.simulate()
  * is active. params are the data-generating k/tau values; they are not posterior
- * estimates from ADOpy. rt controls deterministic simulated response times.
+ * posterior estimates. rt controls deterministic simulated response times.
  */
 const default_dd_simulation_config = {
   seed: 123,
