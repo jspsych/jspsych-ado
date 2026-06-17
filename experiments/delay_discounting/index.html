@@ -10,7 +10,6 @@
             base.href = typeof jatos !== 'undefined' ? '.' : '../../';
         </script>
         <script src="core/jspsych/jspsych.js"></script>
-        <script src="core/jspsych/plugins/plugin-html-keyboard-response.js"></script>
         <script src="core/jspsych/plugins/plugin-html-button-response.js"></script>
         <script src="core/jspsych/plugins/plugin-call-function.js"></script>
         <script src="core/jspsych/plugins/plugin-instructions.js"></script>
@@ -83,7 +82,6 @@
         import { createDelayDiscountingTimeline } from "./experiments/delay_discounting/delay_discounting_timeline.js";
         import { createMockAdoController } from "./experiments/delay_discounting/controllers/mock_ado_controller.js";
         import { createApiAdoController } from "./experiments/delay_discounting/controllers/api_ado_controller.js";
-        import { createFixtureAdoController } from "./experiments/delay_discounting/controllers/fixture_ado_controller.js";
 
         const using_jatos = typeof jatos !== 'undefined';
         const url_params = new URLSearchParams(window.location.search);
@@ -119,8 +117,6 @@
         let adaptive_controller;
         if (ado_mode === "api") {
             adaptive_controller = createApiAdoController(default_dd_config, api_base);
-        } else if (ado_mode === "fixture") {
-            adaptive_controller = createFixtureAdoController("fixtures/adopy_dd_reference.json");
         } else {
             adaptive_controller = createMockAdoController(default_dd_config);
         }

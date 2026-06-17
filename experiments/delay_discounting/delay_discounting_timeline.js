@@ -226,7 +226,7 @@ function makeChoiceSimulationOptions(run_context, design) {
  * The timeline depends only on the ADO controller contract: start() provides the
  * first design, and update(trial_data) returns posterior summaries plus the next
  * design. This keeps the jsPsych task independent of whether the controller is
- * mock, fixture-backed, or the live Python/ADOpy API.
+ * mock-backed or the live Python/ADOpy API.
  *
  * @param {Object} jsPsych - jsPsych instance returned by initJsPsych().
  * @param {DelayDiscountingAdoController} adaptive_controller - Controller with start/update methods.

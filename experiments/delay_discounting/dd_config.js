@@ -71,7 +71,4 @@ const default_dd_simulation_config = {
 export {
   default_dd_config,
   default_dd_simulation_config,
-  range,
-  linspace,
-  logspace,
 };
