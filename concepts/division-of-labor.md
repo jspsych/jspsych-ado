@@ -27,8 +27,6 @@ In API mode, the Python ADOpy service owns the adaptive inference step. It updat
 
 In mock mode, the browser uses a deterministic stand-in controller with the same `start()`/`update()` interface. This lets the jsPsych timeline be reviewed without running Python, but the mock posterior values are not real inference.
 
-In fixture mode, the browser replays saved adaptive states through the same interface. This is useful for checking timeline behavior against known examples without depending on a live Python service.
-
 ## Why the boundary matters
 
 This separation keeps the experiment code focused on presentation and response collection. The timeline does not need to know how ADOpy computes likelihoods, updates posteriors, or chooses designs.
@@ -40,4 +38,4 @@ The shared contract is small:
 - `start(context)` returns the first design and any initial adaptive state
 - `update(trial_data)` returns the updated adaptive state and the next design
 
-As long as each controller satisfies that contract, the same jsPsych timeline can run against mock data, fixture data, or live ADOpy inference.
+As long as each controller satisfies that contract, the same jsPsych timeline can run against mock data or live ADOpy inference.

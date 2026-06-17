@@ -143,10 +143,5 @@ function simulateDelayDiscountingChoice(design, simulation_config, rng) {
 
 export {
   createSeededRng,
-  getDelayDiscountingProbability,
-  getHyperbolicValue,
-  LL_RESPONSE,
-  logistic,
-  SS_RESPONSE,
   simulateDelayDiscountingChoice,
 };
