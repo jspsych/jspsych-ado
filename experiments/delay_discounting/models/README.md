@@ -63,7 +63,9 @@ The compiled module is web/worker-only (`-sENVIRONMENT=web`); it runs in the bro
 4. Add `tests/js/<name>.test.mjs` and import the adapter in `index.html` /
    `dd_config.js` to select it.
 
-The generic engine/worker/controller are parameter-agnostic, but the **task** layer
-isn't: `copyPosteriorFields` / `logAdoTrial` in `delay_discounting_timeline.js`
-write `post_mean_k` / `post_mean_tau` (and friends) into the data row. A model whose
-params aren't `k`/`tau` also needs those two functions updated to its parameter names.
+The engine, worker, controller, simulator, and timeline are all parameter-agnostic:
+posterior export/debug fields are derived from each model's parameter names
+(`post_mean_<param>`, `sim_<param>`), so a model with different params needs no
+timeline changes. What is **task**-specific (not model-specific) is the SS/LL design
+shape and card rendering in `delay_discounting_timeline.js` — those only change if you
+build a different task, not a different discounting model.

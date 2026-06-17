@@ -77,11 +77,12 @@ function simulateDelayDiscountingChoice(design, simulation_config, rng, model) {
     data["sim_" + name] = Number(value);
   }
 
-  // Optional model-specific diagnostics (e.g. subjective values for DD models).
+  // Optional model-specific diagnostics (e.g. subjective values for DD models),
+  // recorded generically as sim_<name> for whatever fields the model returns.
   if (typeof model.subjectiveValues === "function") {
-    const values = model.subjectiveValues(design, params);
-    data.sim_v_ss = values.v_ss;
-    data.sim_v_ll = values.v_ll;
+    for (const [name, value] of Object.entries(model.subjectiveValues(design, params))) {
+      data["sim_" + name] = value;
+    }
   }
 
   return data;

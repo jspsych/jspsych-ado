@@ -87,12 +87,14 @@ function makeOptionCardHtml(design, index) {
  */
 function copyPosteriorFields(data, ado_state) {
   if (ado_state.post_mean) {
-    data.post_mean_k = ado_state.post_mean.k;
-    data.post_mean_tau = ado_state.post_mean.tau;
+    for (const param of Object.keys(ado_state.post_mean)) {
+      data["post_mean_" + param] = ado_state.post_mean[param];
+    }
   }
   if (ado_state.post_sd) {
-    data.post_sd_k = ado_state.post_sd.k;
-    data.post_sd_tau = ado_state.post_sd.tau;
+    for (const param of Object.keys(ado_state.post_sd)) {
+      data["post_sd_" + param] = ado_state.post_sd[param];
+    }
   }
 }
 
@@ -147,8 +149,9 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
       `  ${formatDebugOffer("LL", trial_data.r_ll, trial_data.t_ll)}`,
       "",
       "Posterior after response:",
-      `  k:   mean ${formatDebugNumber(post_mean.k)}, sd ${formatDebugNumber(post_sd.k)}`,
-      `  tau: mean ${formatDebugNumber(post_mean.tau)}, sd ${formatDebugNumber(post_sd.tau)}`,
+      ...Object.keys(post_mean).map(param =>
+        `  ${param}: mean ${formatDebugNumber(post_mean[param])}, sd ${formatDebugNumber(post_sd[param])}`
+      ),
       "",
       // next_design is null on the final update (no further trial to show it on).
       next_design
@@ -175,18 +178,11 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
         );
       }
       console.table(offer_rows);
-      console.table([
-        {
-          parameter: "k",
-          mean: post_mean.k,
-          sd: post_sd.k,
-        },
-        {
-          parameter: "tau",
-          mean: post_mean.tau,
-          sd: post_sd.tau,
-        },
-      ]);
+      console.table(Object.keys(post_mean).map(param => ({
+        parameter: param,
+        mean: post_mean[param],
+        sd: post_sd[param],
+      })));
       console.groupEnd();
     }
   } catch (error) {

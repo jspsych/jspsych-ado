@@ -196,8 +196,10 @@
             debug: debug,
             simulate: simulation_mode,
             simulation_seed: default_dd_simulation_config.seed,
-            sim_k: default_dd_simulation_config.params.k,
-            sim_tau: default_dd_simulation_config.params.tau,
+            // Record the data-generating parameters generically (sim_k, sim_tau, ...).
+            ...Object.fromEntries(
+                Object.entries(default_dd_simulation_config.params).map(([name, value]) => ["sim_" + name, value])
+            ),
         });
 
         let timeline = [instructions];
