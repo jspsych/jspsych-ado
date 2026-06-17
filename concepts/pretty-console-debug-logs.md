@@ -2,7 +2,7 @@
 
 This note describes the `debug=1` console summaries added to the delay
 discounting demo. The concrete fields are delay-discounting-specific, but the
-reason for the feature is broader: every ADOpy-backed jsPsych example should
+reason for the feature is broader: every adaptive jsPsych example should
 give developers a way to inspect the adaptive loop while the experiment is
 running.
 
@@ -34,8 +34,8 @@ jsPsych:
 ```
 
 In the delay discounting demo, the design is an SS/LL reward offer, the response
-is an SS/LL choice, and API mode uses ADOpy to update the posterior over `k` and
-`tau`.
+is an SS/LL choice, and the in-browser Stan controller updates the posterior over
+`k` and `tau`.
 
 ## What the debug log shows
 
@@ -43,7 +43,7 @@ With `debug=1`, the browser prints a readable console block after each adaptive
 update:
 
 ```text
-ADO update 1/42 | api | response: LL | latency: 58 ms
+ADO update 1/42 | stan | response: LL | latency: 22 ms
 
 Presented:
   SS: $437.50 now
@@ -58,41 +58,25 @@ Next ADO design:
   LL: $800 in 520 weeks
 ```
 
+(`latency` is the local Stan sampling + design-selection time, reused from the
+controller's `api_latency_ms` field.)
+
 In browser DevTools, each summary also includes a collapsed details group with
 tables for the presented design, next design, and posterior summary.
 
 ## How to try it
 
-For PR review, run the experiment locally with Live Server.
-
-Mock mode does not require Python:
+Run the experiment locally with Live Server. The live path uses in-browser Stan
+(no server); `mock` mode skips WASM entirely:
 
 ```text
+http://127.0.0.1:5501/experiments/delay_discounting/index.html?ado=stan&debug=1
 http://127.0.0.1:5501/experiments/delay_discounting/index.html?ado=mock&debug=1
-```
-
-For API mode, first run the Python ADOpy service:
-
-```bash
-uv run uvicorn ado_service.app:app --reload --port 8000
-```
-
-Then open:
-
-```text
-http://127.0.0.1:5501/experiments/delay_discounting/index.html?ado=api&api=http://127.0.0.1:8000&debug=1
-```
-
-After this PR is merged and GitHub Pages redeploys, the mock demo should be
-available at:
-
-```text
-https://githubpsyche.github.io/jspsych-ado/experiments/delay_discounting/index.html?ado=mock&debug=1
 ```
 
 ## Pull request framing
 
-This change adds a developer-facing debug trace for ADOpy-backed jsPsych demos.
+This change adds a developer-facing debug trace for the adaptive jsPsych demo.
 It does not change participant-facing trial behavior. The goal is to make the
 adaptive loop inspectable while preserving the separation between the jsPsych
 timeline and the adaptive controller.

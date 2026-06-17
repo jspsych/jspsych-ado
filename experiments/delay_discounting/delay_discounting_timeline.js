@@ -87,12 +87,14 @@ function makeOptionCardHtml(design, index) {
  */
 function copyPosteriorFields(data, ado_state) {
   if (ado_state.post_mean) {
-    data.post_mean_k = ado_state.post_mean.k;
-    data.post_mean_tau = ado_state.post_mean.tau;
+    for (const param of Object.keys(ado_state.post_mean)) {
+      data["post_mean_" + param] = ado_state.post_mean[param];
+    }
   }
   if (ado_state.post_sd) {
-    data.post_sd_k = ado_state.post_sd.k;
-    data.post_sd_tau = ado_state.post_sd.tau;
+    for (const param of Object.keys(ado_state.post_sd)) {
+      data["post_sd_" + param] = ado_state.post_sd[param];
+    }
   }
 }
 
@@ -134,7 +136,7 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
       return;
     }
 
-    const next_design = ado_result.next_design || {};
+    const next_design = ado_result.next_design;
     const post_mean = ado_result.post_mean || {};
     const post_sd = ado_result.post_sd || {};
     const total_trials = config && config.n_trials ? config.n_trials : "?";
@@ -147,52 +149,40 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
       `  ${formatDebugOffer("LL", trial_data.r_ll, trial_data.t_ll)}`,
       "",
       "Posterior after response:",
-      `  k:   mean ${formatDebugNumber(post_mean.k)}, sd ${formatDebugNumber(post_sd.k)}`,
-      `  tau: mean ${formatDebugNumber(post_mean.tau)}, sd ${formatDebugNumber(post_sd.tau)}`,
+      ...Object.keys(post_mean).map(param =>
+        `  ${param}: mean ${formatDebugNumber(post_mean[param])}, sd ${formatDebugNumber(post_sd[param])}`
+      ),
       "",
-      "Next ADO design:",
-      `  ${formatDebugOffer("SS", next_design.r_ss, next_design.t_ss)}`,
-      `  ${formatDebugOffer("LL", next_design.r_ll, next_design.t_ll)}`,
+      // next_design is null on the final update (no further trial to show it on).
+      next_design
+        ? [
+            "Next ADO design:",
+            `  ${formatDebugOffer("SS", next_design.r_ss, next_design.t_ss)}`,
+            `  ${formatDebugOffer("LL", next_design.r_ll, next_design.t_ll)}`,
+          ].join("\n")
+        : "Next ADO design: (final trial; none)",
     ].join("\n");
 
     console.log(summary);
 
     if (console.groupCollapsed && console.table && console.groupEnd) {
       console.groupCollapsed(`${label} details`);
-      console.table([
-        {
-          option: "Presented SS",
-          reward: trial_data.r_ss,
-          delay: trial_data.t_ss,
-        },
-        {
-          option: "Presented LL",
-          reward: trial_data.r_ll,
-          delay: trial_data.t_ll,
-        },
-        {
-          option: "Next SS",
-          reward: next_design.r_ss,
-          delay: next_design.t_ss,
-        },
-        {
-          option: "Next LL",
-          reward: next_design.r_ll,
-          delay: next_design.t_ll,
-        },
-      ]);
-      console.table([
-        {
-          parameter: "k",
-          mean: post_mean.k,
-          sd: post_sd.k,
-        },
-        {
-          parameter: "tau",
-          mean: post_mean.tau,
-          sd: post_sd.tau,
-        },
-      ]);
+      const offer_rows = [
+        { option: "Presented SS", reward: trial_data.r_ss, delay: trial_data.t_ss },
+        { option: "Presented LL", reward: trial_data.r_ll, delay: trial_data.t_ll },
+      ];
+      if (next_design) {
+        offer_rows.push(
+          { option: "Next SS", reward: next_design.r_ss, delay: next_design.t_ss },
+          { option: "Next LL", reward: next_design.r_ll, delay: next_design.t_ll },
+        );
+      }
+      console.table(offer_rows);
+      console.table(Object.keys(post_mean).map(param => ({
+        parameter: param,
+        mean: post_mean[param],
+        sd: post_sd[param],
+      })));
       console.groupEnd();
     }
   } catch (error) {
@@ -226,7 +216,7 @@ function makeChoiceSimulationOptions(run_context, design) {
  * The timeline depends only on the ADO controller contract: start() provides the
  * first design, and update(trial_data) returns posterior summaries plus the next
  * design. This keeps the jsPsych task independent of whether the controller is
- * mock-backed or the live Python/ADOpy API.
+ * mock-backed or the live in-browser Stan controller.
  *
  * @param {Object} jsPsych - jsPsych instance returned by initJsPsych().
  * @param {DelayDiscountingAdoController} adaptive_controller - Controller with start/update methods.
@@ -239,6 +229,24 @@ function createDelayDiscountingTimeline(jsPsych, adaptive_controller, config, ru
   let current_design = null;
   let last_choice_data = null;
   let active_key_handler = null;
+
+  /**
+   * Surface an adaptive-controller failure instead of letting the async trial hang
+   * forever. Completes the current call-function trial and ends the experiment with
+   * a visible message (e.g. the Stan worker failed to load or sampling errored).
+   *
+   * @param {Error} error - The rejection from start()/update().
+   * @param {Function} done - jsPsych call-function done callback.
+   */
+  function failExperiment(error, done) {
+    const message = String((error && error.message) || error);
+    console.error("Adaptive controller failed:", error);
+    done({ ado_event: "error", ado_error: message });
+    jsPsych.endExperiment(
+      "<p>The experiment encountered an error and cannot continue.</p>" +
+      "<p style=\"color: #9ca3af; font-size: 0.85rem;\">" + message + "</p>"
+    );
+  }
 
   const initialize_ado = {
     type: jsPsychCallFunction,
@@ -253,7 +261,7 @@ function createDelayDiscountingTimeline(jsPsych, adaptive_controller, config, ru
           ado_trial_index: result.trial_index,
           ado_mode: run_context.ado_mode,
         });
-      });
+      }).catch(error => failExperiment(error, done));
     }
   };
 
@@ -338,7 +346,7 @@ function createDelayDiscountingTimeline(jsPsych, adaptive_controller, config, ru
             ado_post_sd: result.post_sd,
             ado_api_latency_ms: result.api_latency_ms,
           });
-        });
+        }).catch(error => failExperiment(error, done));
       }
     });
   }

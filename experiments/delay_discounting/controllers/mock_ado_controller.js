@@ -37,7 +37,7 @@ function makeMockPosterior(trial_index) {
 
 /**
  * Create a local controller that satisfies the ADO controller contract without
- * calling Python. It is for timeline development and manual browser smoke tests.
+ * loading WASM. It is for timeline development and manual browser smoke tests.
  *
  * @param {Object} config - Delay-discounting config with grid_design.
  * @returns {Object} Controller with async start(context) and update(trial_data).
