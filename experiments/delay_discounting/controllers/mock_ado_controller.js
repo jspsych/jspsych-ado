@@ -16,47 +16,6 @@ function makeMockDesign(config, trial_index) {
   };
 }
 
-function nowMs() {
-  if (typeof performance !== "undefined" && performance.now) {
-    return performance.now();
-  }
-  return Date.now();
-}
-
-function makeMockMaxMutualInfo(design, trial_index) {
-  const reward_gap = Math.max(0, design.r_ll - design.r_ss) / design.r_ll;
-  const delay_weight = Math.log1p(design.t_ll) / Math.log1p(520);
-  const trial_weight = 1 / (1 + trial_index * 0.02);
-  return 0.01 + 0.04 * reward_gap * delay_weight * trial_weight;
-}
-
-function estimateMockSelectionTime(config, trial_index) {
-  let samples = 64;
-  while (samples <= 16384) {
-    const started_at = nowMs();
-    for (let i = 0; i < samples; i++) {
-      makeMockDesign(config, trial_index);
-    }
-    const elapsed_ms = nowMs() - started_at;
-    if (elapsed_ms > 0) {
-      return elapsed_ms / samples;
-    }
-    samples *= 2;
-  }
-  return 0;
-}
-
-function selectMockDesign(config, trial_index) {
-  const started_at = nowMs();
-  const next_design = makeMockDesign(config, trial_index);
-  const elapsed_ms = nowMs() - started_at;
-  return {
-    next_design,
-    selection_time_ms: elapsed_ms || estimateMockSelectionTime(config, trial_index),
-    max_mutual_info: makeMockMaxMutualInfo(next_design, trial_index),
-  };
-}
-
 /**
  * Return deterministic posterior-like summaries for mock runs.
  *
@@ -97,15 +56,12 @@ function createMockAdoController(config) {
     start: async function(context) {
       session_id = context.session_id || "mock-session";
       trial_index = 0;
-      const selection = selectMockDesign(config, trial_index);
       return {
         session_id,
         trial_index,
-        next_design: selection.next_design,
+        next_design: makeMockDesign(config, trial_index),
         post_mean: null,
         post_sd: null,
-        selection_time_ms: selection.selection_time_ms,
-        max_mutual_info: selection.max_mutual_info,
         api_latency_ms: null,
       };
     },
@@ -119,15 +75,12 @@ function createMockAdoController(config) {
     update: async function(trial_data) {
       trial_index = trial_data.ado_trial_index + 1;
       const posterior = makeMockPosterior(trial_index);
-      const selection = selectMockDesign(config, trial_index);
       return {
         session_id,
         trial_index,
-        next_design: selection.next_design,
+        next_design: makeMockDesign(config, trial_index),
         post_mean: posterior.post_mean,
         post_sd: posterior.post_sd,
-        selection_time_ms: selection.selection_time_ms,
-        max_mutual_info: selection.max_mutual_info,
         api_latency_ms: null,
       };
     }

@@ -1,5 +1,3 @@
-from time import perf_counter_ns
-
 import numpy as np
 
 # ADOpy 0.4.1 still references NumPy aliases removed in modern NumPy.
@@ -61,18 +59,7 @@ class DelayDiscountingSession:
         )
         self.session_id = None
         self.trial_index = 0
-        self.next_design = None
-        self.selection_time_ms = None
-        self.max_mutual_info = None
-        self.select_next_design()
-
-    def select_next_design(self):
-        started_at = perf_counter_ns()
-        mutual_info = self.engine.mutual_info
-        idx_design = int(np.argmax(mutual_info))
-        self.next_design = clean_design(self.engine.grid_design.iloc[idx_design].to_dict())
-        self.selection_time_ms = (perf_counter_ns() - started_at) / 1_000_000
-        self.max_mutual_info = float(mutual_info[idx_design])
+        self.next_design = clean_design(self.engine.get_design("optimal"))
 
     def summary(self):
         return {
@@ -81,12 +68,10 @@ class DelayDiscountingSession:
             "next_design": self.next_design,
             "post_mean": to_float_dict(self.engine.post_mean.to_dict()),
             "post_sd": to_float_dict(self.engine.post_sd.to_dict()),
-            "selection_time_ms": self.selection_time_ms,
-            "max_mutual_info": self.max_mutual_info,
         }
 
     def update(self, design, response):
         self.engine.update(clean_design(design), {"choice": int(response["choice"])})
         self.trial_index += 1
-        self.select_next_design()
+        self.next_design = clean_design(self.engine.get_design("optimal"))
         return self.summary()

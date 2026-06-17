@@ -36,8 +36,7 @@ experiments/delay_discounting/index.html?ado=api&api=http://127.0.0.1:8000&debug
 ```
 
 The trace shows the design just presented, the response, posterior mean/sd,
-selection time, max mutual information, the next selected design, mode, and API
-latency when using the Python service.
+the next selected design, mode, and API latency when using the Python service.
 In DevTools, each summary also has a collapsed details group with tables.
 
 ## Run simulated participants

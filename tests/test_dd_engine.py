@@ -43,19 +43,12 @@ def run_session(choices):
     return session, results
 
 
-def assert_selection_metrics(result):
-    assert is_finite_number(result["selection_time_ms"])
-    assert result["selection_time_ms"] >= 0
-    assert is_finite_number(result["max_mutual_info"])
-
-
 def test_initial_design_has_finite_fields_and_immediate_ss():
     session = DelayDiscountingSession()
     design = session.next_design
 
     assert set(design) == DESIGN_FIELDS
     assert all(is_finite_number(v) for v in design.values())
-    assert_selection_metrics(session.summary())
     # Smaller-sooner is always offered immediately in the default paradigm.
     assert design["t_ss"] == 0
 
@@ -92,7 +85,6 @@ def test_posterior_values_stay_finite_after_update():
         assert set(result["post_sd"]) == PARAM_FIELDS
         assert all(is_finite_number(v) for v in result["post_mean"].values())
         assert all(is_finite_number(v) for v in result["post_sd"].values())
-        assert_selection_metrics(result)
 
 
 def test_trial_index_tracks_the_number_of_updates():
@@ -102,7 +94,7 @@ def test_trial_index_tracks_the_number_of_updates():
     for expected_index in range(1, 6):
         result = session.update(session.next_design, {"choice": 1})
         assert result["trial_index"] == expected_index
-        assert_selection_metrics(result)
+
 
 def test_posterior_uncertainty_narrows_over_consistent_trials():
     # A participant who responds consistently should make the engine more
@@ -169,4 +161,3 @@ def test_custom_param_grid_is_respected():
 
     result = session.update(session.next_design, {"choice": 1})
     assert is_finite_number(result["post_mean"]["tau"])
-    assert_selection_metrics(result)

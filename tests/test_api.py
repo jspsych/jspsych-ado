@@ -30,12 +30,6 @@ def create_session(client, config=None):
     return response.json()
 
 
-def assert_selection_metrics(body):
-    assert is_finite_number(body["selection_time_ms"])
-    assert body["selection_time_ms"] >= 0
-    assert is_finite_number(body["max_mutual_info"])
-
-
 def update_session(client, session_id, design, choice):
     return client.post(
         f"/ado/sessions/{session_id}/update",
@@ -58,7 +52,6 @@ def test_create_session_returns_valid_initial_state():
     assert body["trial_index"] == 0
     assert set(body["next_design"]) == DESIGN_FIELDS
     assert all(is_finite_number(v) for v in body["next_design"].values())
-    assert_selection_metrics(body)
 
 
 def test_update_with_larger_later_choice_advances_trial():
@@ -73,7 +66,6 @@ def test_update_with_larger_later_choice_advances_trial():
     assert set(result["next_design"]) == DESIGN_FIELDS
     assert set(result["post_mean"]) == PARAM_FIELDS
     assert set(result["post_sd"]) == PARAM_FIELDS
-    assert_selection_metrics(result)
 
 
 def test_update_with_smaller_sooner_choice_advances_trial():
@@ -98,7 +90,6 @@ def test_five_consecutive_updates_in_one_session():
         assert result["trial_index"] == expected_index
         assert set(result["next_design"]) == DESIGN_FIELDS
         assert all(is_finite_number(v) for v in result["post_mean"].values())
-        assert_selection_metrics(result)
         design = result["next_design"]
 
 
@@ -110,6 +101,7 @@ def test_update_with_unknown_session_id_returns_404():
               "response": {"choice": 1}},
     )
     assert response.status_code == 404
+
 
 def test_update_with_missing_response_returns_400():
     client = make_client()
@@ -150,5 +142,3 @@ def test_two_sessions_keep_independent_state():
         patient_design = r_pat["next_design"]
 
     assert r_imp["post_mean"]["k"] > r_pat["post_mean"]["k"]
-    assert_selection_metrics(r_imp)
-    assert_selection_metrics(r_pat)
