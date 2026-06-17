@@ -16,7 +16,7 @@ function formatReward(reward) {
 }
 
 function makeChoiceStimulus(design) {
-  return `<p style="font-size: 1.3rem; margin: 0 0 0.25rem;">Which would you prefer?</p>`;
+  return `<p style="font-size: 1.3rem; margin: 0 0 1.75rem;">Which would you prefer?</p>`;
 }
 
 function makeOptionCardHtml(design, index) {
@@ -179,6 +179,7 @@ function createDelayDiscountingTimeline(jsPsych, adaptive_controller, config, ru
       },
       margin_vertical: "0px",
       margin_horizontal: "12px",
+      prompt: "<p style=\"margin-top: 1.25rem; font-size: 0.82rem; color: #9ca3af;\">Press <strong>S</strong> for Smaller-sooner &nbsp;·&nbsp; Press <strong>L</strong> for Larger-later</p>",
       data: function() {
         return {
           task: "delay_discounting",
