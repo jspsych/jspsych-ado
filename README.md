@@ -24,9 +24,9 @@ work.
 ## Debug trace logs
 
 `debug=1` prints a readable console summary after each adaptive update — the design
-presented, the response, posterior mean/sd for `k`/`tau`, the next selected design,
-and the local sampling time. In DevTools each summary also has a collapsed details
-group with tables.
+presented, the response, posterior mean/sd for `k`/`tau`, selection time, max mutual
+information, the next selected design, and the local sampling time. In DevTools each
+summary also has a collapsed details group with tables.
 
 ## Run simulated participants
 

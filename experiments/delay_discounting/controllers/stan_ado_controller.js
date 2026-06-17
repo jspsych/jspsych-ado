@@ -110,6 +110,16 @@ function createStanAdoController({
     return typeof performance !== "undefined" ? performance.now() : Date.now();
   }
 
+  function selectDesignWithMetrics(draws) {
+    const started_at = now();
+    const { design, mutual_info } = selectOptimalDesign(designs, draws, model.choiceProbLL);
+    return {
+      design,
+      selection_time_ms: now() - started_at,
+      max_mutual_info: mutual_info,
+    };
+  }
+
   /**
    * Sample the posterior given the accumulated trials and return draws as an
    * array of per-draw parameter objects (the shape the MI engine expects).
@@ -150,14 +160,16 @@ function createStanAdoController({
       trials.length = 0;
 
       const prior = samplePriorDraws(model.prior, PRIOR_DRAWS, rng);
-      const { design } = selectOptimalDesign(designs, prior, model.choiceProbLL);
+      const selection = selectDesignWithMetrics(prior);
 
       return {
         session_id,
         trial_index: trials.length,
-        next_design: design,
+        next_design: selection.design,
         post_mean: null,
         post_sd: null,
+        selection_time_ms: selection.selection_time_ms,
+        max_mutual_info: selection.max_mutual_info,
         api_latency_ms: null,
       };
     },
@@ -179,19 +191,25 @@ function createStanAdoController({
 
       // The design produced after the final choice is never shown, so skip the
       // ~1M-evaluation MI scan on the last update.
-      let next_design = null;
+      let selection = {
+        design: null,
+        selection_time_ms: null,
+        max_mutual_info: null,
+      };
       if (!n_trials || trials.length < n_trials) {
-        next_design = selectOptimalDesign(designs, draws, model.choiceProbLL).design;
+        selection = selectDesignWithMetrics(draws);
       }
 
       return {
         session_id,
         trial_index: trials.length,
-        next_design,
+        next_design: selection.design,
         post_mean,
         post_sd,
+        selection_time_ms: selection.selection_time_ms,
+        max_mutual_info: selection.max_mutual_info,
         // Reuse the latency field to report local sampling+MI time (ms).
-        api_latency_ms: Math.round(now() - started_at),
+        api_latency_ms: now() - started_at,
       };
     },
   };

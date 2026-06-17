@@ -19,6 +19,8 @@
  * @property {DelayDiscountingDesign} next_design - Design to show on the next choice trial.
  * @property {?DelayDiscountingPosteriorSummary} post_mean - Posterior means after the latest update.
  * @property {?DelayDiscountingPosteriorSummary} post_sd - Posterior SDs after the latest update.
+ * @property {?number} selection_time_ms - Time spent selecting next_design.
+ * @property {?number} max_mutual_info - Mutual information value for next_design.
  * @property {?number} api_latency_ms - API round-trip time when available.
  */
 
@@ -105,11 +107,29 @@ function formatDebugNumber(value, digits = 4) {
   return Number(value).toPrecision(digits);
 }
 
+function formatCompactDecimal(value, digits = 3) {
+  return Number(value.toFixed(digits)).toString();
+}
+
 function formatDebugLatency(value) {
-  if (value === null || value === undefined) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return "not measured";
   }
-  return `${value} ms`;
+  const number = Number(value);
+  if (number === 0) {
+    return "0 us";
+  }
+  if (Math.abs(number) >= 1) {
+    return `${formatCompactDecimal(number)} ms`;
+  }
+
+  const microseconds = number * 1000;
+  if (Math.abs(microseconds) >= 1) {
+    return `${formatCompactDecimal(microseconds)} us`;
+  }
+
+  const nanoseconds = microseconds * 1000;
+  return `${formatCompactDecimal(nanoseconds)} ns`;
 }
 
 function formatDebugOffer(label, reward, delay) {
@@ -139,6 +159,8 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
     const next_design = ado_result.next_design;
     const post_mean = ado_result.post_mean || {};
     const post_sd = ado_result.post_sd || {};
+    const presented_selection_time = trial_data.ado_selection_time_ms;
+    const presented_max_mutual_info = trial_data.ado_max_mutual_info;
     const total_trials = config && config.n_trials ? config.n_trials : "?";
     const label = `ADO update ${trial_data.trial_number}/${total_trials} | ${run_context.ado_mode} | response: ${trial_data.choice_label}`;
     const summary = [
@@ -147,6 +169,8 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
       "Presented:",
       `  ${formatDebugOffer("SS", trial_data.r_ss, trial_data.t_ss)}`,
       `  ${formatDebugOffer("LL", trial_data.r_ll, trial_data.t_ll)}`,
+      `  selection time: ${formatDebugLatency(presented_selection_time)}`,
+      `  max mutual information: ${formatDebugNumber(presented_max_mutual_info, 6)}`,
       "",
       "Posterior after response:",
       ...Object.keys(post_mean).map(param =>
@@ -159,6 +183,8 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
             "Next ADO design:",
             `  ${formatDebugOffer("SS", next_design.r_ss, next_design.t_ss)}`,
             `  ${formatDebugOffer("LL", next_design.r_ll, next_design.t_ll)}`,
+            `  selection time: ${formatDebugLatency(ado_result.selection_time_ms)}`,
+            `  max mutual information: ${formatDebugNumber(ado_result.max_mutual_info, 6)}`,
           ].join("\n")
         : "Next ADO design: (final trial; none)",
     ].join("\n");
@@ -168,13 +194,37 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
     if (console.groupCollapsed && console.table && console.groupEnd) {
       console.groupCollapsed(`${label} details`);
       const offer_rows = [
-        { option: "Presented SS", reward: trial_data.r_ss, delay: trial_data.t_ss },
-        { option: "Presented LL", reward: trial_data.r_ll, delay: trial_data.t_ll },
+        {
+          option: "Presented SS",
+          reward: trial_data.r_ss,
+          delay: trial_data.t_ss,
+          selection_time_ms: presented_selection_time,
+          max_mutual_info: presented_max_mutual_info,
+        },
+        {
+          option: "Presented LL",
+          reward: trial_data.r_ll,
+          delay: trial_data.t_ll,
+          selection_time_ms: presented_selection_time,
+          max_mutual_info: presented_max_mutual_info,
+        },
       ];
       if (next_design) {
         offer_rows.push(
-          { option: "Next SS", reward: next_design.r_ss, delay: next_design.t_ss },
-          { option: "Next LL", reward: next_design.r_ll, delay: next_design.t_ll },
+          {
+            option: "Next SS",
+            reward: next_design.r_ss,
+            delay: next_design.t_ss,
+            selection_time_ms: ado_result.selection_time_ms,
+            max_mutual_info: ado_result.max_mutual_info,
+          },
+          {
+            option: "Next LL",
+            reward: next_design.r_ll,
+            delay: next_design.t_ll,
+            selection_time_ms: ado_result.selection_time_ms,
+            max_mutual_info: ado_result.max_mutual_info,
+          },
         );
       }
       console.table(offer_rows);
@@ -296,6 +346,8 @@ function createDelayDiscountingTimeline(jsPsych, adaptive_controller, config, ru
           t_ll: current_design.t_ll,
           r_ss: current_design.r_ss,
           r_ll: current_design.r_ll,
+          ado_selection_time_ms: ado_state.selection_time_ms,
+          ado_max_mutual_info: ado_state.max_mutual_info,
         };
       },
       on_load: function() {
@@ -344,6 +396,8 @@ function createDelayDiscountingTimeline(jsPsych, adaptive_controller, config, ru
             ado_next_design: result.next_design,
             ado_post_mean: result.post_mean,
             ado_post_sd: result.post_sd,
+            ado_selection_time_ms: result.selection_time_ms,
+            ado_max_mutual_info: result.max_mutual_info,
             ado_api_latency_ms: result.api_latency_ms,
           });
         }).catch(error => failExperiment(error, done));
