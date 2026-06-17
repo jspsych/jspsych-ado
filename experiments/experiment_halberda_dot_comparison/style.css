@@ -1,0 +1,12 @@
+body {
+      background: #f7f7f7;
+      font-family: Arial, sans-serif;
+      color: #222;
+    }
+    .jspsych-display-element {
+      font-size: 22px;
+    }
+    canvas {
+      background: #ffffff;
+      border: 1px solid #ddd;
+    }
