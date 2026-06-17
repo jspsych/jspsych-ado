@@ -117,8 +117,8 @@ export default {
   id: "exponential",
   params: ["r", "tau"],                          // parameters to summarize
   prior: {                                        // MUST match <name>.stan priors
-    r:   { dist: "lognormal", mu: -2, sigma: 1 },
-    tau: { dist: "halfnormal", sigma: 3 },
+    r:   { dist: "lognormal", meanlog: -2, sdlog: 1 },
+    tau: { dist: "halfnormal", sd: 3 },
   },
   moduleUrl: new URL("./main.js", import.meta.url).href,
   buildData: (trials) => ({                       // trials: {t_ss,t_ll,r_ss,r_ll,choice}
@@ -173,7 +173,7 @@ const expModel = await compileStanModel({
   id: "exponential",
   stan: expStan,
   params: ["r", "tau"],
-  prior: { r: { dist: "lognormal", mu: -2, sigma: 1 }, tau: { dist: "halfnormal", sigma: 3 } },
+  prior: { r: { dist: "lognormal", meanlog: -2, sdlog: 1 }, tau: { dist: "halfnormal", sd: 3 } },
   buildData: (trials) => ({
     N: trials.length,
     t_ss: trials.map(t => t.t_ss), t_ll: trials.map(t => t.t_ll),

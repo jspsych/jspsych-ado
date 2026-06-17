@@ -77,12 +77,13 @@ function registerModel(name, spec) {
   const paramNames = spec.params.map((p) => (typeof p === "string" ? p : p.name));
 
   // The engine samples the prior (JS-side) to choose the first design. Prefer an
-  // explicit prior; otherwise derive it from the Stan source.
+  // explicit prior; otherwise derive it from the Stan source. stanUrl entries
+  // defer derivation until prepareModels() has fetched the source.
   const prior = spec.prior ?? (spec.stanCode ? parseStanPriors(spec.stanCode, spec.params) : null);
-  if (!prior) {
+  if (!prior && spec.moduleUrl) {
     throw new Error(
-      `registerModel("${name}"): no prior available. Pass an explicit \`prior\`, or register ` +
-      `with \`stanCode\` so the prior can be derived from the Stan source.`
+      `registerModel("${name}"): no prior available. Pass an explicit \`prior\` when ` +
+      `registering with \`moduleUrl\`, because no Stan source is available to parse.`
     );
   }
 
@@ -127,6 +128,10 @@ async function prepareModels({ compileServer, authToken = DEFAULT_TOKEN } = {}) 
         throw new Error(`prepareModels: could not fetch stanUrl for "${entry.name}" (${res.status}).`);
       }
       stanCode = await res.text();
+    }
+
+    if (!entry.prior) {
+      entry.prior = parseStanPriors(stanCode, spec.params);
     }
 
     let moduleUrl = _compileCache.get(stanCode);
@@ -307,19 +312,19 @@ function parseStanPriors(stanCode, paramSpecs) {
     }
 
     if (dist === "lognormal") {
-      prior[name] = { dist: "lognormal", mu: args[0], sigma: args[1] };
+      prior[name] = { dist: "lognormal", meanlog: args[0], sdlog: args[1] };
     } else if (dist === "normal") {
       if (declaredPositive) {
         if (Math.abs(args[0]) > 1e-9) {
           throw new Error(
             `registerModel: "${name}" is lower-bounded at 0 with a non-zero-mean normal prior ` +
             `(a truncated normal), which the prior sampler can't represent. Pass an explicit ` +
-            `\`prior\` (e.g. { dist:"halfnormal", sigma:... }).`
+            `\`prior\` (e.g. { dist:"halfnormal", sd:... }).`
           );
         }
-        prior[name] = { dist: "halfnormal", sigma: args[1] };
+        prior[name] = { dist: "halfnormal", sd: args[1] };
       } else {
-        prior[name] = { dist: "normal", mu: args[0], sigma: args[1] };
+        prior[name] = { dist: "normal", mean: args[0], sd: args[1] };
       }
     } else {
       throw new Error(
@@ -334,5 +339,5 @@ function parseStanPriors(stanCode, paramSpecs) {
 
 const jsPsychADO = { registerModel, prepareModels, createTimeline };
 
-export { jsPsychADO, registerModel, prepareModels, createTimeline };
+export { jsPsychADO, registerModel, prepareModels, createTimeline, parseStanPriors, labelsToConfig };
 export default jsPsychADO;
