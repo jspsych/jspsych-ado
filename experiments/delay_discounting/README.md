@@ -3,24 +3,39 @@
 An ADOpy-style delay discounting experiment whose adaptive inference runs entirely
 in the browser with a Stan model compiled to WebAssembly.
 
-The timeline is separated from the adaptive backend by a small controller contract
-(`start(context)` / `update(trial_data)`):
+This experiment is a thin consumer of the general [`jspsych-ado/`](../../jspsych-ado)
+package. `index.html` registers a delay-discounting task, registers the hyperbolic
+model, and uses the shared experiment shell to build the adaptive timeline:
 
-- `delay_discounting_timeline.js` displays trials and records data.
-- `controllers/stan_ado_controller.js` — the live path: Stan (WASM, in a Web Worker)
-  infers the posterior over `k`/`tau`; the generic engine picks the next design by
-  mutual information.
-- `controllers/mock_ado_controller.js` — deterministic stand-in so the timeline can
-  run without loading WASM.
+```js
+import {
+  createExperimentAdoTimeline,
+  registerAdoExperiment,
+} from "./jspsych-ado/ado/experiment_shell.js";
+import hyperbolicModel from "./jspsych-ado/models/hyperbolic/model.js";
+import delayDiscountingTask from "./jspsych-ado/tasks/delay_discounting/task.js";
 
-Layout:
+registerAdoExperiment({ task: delayDiscountingTask, model: hyperbolicModel, config });
 
-- `ado/mi_engine.js` — model-agnostic mutual-information design optimization + prior draws.
-- `ado/stan_worker.js` — generic Web Worker that runs NUTS off the main thread.
-- `models/<name>/` — self-contained model packages (`.stan` + compiled `main.js`/`main.wasm`
-  + `model.js` adapter). See [models/README.md](models/README.md).
-- `dd_config.js` — `grid_design`, the `stan` sampler settings, and simulation config.
-- `dd_simulation.js` — simulated participant (shares the model adapter's likelihood).
+const timeline = createExperimentAdoTimeline(jsPsych, {
+  QuestPlus,
+  task: delayDiscountingTask,
+  model: hyperbolicModel,
+  config,
+  run_context,
+});
+```
+
+What lives where:
+
+- **All adaptive machinery is in `jspsych-ado/`** — the MI engine, the in-browser
+  Stan controller + Web Worker, the generic timeline, and the facade.
+- **The delay-discounting task package** owns the design grid, SS/LL option cards,
+  S/L keymap, response labels, and task id.
+- **The hyperbolic model package** owns the likelihood (`responseProb`/`.stan`),
+  priors, posterior display metadata, and Stan data builder.
+- **This folder** holds the page and run settings: sampler config, Quest+
+  parameter samples, trial count, testlet size, and simulation config.
 
 Response coding:
 

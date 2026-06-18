@@ -2,14 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  asResponseProbs,
   binaryEntropy,
+  categoricalEntropy,
   mutualInfo,
   enumerateDesigns,
   selectOptimalDesign,
+  selectOptimalDesigns,
   summarizeDraws,
   samplePriorDraws,
-} from "../../experiments/delay_discounting/ado/mi_engine.js";
-import { createSeededRng } from "../../experiments/delay_discounting/dd_simulation.js";
+  validateResponseProbs,
+} from "../../jspsych-ado/ado/mi_engine.js";
+import { createSeededRng } from "../../jspsych-ado/ado/ado_simulation.js";
 
 const LN2 = Math.log(2);
 
@@ -21,8 +25,21 @@ test("binaryEntropy is 0 at the endpoints and ln2 at 0.5", () => {
   assert.ok(Math.abs(binaryEntropy(0.5) - LN2) < 1e-12);
 });
 
+test("categoricalEntropy is 0 for deterministic responses and ln3 for uniform 3-way responses", () => {
+  assert.equal(categoricalEntropy([1, 0, 0]), 0);
+  assert.ok(Math.abs(categoricalEntropy([1 / 3, 1 / 3, 1 / 3]) - Math.log(3)) < 1e-12);
+});
+
+test("response probability helpers wrap binary scalars and reject malformed vectors", () => {
+  assert.deepEqual(asResponseProbs(0.75), [0.25, 0.75]);
+  assert.deepEqual(validateResponseProbs([0.5, 0.25, 0.25]), [0.5, 0.25, 0.25]);
+  assert.throws(() => validateResponseProbs([2, 1, 1]), /sum to 1/);
+  assert.throws(() => validateResponseProbs([0, Number.NaN]), /finite and nonnegative/);
+  assert.throws(() => validateResponseProbs([0.5, -0.1, 0.6]), /finite and nonnegative/);
+});
+
 test("mutualInfo is ~0 when every draw answers a design the same way", () => {
-  // choiceProbLL ignores the draw and returns a near-deterministic response.
+  // responseProb ignores the draw and returns a near-deterministic response.
   const draws = [{ x: 1 }, { x: 2 }, { x: 3 }];
   const mi = mutualInfo({}, draws, () => 0.999);
   assert.ok(mi < 1e-3, `expected ~0 MI, got ${mi}`);
@@ -31,9 +48,20 @@ test("mutualInfo is ~0 when every draw answers a design the same way", () => {
 test("mutualInfo is maximal (ln2) when draws split a design 50/50 deterministically", () => {
   // Half the draws say p=1, half say p=0 -> marginal 0.5, conditional entropy 0.
   const draws = [{ s: 0 }, { s: 1 }, { s: 0 }, { s: 1 }];
-  const choiceProbLL = (_design, draw) => (draw.s === 1 ? 1 : 0);
-  const mi = mutualInfo({}, draws, choiceProbLL);
+  const responseProb = (_design, draw) => (draw.s === 1 ? 1 : 0);
+  const mi = mutualInfo({}, draws, responseProb);
   assert.ok(Math.abs(mi - LN2) < 1e-9, `expected ln2, got ${mi}`);
+});
+
+test("mutualInfo supports 3-category deterministic response splits", () => {
+  const draws = [{ s: 0 }, { s: 1 }, { s: 2 }];
+  const responseProbs = (_design, draw) => {
+    const probs = [0, 0, 0];
+    probs[draw.s] = 1;
+    return probs;
+  };
+  const mi = mutualInfo({}, draws, responseProbs);
+  assert.ok(Math.abs(mi - Math.log(3)) < 1e-9, `expected ln3, got ${mi}`);
 });
 
 test("enumerateDesigns produces the full cartesian product", () => {
@@ -47,15 +75,80 @@ test("enumerateDesigns produces the full cartesian product", () => {
   }
 });
 
+test("enumerateDesigns passes a curated array of designs through unchanged", () => {
+  // The array escape hatch lets a model supply hand-picked designs (e.g. dots
+  // numerosity pairs) that are not a clean grid; the engine returns them as-is.
+  const curated = [{ n1: 10, n2: 12 }, { n1: 10, n2: 20 }];
+  const designs = enumerateDesigns(curated);
+  assert.equal(designs, curated);
+  assert.deepEqual(designs, [{ n1: 10, n2: 12 }, { n1: 10, n2: 20 }]);
+});
+
 test("selectOptimalDesign returns a valid grid member and prefers the discriminating design", () => {
   const designs = enumerateDesigns({ d: [0, 1] });
   // Design d=0 is uninformative (all draws -> p=0.99); d=1 splits the draws.
   const draws = [{ s: 0 }, { s: 1 }, { s: 0 }, { s: 1 }];
-  const choiceProbLL = (design, draw) => (design.d === 0 ? 0.99 : draw.s === 1 ? 1 : 0);
-  const { design, mutual_info } = selectOptimalDesign(designs, draws, choiceProbLL);
+  const responseProb = (design, draw) => (design.d === 0 ? 0.99 : draw.s === 1 ? 1 : 0);
+  const { design, mutual_info } = selectOptimalDesign(designs, draws, responseProb);
   assert.deepEqual(design, { d: 1 });
   assert.ok(mutual_info > 0);
   assert.ok(designs.includes(design));
+});
+
+test("selectOptimalDesigns with count 1 matches selectOptimalDesign", () => {
+  const designs = enumerateDesigns({ d: [0, 1] });
+  const draws = [{ s: 0 }, { s: 1 }, { s: 0 }, { s: 1 }];
+  const responseProb = (design, draw) => (design.d === 0 ? 0.99 : draw.s === 1 ? 1 : 0);
+  const single = selectOptimalDesign(designs, draws, responseProb);
+  const [batch_one] = selectOptimalDesigns(designs, draws, responseProb, 1);
+  assert.deepEqual(batch_one.design, single.design);
+  assert.equal(batch_one.mutual_info, single.mutual_info);
+});
+
+test("selectOptimalDesigns returns distinct designs and avoids a redundant second pick", () => {
+  const draws = [
+    { a: 0, b: 0 },
+    { a: 0, b: 1 },
+    { a: 1, b: 0 },
+    { a: 1, b: 1 },
+  ];
+  const designs = enumerateDesigns({ d: [0, 1, 2, 3] });
+  const responseProb = (design, draw) => {
+    if (design.d === 0 || design.d === 1) return draw.a;
+    if (design.d === 2) return draw.b;
+    return 0.99;
+  };
+  const picks = selectOptimalDesigns(designs, draws, responseProb, 2, { rng: createSeededRng(3) });
+  assert.deepEqual(picks.map((p) => p.design.d), [0, 2]);
+});
+
+test("selectOptimalDesigns supports categorical fantasy updates", () => {
+  const draws = [
+    { a: 0, b: 0 },
+    { a: 0, b: 1 },
+    { a: 1, b: 0 },
+    { a: 1, b: 1 },
+  ];
+  const designs = enumerateDesigns({ d: [0, 1, 2] });
+  const responseProbs = (design, draw) => {
+    if (design.d === 0) return draw.a === 0 ? [1, 0, 0] : [0, 1, 0];
+    if (design.d === 1) return draw.a === 0 ? [1, 0, 0] : [0, 1, 0];
+    return draw.b === 0 ? [1, 0, 0] : [0, 0, 1];
+  };
+  const picks = selectOptimalDesigns(designs, draws, responseProbs, 2, { rng: createSeededRng(4) });
+  assert.deepEqual(picks.map((p) => p.design.d), [0, 2]);
+});
+
+test("selectOptimalDesigns requires an rng when count > 1 and caps at the grid size", () => {
+  const designs = enumerateDesigns({ d: [0, 1] });
+  const draws = [{ s: 0 }, { s: 1 }];
+  const responseProb = (_design, draw) => (draw.s === 1 ? 1 : 0);
+
+  assert.throws(() => selectOptimalDesigns(designs, draws, responseProb, 2), /rng is required/);
+
+  const picks = selectOptimalDesigns(designs, draws, responseProb, 5, { rng: createSeededRng(9) });
+  assert.equal(picks.length, 2);
+  assert.equal(new Set(picks.map((p) => p.design.d)).size, 2);
 });
 
 test("summarizeDraws computes correct mean and sample SD", () => {
