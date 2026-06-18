@@ -84,7 +84,7 @@
         import QuestPlus from "./core/jsquest-plus/jsQuestPlus.module.js";
         import hyperbolicModel from "./jspsych-ado/models/hyperbolic/model.js";
         import delayDiscountingTask from "./jspsych-ado/tasks/delay_discounting/task.js";
-        import { makeDebriefStimulus } from "./jspsych-ado/ado/ado_timeline.js";
+        import { makeDebriefStimulus, removeAdoDebugPanels } from "./jspsych-ado/ado/ado_timeline.js";
         import { createSeededRng, simulateDelayDiscountingChoice } from "./jspsych-ado/ado/ado_simulation.js";
         import {
             addAdoDataProperties,
@@ -152,8 +152,7 @@
             type: jsPsychHtmlButtonResponse,
             stimulus: plain_finish_stimulus,
             on_start: function(trial) {
-                var bar = document.getElementById("ado-live-posterior-chart");
-                if (bar) { bar.remove(); }
+                removeAdoDebugPanels();
                 trial.stimulus = run_context.debug
                     ? makeDebriefStimulus(run_context.param_history || {}, run_context.posterior_display)
                     : plain_finish_stimulus;

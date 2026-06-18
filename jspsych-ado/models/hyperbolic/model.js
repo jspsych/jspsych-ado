@@ -110,7 +110,7 @@ const hyperbolicModel = {
     tau: { dist: "lognormal", meanlog: 0, sdlog: 1 },
   },
   posterior_display: {
-    k: { label: "k", y_min: 0, y_max: 700, lower_bound: 0 },
+    k: { label: "k", y_min: 0, y_max: 700, lower_bound: 0, histogram_scale: "log10", histogram_label: "log10(k)" },
     tau: { label: "τ", y_min: 0, y_max: 7, lower_bound: 0 },
   },
   // Absolute URL of the compiled emscripten module, resolved next to this file so

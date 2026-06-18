@@ -1,3 +1,6 @@
+import { updateInfoGainDebugPanel, removeInfoGainDebugPanel } from "./debug_trace_charts.js";
+import { formatPosteriorDrawCharts } from "./posterior_debug_charts.js";
+
 // Generic adaptive-design-optimization (ADO) jsPsych timeline.
 //
 // This module is MODEL- AND STIMULUS-AGNOSTIC. It knows nothing about delay
@@ -116,6 +119,10 @@ function formatDebugLatency(value) {
   return `${Math.round(number)} ms`;
 }
 
+function hasFiniteDebugValue(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 /**
  * Describe a design for the debug log. Models may supply a task-specific
  * presentation.describeDesign(design) -> string[]; otherwise fall back to
@@ -169,6 +176,7 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
       "Presented:",
       ...describeDesign(trial_data.ado_design, config).map(line => "  " + line),
       "  mutual_info: " + formatDebugNumber(trial_data.ado_mutual_info),
+      "  realized_information_gain: " + formatDebugNumber(ado_result.realized_information_gain),
       "",
       "Posterior after response:",
       ...Object.keys(post_mean).map(param =>
@@ -200,6 +208,14 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
         mean: post_mean[param],
         sd: post_sd[param],
       })));
+      const histograms = formatPosteriorDrawCharts(
+        ado_result.posterior_draws,
+        Object.keys(post_mean),
+        run_context.posterior_display
+      );
+      if (histograms) {
+        console.log(histograms);
+      }
       console.groupEnd();
     }
   } catch (error) {
@@ -500,6 +516,59 @@ function appendPosteriorHistory(run_context, ado_result) {
       sd: ado_result.post_sd ? (ado_result.post_sd[param] || 0) : 0,
     });
   }
+}
+
+function sumFiniteDebugValues(values) {
+  let total = 0;
+  let count = 0;
+  for (const value of values) {
+    if (hasFiniteDebugValue(value)) {
+      total += value;
+      count += 1;
+    }
+  }
+  return count ? total : null;
+}
+
+function appendInformationGainHistory(run_context, rows, ado_result) {
+  if (!run_context.debug) {
+    return;
+  }
+  if (!run_context.information_gain_history) {
+    run_context.information_gain_history = {
+      selected_design_mi: [],
+      realized_information_gain: [],
+    };
+  }
+
+  const row_list = Array.isArray(rows) ? rows : [rows];
+  const selected_design_mi = sumFiniteDebugValues(row_list.map(row => row && row.ado_mutual_info));
+  run_context.information_gain_history.selected_design_mi.push(selected_design_mi);
+  run_context.information_gain_history.realized_information_gain.push(
+    hasFiniteDebugValue(ado_result.realized_information_gain)
+      ? ado_result.realized_information_gain
+      : null
+  );
+}
+
+function updateInformationGainPanel(run_context) {
+  if (!run_context.debug || !run_context.information_gain_history) {
+    return;
+  }
+  updateInfoGainDebugPanel(
+    run_context.information_gain_history.selected_design_mi,
+    run_context.information_gain_history.realized_information_gain
+  );
+}
+
+function removeAdoDebugPanels() {
+  const posterior_chart = typeof document !== "undefined"
+    ? document.getElementById("ado-live-posterior-chart")
+    : null;
+  if (posterior_chart) {
+    posterior_chart.remove();
+  }
+  removeInfoGainDebugPanel();
 }
 
 // ---------------------------------------------------------------------------
@@ -850,6 +919,7 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
             current_design_metric = current_design_metrics[0] ?? null;
             logAdoTrial(run_context, batch[batch.length - 1], result, config);
             appendPosteriorHistory(run_context, result);
+            appendInformationGainHistory(run_context, batch, result);
             done({
               ado_event: "update",
               ado_session_id: result.session_id,
@@ -866,11 +936,14 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
               ado_api_latency_ms: result.api_latency_ms,
               ado_selection_time_ms: result.selection_time_ms ?? null,
               ado_max_mutual_info: result.max_mutual_info ?? null,
+              ado_realized_information_gain: result.realized_information_gain ?? null,
+              ado_realized_information_gains: result.realized_information_gains ?? null,
             });
           }).catch(error => failExperiment(error, done));
         },
         on_finish: function() {
           updateLiveCharts(run_context.param_history || {}, ado_state, run_context);
+          updateInformationGainPanel(run_context);
         }
       });
     }
@@ -886,4 +959,5 @@ export {
   canvasResponse,
   makeParamConvergenceSvg,
   makeDebriefStimulus,
+  removeAdoDebugPanels,
 };

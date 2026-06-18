@@ -5,6 +5,7 @@ import {
   asResponseProbs,
   binaryEntropy,
   categoricalEntropy,
+  realizedInformationGain,
   mutualInfo,
   enumerateDesigns,
   selectOptimalDesign,
@@ -62,6 +63,34 @@ test("mutualInfo supports 3-category deterministic response splits", () => {
   };
   const mi = mutualInfo({}, draws, responseProbs);
   assert.ok(Math.abs(mi - Math.log(3)) < 1e-9, `expected ln3, got ${mi}`);
+});
+
+test("realizedInformationGain expectation matches binary mutual information", () => {
+  const draws = [{ p: 0.2 }, { p: 0.8 }];
+  const responseProb = (_design, draw) => draw.p;
+  const mi = mutualInfo({}, draws, responseProb);
+  const p_response_one = 0.5;
+  const expected_gain =
+    (1 - p_response_one) * realizedInformationGain({}, draws, 0, responseProb) +
+    p_response_one * realizedInformationGain({}, draws, 1, responseProb);
+  assert.ok(Math.abs(expected_gain - mi) < 1e-12, `expected ${mi}, got ${expected_gain}`);
+});
+
+test("realizedInformationGain supports categorical response probabilities", () => {
+  const draws = [{ s: 0 }, { s: 1 }, { s: 2 }];
+  const responseProbs = (_design, draw) => {
+    const probs = [0, 0, 0];
+    probs[draw.s] = 1;
+    return probs;
+  };
+  const gain = realizedInformationGain({}, draws, 2, responseProbs);
+  assert.ok(Math.abs(gain - Math.log(3)) < 1e-9, `expected ln3, got ${gain}`);
+});
+
+test("realizedInformationGain rejects response indices outside the model response space", () => {
+  const draws = [{ s: 0 }, { s: 1 }];
+  const responseProb = (_design, draw) => (draw.s === 1 ? 1 : 0);
+  assert.throws(() => realizedInformationGain({}, draws, 2, responseProb), /outside the response probability vector length/);
 });
 
 test("enumerateDesigns produces the full cartesian product", () => {
