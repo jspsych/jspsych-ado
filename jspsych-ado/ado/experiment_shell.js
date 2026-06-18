@@ -6,6 +6,11 @@ import { createQuestPlusController } from "../controllers/quest_plus_controller.
 const VALID_CONTROLLERS = ["mock", "stan", "quest_plus"];
 const VALID_STRATEGIES = ["ado", "random"];
 const VALID_SIMULATION_MODES = ["data-only", "visual"];
+const DEFAULT_VISUAL_SIMULATION_RT = {
+  instructions: 700,
+  choice: 1000,
+  end: 600,
+};
 
 function getRunSelection(params, opts = {}) {
   const requested_ado_mode = params.get("ado");
@@ -115,8 +120,19 @@ function mergeSimulationConfig(default_config, override) {
   };
 }
 
-function resolveSimulationConfig(default_config, run_config) {
-  return mergeSimulationConfig(default_config, getSimulationOverride(run_config || {}));
+function getSimulationModeDefaults(simulation_mode) {
+  if (simulation_mode === "visual") {
+    return {
+      rt: DEFAULT_VISUAL_SIMULATION_RT,
+    };
+  }
+  return {};
+}
+
+function resolveSimulationConfig(default_config, run_config, simulation_mode = null) {
+  const mode_config = getSimulationModeDefaults(simulation_mode);
+  const base_config = mergeSimulationConfig(default_config, mode_config);
+  return mergeSimulationConfig(base_config, getSimulationOverride(run_config || {}));
 }
 
 function makeInstructionSimulationData(page_count, simulation_config) {
@@ -254,7 +270,9 @@ function createExperimentAdoTimeline(jsPsych, {
 export {
   addAdoDataProperties,
   createExperimentAdoTimeline,
+  DEFAULT_VISUAL_SIMULATION_RT,
   getExperimentRunSettings,
+  getSimulationModeDefaults,
   getRunSelection,
   makeAdoRunContext,
   makeEndSimulationData,

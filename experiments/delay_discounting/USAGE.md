@@ -30,6 +30,8 @@ URL parameters:
 - `debug=1` — per-trial console summaries, design-selection diagnostics, and
   live posterior trajectory charts.
 - `simulate=data-only` / `simulate=visual` — run a simulated participant.
+  Data-only simulation stays fast for validation and recovery checks; visual
+  simulation uses slower shared timing defaults for watchable demos.
 
 Legacy `ado=stan|mock|ado|random|quest_plus` URLs are still accepted as aliases,
 but new examples should use `controller=` and `strategy=`.

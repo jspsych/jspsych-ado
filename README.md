@@ -51,6 +51,9 @@ experiments/line_length_discrimination/index.html?controller=stan&strategy=ado&d
 - `debug=1` — per-trial console summary, selection diagnostics when available,
   and live posterior-convergence charts.
 - `simulate=data-only` | `simulate=visual` — run a simulated participant.
+  Data-only simulation stays fast for validation; visual simulation uses slower
+  shared timing defaults so the stimulus, response, and debug updates are
+  watchable.
 
 ## Usage
 

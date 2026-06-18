@@ -116,7 +116,11 @@
         const run_config = window.__JSPSYCH_ADO_RUN_CONFIG__ || {};
         const session_id = using_jatos ? jatos.studyResultId : "local-" + Date.now();
         const run_settings = getExperimentRunSettings(url_params);
-        const simulation_config = resolveSimulationConfig(default_line_length_simulation_config, run_config);
+        const simulation_config = resolveSimulationConfig(
+            default_line_length_simulation_config,
+            run_config,
+            run_settings.simulation_mode
+        );
         const simulation_rng = createSeededRng(simulation_config.seed);
 
         const run_context = makeAdoRunContext({
