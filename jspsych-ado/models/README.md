@@ -87,7 +87,7 @@ Or use the web app at https://stan-playground.flatironinstitute.org. If you pref
 a local server, run `docker run -p 8083:8080 ghcr.io/flatironinstitute/stan-wasm-server:latest`
 and point the URLs at `http://localhost:8083`.
 
-The compiled module is web/worker-only (`-sENVIRONMENT=web`); it runs in the
+The compiled module is web/worker-only (`-sENVIRONMENT=web,worker`); it runs in the
 browser and Web Worker, not in plain Node.
 
 > **Committing the artifacts is the production path.** You can also register a model

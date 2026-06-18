@@ -20,27 +20,30 @@
 
 ## Overview
 
-After each trial or a set of trials, a Stan model is compiled to WebAssembly and run in a Web Worker via
-[tinystan](https://github.com/WardBrian/tinystan), which estimates the posterior over your
-model's parameters; the next design is chosen by maximizing **mutual information**
-over a candidate design grid. There is **no server and no Python**: everything runs
-client-side, so an experiment deploys as static assets.
+`jsPsychADO` runs **adaptive** jsPsych experiments: instead of a fixed trial list, it
+picks each trial's stimulus to be the most informative one for estimating your
+participant's parameters — so you learn more from fewer trials.
 
-You bring a **task** (design grid + presentation) and a **model** (Stan likelihood +
-small JS adapter); `jsPsychADO` checks that they are compatible and turns them into
-an adaptive jsPsych timeline. Alternatively, you may use one of our models that we 
-have written, which are ready to be used out of the box.
+Under the hood, after each trial (or block of trials) a Stan model — compiled to
+WebAssembly and run in a Web Worker via [tinystan](https://github.com/WardBrian/tinystan)
+— estimates the posterior over your model's parameters, and the next design is chosen by
+maximizing **mutual information** over a grid of candidate designs. There is **no server
+and no Python**: everything runs client-side, so an experiment deploys as static assets.
+
+You bring a **task** (design grid + presentation) and a **model** (Stan likelihood + a
+small JS adapter); `jsPsychADO` checks that they are compatible and turns them into an
+adaptive jsPsych timeline. Or start from one of the bundled task/model packages, ready
+to run out of the box.
 
 ## Status
 
-🚧 **Early release — published as `jspsych-ado` on npm (v0.1.0).** `npm install jspsych-ado`.
-The in-browser engine, the binary delay-discounting example, the 3IFC categorical
-line-length example, and the Halberda-style dot comparison example work and are
-covered by CI (unit tests + real headless Worker/WASM smokes + a bundler build
-smoke). The committed WASM is bundler-safe and the package builds under Vite and
-webpack 5 (see [Using with a bundler](#using-with-a-bundler)). Still settling and
-pre-1.0: the experiment API around future task/model/controller extensions, so
-expect changes before 1.0.
+🚧 **Early release — published on npm as [`jspsych-ado`](https://www.npmjs.com/package/jspsych-ado)**
+(`npm install jspsych-ado`; current version in the badge above). The in-browser engine
+and three bundled examples — binary delay discounting, 3IFC categorical line-length, and
+Halberda-style dot comparison — work and are covered by CI (unit tests + real headless
+Worker/WASM smokes + a bundler build smoke). The committed WASM is bundler-safe and the
+package builds under Vite and webpack 5 (see [Using with a bundler](#using-with-a-bundler)).
+Still pre-1.0: the task/model/controller extension APIs may change before 1.0.
 
 ## Quick start
 
@@ -50,7 +53,7 @@ open the example:
 ```text
 experiments/delay_discounting/index.html?controller=stan&strategy=ado&debug=1
 experiments/line_length_discrimination/index.html?controller=stan&strategy=ado&debug=1
-experiments/experiment_halberda_dot_comparison/index.html?controller=mock&debug=1
+experiments/halberda_dot_comparison/index.html?controller=stan&strategy=ado&debug=1
 ```
 
 - `controller=stan` (default) — live in-browser Stan inference; `controller=mock` — a
@@ -168,11 +171,11 @@ controller is the entire abstraction; the timeline never sees Stan or WASM.
 - **`jspsych-ado/tasks/<name>/`** — a pluggable task package: design grid,
   presentation, choices, response labels, and response mapping.
 - **`jspsych-ado/models/<name>/`** — a pluggable model package: a `model.js` adapter
-  (`params`, `prior`, `responseProb` or `responseProbs`, `buildData`, …) plus its
+  (`params`, `prior`, `responseProb` or `responseProbs`, `stanData`, …) plus its
   compiled `.stan` artifacts.
 - **`experiments/<name>/`** — thin consumers; current examples are
   `experiments/delay_discounting/`, `experiments/line_length_discrimination/`,
-  and `experiments/experiment_halberda_dot_comparison/`.
+  and `experiments/halberda_dot_comparison/`.
 
 ## Adding tasks and models
 
