@@ -88,6 +88,22 @@ jsPsych.run([ /* instructions, */ ...ado /*, end screen */ ]);
 - `prepareModels({ compileServer })` — compile any models registered from Stan source.
 - `createTimeline(jsPsych, { task, model, ... }, run_context)` — validate and build the adaptive timeline fragment.
 
+### Debug traces
+
+`debug=1` prints a readable console summary after each adaptive update — the design
+presented, the response, posterior mean/sd for the active model parameters, the next
+selected design, and the local sampling time. In DevTools each summary also has a
+collapsed details group with tables.
+
+With `controller=stan`, debug output also includes posterior draw histograms and an
+on-page information-gain panel. The panel plots the mutual information of the design
+that was actually selected on each trial plus realized information gain after the
+response. Under `strategy=ado`, the selected-design MI is the max-MI design by
+construction; under `strategy=random`, it is the MI of the randomly sampled design,
+so it should not be read as an optimality claim. The fast `controller=mock` path does
+not fabricate these quantitative validation metrics; it remains for timeline/UI smoke
+testing without WASM.
+
 ## How it works
 
 The timeline talks to an **adaptive controller** with two async methods —

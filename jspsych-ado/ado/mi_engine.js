@@ -138,7 +138,62 @@ function mutualInfo(design, draws, responseFn, weights = null) {
   for (let r = 0; r < mean_probs.length; r++) {
     mean_probs[r] /= total_weight;
   }
-  return categoricalEntropy(mean_probs) - cond_entropy / total_weight;
+  return Math.max(0, categoricalEntropy(mean_probs) - cond_entropy / total_weight);
+}
+
+/**
+ * Realized information gain after observing one response to a design.
+ *
+ * This is KL(p(theta | y, d) || p(theta)) estimated from the pre-trial
+ * posterior/prior draws via likelihood weighting. Its expectation over possible
+ * responses equals the mutual information for the design.
+ *
+ * @param {Object} design - Presented design.
+ * @param {Array<Object>} draws - Pre-response posterior/prior draws.
+ * @param {number} response - Observed outcome index.
+ * @param {Function} responseFn - Model likelihood: scalar p or [p0, p1, ...].
+ * @returns {number} Realized information gain in nats.
+ */
+function realizedInformationGain(design, draws, response, responseFn) {
+  const response_index = Number(response);
+  if (!Number.isInteger(response_index) || response_index < 0) {
+    throw new Error(`realizedInformationGain: response must be a nonnegative integer index (got ${response}).`);
+  }
+
+  const likelihoods = [];
+  for (const draw of draws) {
+    const probs = validateResponseProbs(responseFn(design, draw), "realizedInformationGain");
+    if (response_index >= probs.length) {
+      throw new Error(
+        `realizedInformationGain: response index ${response_index} is outside ` +
+        `the response probability vector length ${probs.length}.`
+      );
+    }
+    const likelihood = probs[response_index];
+    if (Number.isFinite(likelihood) && likelihood >= 0) {
+      likelihoods.push(likelihood);
+    }
+  }
+
+  if (likelihoods.length === 0) {
+    return 0;
+  }
+
+  const total_likelihood = likelihoods.reduce((sum, likelihood) => sum + likelihood, 0);
+  if (total_likelihood <= 0) {
+    return 0;
+  }
+
+  const predictive_likelihood = total_likelihood / likelihoods.length;
+  let gain = 0;
+  for (const likelihood of likelihoods) {
+    if (likelihood <= 0) {
+      continue;
+    }
+    const posterior_weight = likelihood / total_likelihood;
+    gain += posterior_weight * Math.log(likelihood / predictive_likelihood);
+  }
+  return Math.max(0, gain);
 }
 
 /**
@@ -394,6 +449,7 @@ export {
   enumerateDesigns,
   getResponseProbsFunction,
   mutualInfo,
+  realizedInformationGain,
   validateResponseProbs,
   samplePriorDraws,
   selectOptimalDesign,

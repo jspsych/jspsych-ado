@@ -41,3 +41,13 @@ Response coding:
 
 - `choice = 0`: smaller-sooner option
 - `choice = 1`: larger-later option (`y` in the Stan model)
+
+Debug mode:
+
+- `debug=1` prints adaptive summaries in the browser console and shows the existing
+  posterior trajectory charts.
+- With `controller=stan`, debug mode also prints posterior draw histograms and shows
+  a selected-design-MI / realized-information-gain panel. These values come from the
+  real Stan posterior draws.
+- With `controller=mock`, those quantitative MI/IG metrics are intentionally absent;
+  mock mode is only for fast timeline and UI checks.

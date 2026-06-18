@@ -1,6 +1,8 @@
 import {
   enumerateDesigns,
   getResponseProbsFunction,
+  mutualInfo,
+  realizedInformationGain,
   selectOptimalDesigns,
   summarizeDraws,
   samplePriorDraws,
@@ -76,8 +78,10 @@ function createStanAdoController({
 
   const trials = [];
   const design_rng = createSeededRng(design_seed ?? sample_config.seed);
+  const debug_draw_rng = createSeededRng((design_seed ?? sample_config.seed) + 1);
 
   let worker = null;
+  let current_design_draws = null;
   // Requests are strictly sequential (init, then one awaited sample per trial),
   // so a single in-flight slot is enough.
   let pending = null;
@@ -186,6 +190,15 @@ function createStanAdoController({
     return metrics;
   }
 
+  function scoreSelectedDesigns(next_designs, draws) {
+    if (!draws || draws.length === 0) {
+      return nullDesignMetrics(next_designs.length);
+    }
+    return next_designs.map(design => ({
+      mutual_info: mutualInfo(design, draws, responseProbs),
+    }));
+  }
+
   function maxMutualInfo(metrics) {
     let max_mi = null;
     for (const metric of metrics) {
@@ -195,6 +208,28 @@ function createStanAdoController({
       }
     }
     return max_mi;
+  }
+
+  function sumFinite(values) {
+    let total = 0;
+    let count = 0;
+    for (const value of values) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        total += value;
+        count += 1;
+      }
+    }
+    return count ? total : null;
+  }
+
+  function computeRealizedInformationGains(rows) {
+    if (!current_design_draws || current_design_draws.length === 0) {
+      return rows.map(() => null);
+    }
+    return rows.map(row => {
+      const gain = realizedInformationGain(row.ado_design, current_design_draws, row.choice, responseProbs);
+      return typeof gain === "number" && Number.isFinite(gain) ? gain : null;
+    });
   }
 
   /**
@@ -215,20 +250,22 @@ function createStanAdoController({
     const selection_started_at = now();
     let next_designs = [];
     let next_design_metrics = [];
+    let max_mutual_info = null;
     if (design_strategy === "random") {
       next_designs = sampleRandomDesigns(count);
-      next_design_metrics = nullDesignMetrics(next_designs.length);
+      next_design_metrics = scoreSelectedDesigns(next_designs, draws);
     } else {
       const picks = selectOptimalDesigns(designs, draws, responseProbs, count, { rng: design_rng });
       next_designs = picks.map((pick) => pick.design);
       next_design_metrics = picks.map((pick) => ({ mutual_info: pick.mutual_info }));
+      max_mutual_info = maxMutualInfo(next_design_metrics);
     }
 
     return {
       next_designs,
       next_design_metrics,
       selection_time_ms: now() - selection_started_at,
-      max_mutual_info: maxMutualInfo(next_design_metrics),
+      max_mutual_info,
     };
   }
 
@@ -251,10 +288,19 @@ function createStanAdoController({
 
       const block_size = nextBlockSize(trials.length);
       let selection = selectDesignsWithMetrics([], 0);
+      let prior = null;
+      if (block_size > 0) {
+        // ADO uses the prior draws to choose the first design. Random ignores the
+        // draws for selection, but keeps a separate prior sample so realized IG
+        // for the first response can still be computed without perturbing the
+        // random design sequence.
+        const prior_rng = design_strategy === "random" ? debug_draw_rng : design_rng;
+        prior = samplePriorDraws(model.prior, PRIOR_DRAWS, prior_rng);
+      }
+      current_design_draws = prior;
       if (design_strategy === "random") {
-        selection = selectDesignsWithMetrics([], block_size);
+        selection = selectDesignsWithMetrics(prior, block_size);
       } else {
-        const prior = samplePriorDraws(model.prior, PRIOR_DRAWS, design_rng);
         selection = selectDesignsWithMetrics(prior, block_size);
       }
 
@@ -268,6 +314,9 @@ function createStanAdoController({
         max_mutual_info: selection.max_mutual_info,
         post_mean: null,
         post_sd: null,
+        posterior_draws: null,
+        realized_information_gain: null,
+        realized_information_gains: null,
         api_latency_ms: null,
       };
     },
@@ -283,11 +332,14 @@ function createStanAdoController({
       const started_at = now();
 
       const rows = Array.isArray(trial_data) ? trial_data : [trial_data];
+      const realized_information_gains = computeRealizedInformationGains(rows);
+      const realized_information_gain = sumFinite(realized_information_gains);
       for (const row of rows) {
         trials.push({ ...row.ado_design, choice: row.choice });
       }
 
       const draws = await samplePosterior();
+      current_design_draws = draws;
       const { post_mean, post_sd } = summarizeDraws(draws, model.params);
 
       // The design produced after the final choice is never shown, so skip the
@@ -305,6 +357,9 @@ function createStanAdoController({
         max_mutual_info: selection.max_mutual_info,
         post_mean,
         post_sd,
+        posterior_draws: draws,
+        realized_information_gain,
+        realized_information_gains,
         // Reuse the latency field to report local sampling+MI time (ms).
         api_latency_ms: Math.round(now() - started_at),
       };

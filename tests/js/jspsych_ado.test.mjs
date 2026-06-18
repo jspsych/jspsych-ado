@@ -631,7 +631,7 @@ test("Stan controller exposes design-selection diagnostics for ADO testlets", as
   }
 });
 
-test("Stan random strategy reports null mutual information diagnostics", async () => {
+test("Stan random strategy scores selected designs without claiming max MI", async () => {
   const restoreWorker = installFakeWorker();
   try {
     const controller = createStanAdoController({
@@ -652,7 +652,8 @@ test("Stan random strategy reports null mutual information diagnostics", async (
     const state = await controller.start();
 
     assert.equal(state.next_designs.length, 2);
-    assert.deepEqual(state.next_design_metrics, [{ mutual_info: null }, { mutual_info: null }]);
+    assert.equal(state.next_design_metrics.length, 2);
+    assert.ok(state.next_design_metrics.every(metric => Number.isFinite(metric.mutual_info)));
     assert.equal(state.max_mutual_info, null);
     assert.ok(state.selection_time_ms >= 0);
   } finally {

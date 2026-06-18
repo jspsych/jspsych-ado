@@ -121,7 +121,8 @@ try {
 	        note(typeof r.choiceSelectionTime === "number" && r.choiceSelectionTime >= 0,
 	          `${mode}: selection time recorded (${r.choiceSelectionTime} ms)`);
 	      } else if (mode === "random") {
-	        note(r.choiceMutualInfo === null, `${mode}: selected-design MI is null when unavailable`);
+	        note(typeof r.choiceMutualInfo === "number" && Number.isFinite(r.choiceMutualInfo),
+	          `${mode}: selected-design MI recorded for the sampled design (${r.choiceMutualInfo})`);
 	        note(typeof r.choiceSelectionTime === "number" && r.choiceSelectionTime >= 0,
 	          `${mode}: selection time recorded (${r.choiceSelectionTime} ms)`);
 	      } else {
