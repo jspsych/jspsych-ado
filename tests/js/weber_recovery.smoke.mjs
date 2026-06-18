@@ -38,6 +38,11 @@ const { createSeededRng, simulateDelayDiscountingChoice } = await import(
   "../../jspsych-ado/ado/ado_simulation.js"
 );
 
+const { makeStanDataBuilder } = await import("../../jspsych-ado/ado/stan_data.js");
+// The model declares a stanData map; generate its buildData (the framework does this
+// in buildAdapter — done here directly since this smoke bypasses the facade/worker).
+const buildData = makeStanDataBuilder({ stanData: weber.stanData, responseSpace: weber.responseSpace });
+
 const createModule = (await import(weber.moduleUrl)).default;
 const model = await StanModel.load(createModule, () => {});
 console.log("stan version:", model.stanVersion());
@@ -63,7 +68,7 @@ function runRecovery(trueW, seed, nTrials) {
     const sim = simulateDelayDiscountingChoice(design, sim_config, sim_rng, weber);
     trials.push({ ...design, choice: sim.response });
 
-    const fit = model.sample({ data: weber.buildData(trials), ...sample_config });
+    const fit = model.sample({ data: buildData(trials), ...sample_config });
     const wi = fit.paramNames.indexOf("w");
     if (wi < 0) {
       throw new Error(`weber model: parameter "w" not found in Stan output (got: ${fit.paramNames.join(", ")})`);

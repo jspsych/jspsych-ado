@@ -19,13 +19,13 @@ A package contains:
 {
   id,             // string id, saved into the data
   params,         // parameter names to summarize, e.g. ["k", "tau"]
-  designKeys,     // design fields consumed by responseProb/responseProbs/buildData
+  designKeys,     // design fields consumed by responseProb/responseProbs
   responseSpace,  // {type:"binary"} or {type:"categorical", n_categories}
   prior,          // { param: {dist:"lognormal"|"normal"|"halfnormal", ...} }
   posterior_display, // optional per-param chart labels, preferred ranges, true bounds
   moduleUrl,      // new URL("./main.js", import.meta.url).href
   wasmUrl,        // new URL("./main.wasm", import.meta.url).href (so bundlers emit the wasm; see #57 below)
-  buildData,      // (trials) => Stan data block
+  stanData,       // declarative map: Stan data var -> trial column (see below)
   responseProb,   // binary: (design, paramDraw) => P(outcome = 1)
   responseProbs,  // categorical: (design, paramDraw) => [p0, p1, ...]
 }
@@ -36,6 +36,27 @@ mutual-information design selection. Binary models may expose `responseProb`;
 finite categorical models expose `responseProbs`. Probability vectors must be
 finite, nonnegative, in response-index order, and sum to 1. Continuous-response
 models are out of scope for the current engine.
+
+### The Stan data boundary: `stanData`
+
+Instead of hand-writing a `buildData(trials)` reshape, declare a **`stanData`** map
+that mirrors the `.stan` `data` block. The framework generates the builder
+(`N` + per-column `.map()`s) from it. Each value is one of:
+
+```js
+stanData: {
+  t_ss: "t_ss",                              // copy a trial column
+  y: "response",                             // the participant outcome (jsPsych `choice`);
+                                             //   auto +1 when responseSpace is categorical
+  target_index: { from: "target_index", index1: true }, // 1-indexed Stan int (Number(x)+1)
+}
+// `N` is injected automatically — do not declare it.
+```
+
+The map is a 1:1 mirror of the `.stan` data block, not a computation DSL. For
+derived/ragged columns, ship an explicit `buildData(trials)` (or the older
+`toStanData(rows)`) instead — both are still supported and take precedence over
+`stanData`.
 
 `posterior_display.y_min` and `posterior_display.y_max` are preferred/fallback
 debug-chart ranges, not hard parameter bounds. Use `lower_bound` or `upper_bound`
@@ -103,11 +124,11 @@ unpatched, so this can't be forgotten silently.
 3. Run `npm run patch:wasm` so the fresh `main.js` honors `Module.locateFile`
    (CI fails otherwise — see the bundler-safety patch above).
 4. Write `jspsych-ado/models/<name>/model.js` with `params`, `designKeys`,
-   `responseSpace`, priors matching the `.stan`, `buildData`, the matching
-   likelihood function (`responseProb` for binary or `responseProbs` for finite
-   categorical responses), `moduleUrl: new URL("./main.js", import.meta.url).href`,
-   and `wasmUrl: new URL("./main.wasm", import.meta.url).href` (so bundlers emit
-   the wasm).
+   `responseSpace`, priors matching the `.stan`, a `stanData` map mirroring the
+   `.stan` data block, the matching likelihood function (`responseProb` for binary
+   or `responseProbs` for finite categorical responses),
+   `moduleUrl: new URL("./main.js", import.meta.url).href`, and
+   `wasmUrl: new URL("./main.wasm", import.meta.url).href` (so bundlers emit the wasm).
 5. Add `tests/js/<name>.test.mjs`.
 6. Register it from an experiment page with `jsPsychADO.registerModelPackage(model)`.
 

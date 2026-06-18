@@ -6,8 +6,11 @@ import model, {
   responseProbs,
   getHyperbolicValue,
   logistic,
-  buildData,
 } from "../../jspsych-ado/models/hyperbolic/model.js";
+import { makeStanDataBuilder } from "../../jspsych-ado/ado/stan_data.js";
+
+// The model declares a stanData map; the framework generates buildData from it.
+const buildData = makeStanDataBuilder({ stanData: model.stanData, responseSpace: model.responseSpace });
 
 test("logistic basics", () => {
   assert.ok(Math.abs(logistic(0) - 0.5) < 1e-12);
@@ -71,7 +74,7 @@ test("changing tau: tau -> 0 makes choices random (P(LL) -> 0.5)", () => {
   assert.ok(Math.abs(p - 0.5) < 1e-3, `near-zero tau should give ~0.5, got ${p}`);
 });
 
-test("buildData maps accumulated trials to the Stan data block (y = choice)", () => {
+test("generated buildData maps accumulated trials to the Stan data block (y = choice)", () => {
   const trials = [
     { t_ss: 0, t_ll: 4.3, r_ss: 100, r_ll: 800, choice: 1 },
     { t_ss: 0, t_ll: 52, r_ss: 400, r_ll: 800, choice: 0 },
@@ -93,7 +96,8 @@ test("model adapter exposes the expected metadata", () => {
   assert.deepEqual(model.designKeys, ["t_ss", "t_ll", "r_ss", "r_ll"]);
   assert.deepEqual(model.responseSpace, { type: "binary" });
   assert.ok(model.moduleUrl.endsWith("main.js"));
-  assert.equal(typeof model.buildData, "function");
+  assert.equal(typeof model.stanData, "object");
+  assert.equal(model.stanData.y, "response");
   assert.equal(typeof model.responseProb, "function");
   assert.equal(typeof model.responseProbs, "function");
 });

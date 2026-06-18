@@ -44,6 +44,11 @@ const { createSeededRng, simulateDelayDiscountingChoice } = await import(
 const { default_dd_config } = await import("../../experiments/delay_discounting/dd_config.js");
 const delayDiscountingTask = (await import("../../jspsych-ado/tasks/delay_discounting/task.js")).default;
 
+const { makeStanDataBuilder } = await import("../../jspsych-ado/ado/stan_data.js");
+// The model declares a stanData map; generate its buildData (the framework does this
+// in buildAdapter — done here directly since this smoke bypasses the facade/worker).
+const buildData = makeStanDataBuilder({ stanData: hyp.stanData, responseSpace: hyp.responseSpace });
+
 const createModule = (await import(hyp.moduleUrl)).default;
 const model = await StanModel.load(createModule, () => {});
 console.log("stan version:", model.stanVersion());
@@ -68,7 +73,7 @@ function runRecovery(trueParams, seed, nTrials) {
     const sim = simulateDelayDiscountingChoice(design, sim_config, sim_rng, hyp);
     trials.push({ ...design, choice: sim.response });
 
-    const fit = model.sample({ data: hyp.buildData(trials), ...sample_config });
+    const fit = model.sample({ data: buildData(trials), ...sample_config });
     const ki = fit.paramNames.indexOf("k");
     const ti = fit.paramNames.indexOf("tau");
     const draws = fit.draws[ki].map((k, s) => ({ k, tau: fit.draws[ti][s] }));

@@ -3,7 +3,8 @@
 //
 // This adapter is the JS mirror of weber_dot_comparison.stan. The ADO mutual-
 // information engine and simulated participants call responseProb/responseProbs
-// here, while TinyStan fits the compiled Stan/WASM model with buildData().
+// here, while TinyStan fits the compiled Stan/WASM model on data assembled from the
+// stanData map below.
 
 /**
  * Standard normal CDF, Phi(x) = 0.5 * (1 + erf(x / sqrt(2))).
@@ -69,20 +70,14 @@ function subjectiveValues(design, params) {
   return numerosities(design);
 }
 
-/**
- * Build the Stan data block from accumulated ADO response rows.
- *
- * @param {Array<Object>} trials - [{n_blue, n_yellow, choice}, ...]; choice 1 = correct.
- * @returns {Object} Stan data: {N, n_blue[], n_yellow[], correct[]}.
- */
-function buildData(trials) {
-  return {
-    N: trials.length,
-    n_blue: trials.map(trial => trial.n_blue),
-    n_yellow: trials.map(trial => trial.n_yellow),
-    correct: trials.map(trial => trial.choice),
-  };
-}
+// Stan `data` block, mirroring weber_dot_comparison.stan. The framework generates
+// buildData from this (see ado/stan_data.js). The Stan response var is `correct`
+// (not `y`); "response" is the participant outcome (binary 0/1, so no +1).
+const stanData = {
+  n_blue: "n_blue",
+  n_yellow: "n_yellow",
+  correct: "response",
+};
 
 const weberDotsModel = {
   id: "weber_dots",
@@ -100,7 +95,7 @@ const weberDotsModel = {
   // Statically referenced so bundlers emit the .wasm asset; the worker feeds this
   // to emscripten's locateFile so the wasm loads after bundling (see ado/stan_worker.js).
   wasmUrl: new URL("./main.wasm", import.meta.url).href,
-  buildData,
+  stanData,
   responseProb,
   responseProbs,
   subjectiveValues,
@@ -108,7 +103,7 @@ const weberDotsModel = {
 
 export default weberDotsModel;
 export {
-  buildData,
+  stanData,
   normalCdf,
   numerosities,
   responseProb,

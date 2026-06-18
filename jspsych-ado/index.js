@@ -11,6 +11,7 @@ import { createStanAdoController } from "./controllers/stan_ado_controller.js";
 import { createAdoTimeline } from "./ado/ado_timeline.js";
 import { createSeededRng } from "./ado/ado_simulation.js";
 import { arange, linspace } from "./ado/grid.js";
+import { makeStanDataBuilder, validateStanDataSpec } from "./ado/stan_data.js";
 import {
   enumerateDesigns,
   getResponseProbsFunction,
@@ -120,10 +121,16 @@ function registerModel(name, spec) {
   for (const k of ["params", "designKeys", "responseSpace"]) {
     if (spec[k] == null) throw new Error(`registerModel("${name}"): missing required field "${k}".`);
   }
-  if (spec.toStanData == null && spec.buildData == null) {
+  if (spec.stanData == null && spec.toStanData == null && spec.buildData == null) {
     throw new Error(
-      `registerModel("${name}"): provide toStanData([{design,response}]) or buildData([{...design,choice}]).`
+      `registerModel("${name}"): provide a stanData map, or buildData([{...design,choice}]), or toStanData([{design,response}]).`
     );
+  }
+  if (spec.stanData != null) {
+    const stan_data_problems = validateStanDataSpec(spec.stanData);
+    if (stan_data_problems.length) {
+      throw new Error(`registerModel("${name}"): invalid stanData:\n  - ` + stan_data_problems.join("\n  - "));
+    }
   }
   if (!Array.isArray(spec.params) || spec.params.length === 0) {
     throw new Error(`registerModel("${name}"): params must be a non-empty array.`);
@@ -328,14 +335,17 @@ function normalizeTestletSize(value) {
 // trial-shape mismatch between inline source models and the engine.
 function buildAdapter(entry) {
   const { spec, name, paramNames, prior, moduleUrl, wasmUrl } = entry;
-  const { responseProb, responseProbs, toStanData, buildData } = spec;
+  const { responseProb, responseProbs, toStanData, buildData, stanData } = spec;
 
-  // The engine pushes flat rows {...design, choice} (any design keys). A model
-  // package's native buildData already reads that shape, so use it as-is. The
-  // friendly toStanData path instead wants {design, response}, so reshape into it.
+  // The engine pushes flat rows {...design, choice} (any design keys). Resolve the
+  // Stan data builder by precedence: an explicit buildData wins; else the friendly
+  // toStanData path (which wants {design, response}); else generate one from the
+  // declarative stanData map (the common case — no hand-written reshape).
   const adaptedBuildData = buildData
     ? buildData
-    : (trials) => toStanData(trials.map(({ choice, ...design }) => ({ design, response: choice })));
+    : toStanData
+    ? (trials) => toStanData(trials.map(({ choice, ...design }) => ({ design, response: choice })))
+    : makeStanDataBuilder({ stanData, responseSpace: spec.responseSpace });
 
   return {
     id: name,
@@ -709,7 +719,13 @@ function validateModel(model, opts = {}) {
       err(response_space_error);
     }
   }
-  if (typeof model.buildData !== "function") err("`buildData(trials)` must be a function.");
+  // Stan data plumbing: a declarative stanData map (preferred) OR a hand-written
+  // buildData/toStanData escape hatch. Validate the map's shape when present.
+  if (model.stanData != null) {
+    for (const p of validateStanDataSpec(model.stanData)) err(p);
+  } else if (typeof model.buildData !== "function" && typeof model.toStanData !== "function") {
+    err("provide a `stanData` map (preferred), or `buildData(trials)`, or `toStanData(rows)`.");
+  }
   if (model.responseSpace && model.responseSpace.type === "categorical") {
     if (typeof model.responseProbs !== "function") {
       err("categorical models must provide `responseProbs(design, draw)`.");
@@ -803,6 +819,8 @@ function registerModelPackage(model, overrides = {}) {
     responseProb: model.responseProb,
     responseProbs: model.responseProbs,
     buildData: model.buildData,
+    toStanData: model.toStanData,
+    stanData: model.stanData,
     posterior_display: model.posterior_display,
     stan: overrides.stan ?? model.stan,
     n_trials: overrides.n_trials ?? model.n_trials,
@@ -822,6 +840,8 @@ const jsPsychADO = {
   // Design-grid axis helpers (see ado/grid.js).
   arange,
   linspace,
+  // Stan data-block builder (see ado/stan_data.js).
+  makeStanDataBuilder,
 };
 
 export {
@@ -839,5 +859,6 @@ export {
   buildAdapter,
   arange,
   linspace,
+  makeStanDataBuilder,
 };
 export default jsPsychADO;

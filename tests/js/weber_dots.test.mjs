@@ -2,12 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import model, {
-  buildData,
   normalCdf,
   numerosities,
   responseProb,
   responseProbs,
 } from "../../jspsych-ado/models/weber_dots/model.js";
+import { makeStanDataBuilder } from "../../jspsych-ado/ado/stan_data.js";
+
+// The model declares a stanData map; the framework generates buildData from it.
+const buildData = makeStanDataBuilder({ stanData: model.stanData, responseSpace: model.responseSpace });
 
 test("normalCdf matches known Phi values and is well-behaved", () => {
   assert.ok(Math.abs(normalCdf(0) - 0.5) < 1e-9);
@@ -59,7 +62,7 @@ test("larger w lowers P(correct)", () => {
   }
 });
 
-test("buildData maps accumulated trials to the Stan data block", () => {
+test("generated buildData maps accumulated trials to the Stan data block", () => {
   const trials = [
     { n_blue: 10, n_yellow: 20, choice: 1 },
     { n_blue: 15, n_yellow: 10, choice: 0 },
@@ -80,7 +83,8 @@ test("model adapter exposes the current package metadata", () => {
   assert.ok(Math.abs(model.prior.w.meanlog - Math.log(0.25)) < 1e-12);
   assert.ok(Math.abs(model.prior.w.sdlog - 0.5) < 1e-12);
   assert.ok(model.moduleUrl.endsWith("main.js"));
-  assert.equal(typeof model.buildData, "function");
+  assert.equal(typeof model.stanData, "object");
+  assert.equal(model.stanData.correct, "response");
   assert.equal(typeof model.responseProb, "function");
   assert.equal(typeof model.responseProbs, "function");
   assert.equal(model.choiceProbLL, undefined);

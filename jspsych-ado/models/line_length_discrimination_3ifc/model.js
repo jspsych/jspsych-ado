@@ -63,23 +63,15 @@ function simulationData(design, params, probs, response) {
   };
 }
 
-/**
- * Build the Stan data shape for the 3IFC categorical ADO model.
- *
- * Stan categorical responses and target positions are 1-indexed, so jsPsych
- * choices/target indices 0/1/2 become 1/2/3 here.
- *
- * @param {Array<Object>} trials - Rows with {delta, target_index, choice}.
- * @returns {Object} Stan data: {N, delta[], target_index[], y[]}.
- */
-function buildData(trials) {
-  return {
-    N: trials.length,
-    delta: trials.map(trial => trial.delta),
-    target_index: trials.map(trial => Number(trial.target_index) + 1),
-    y: trials.map(trial => Number(trial.choice) + 1),
-  };
-}
+// Stan `data` block, mirroring line_length_discrimination_3ifc.stan. The framework
+// generates buildData from this (see ado/stan_data.js). Stan is 1-indexed for
+// categoricals: the response `y` gets +1 automatically (responseSpace is
+// categorical), and `target_index` is a 1-indexed design column ({from, index1}).
+const stanData = {
+  delta: "delta",
+  target_index: { from: "target_index", index1: true },
+  y: "response",
+};
 
 const lineLengthDiscriminationModel = {
   id: "line_length_discrimination_3ifc",
@@ -107,7 +99,7 @@ const lineLengthDiscriminationModel = {
   // Statically referenced so bundlers emit the .wasm asset; the worker feeds this
   // to emscripten's locateFile so the wasm loads after bundling (see ado/stan_worker.js).
   wasmUrl: new URL("./main.wasm", import.meta.url).href,
-  buildData,
+  stanData,
   responseProbs,
   simulationData,
 };
@@ -116,7 +108,7 @@ export default lineLengthDiscriminationModel;
 export {
   LINE_LENGTH_SCALE,
   LINE_KEYS,
-  buildData,
+  stanData,
   getLineLength,
   lineLengthDiscriminationModel,
   lineLengthEvidence,

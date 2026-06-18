@@ -8,7 +8,7 @@
 // hyperbolic.stan by the stan-playground compile server (see models/README.md).
 //
 // Adding a new model = copy this folder, write the new <model>.stan, compile it,
-// and edit params/prior/buildData/responseProb. Task presentation and design
+// and edit params/prior/stanData/responseProb. Task presentation and design
 // grids live under jspsych-ado/tasks/.
 //
 // The compiled artifacts are kept under their downloaded names (main.js + main.wasm)
@@ -75,22 +75,17 @@ function subjectiveValues(design, params) {
   };
 }
 
-/**
- * Build the Stan `data` block from the accumulated observed choice trials.
- *
- * @param {Array<Object>} trials - [{t_ss, t_ll, r_ss, r_ll, choice}, ...]; choice 1 = LL.
- * @returns {Object} Stan data: {N, t_ss[], t_ll[], r_ss[], r_ll[], y[]}.
- */
-function buildData(trials) {
-  return {
-    N: trials.length,
-    t_ss: trials.map(trial => trial.t_ss),
-    t_ll: trials.map(trial => trial.t_ll),
-    r_ss: trials.map(trial => trial.r_ss),
-    r_ll: trials.map(trial => trial.r_ll),
-    y: trials.map(trial => trial.choice),
-  };
-}
+// Stan `data` block, declared as a 1:1 mirror of hyperbolic.stan. The framework
+// generates the buildData(trials) reshape (N + per-column maps + y) from this — see
+// ado/stan_data.js. Each design column is copied; "response" is the participant's
+// choice (binary 0/1 here, so no +1).
+const stanData = {
+  t_ss: "t_ss",
+  t_ll: "t_ll",
+  r_ss: "r_ss",
+  r_ll: "r_ll",
+  y: "response",
+};
 
 // ---------------------------------------------------------------------------
 // Presentation: how a delay-discounting design is shown and answered.
@@ -122,7 +117,7 @@ const hyperbolicModel = {
   // (see ado/stan_worker.js) so the wasm loads after bundling, not just from a
   // static server. Without it, a bundled main.js would 404 on its sibling wasm.
   wasmUrl: new URL("./main.wasm", import.meta.url).href,
-  buildData,
+  stanData,
   responseProb,
   responseProbs,
   subjectiveValues,
@@ -133,7 +128,7 @@ export {
   responseProb,
   getHyperbolicValue,
   logistic,
-  buildData,
+  stanData,
   responseProbs,
   subjectiveValues,
 };

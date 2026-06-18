@@ -4,12 +4,15 @@ import assert from "node:assert/strict";
 import {
   default as model,
   responseProbs,
-  buildData,
 } from "../../jspsych-ado/models/line_length_discrimination_3ifc/model.js";
 import {
   default as task,
   make3IFCDesign,
 } from "../../jspsych-ado/tasks/line_length_discrimination/task.js";
+import { makeStanDataBuilder } from "../../jspsych-ado/ado/stan_data.js";
+
+// The model declares a stanData map; the framework generates buildData from it.
+const buildData = makeStanDataBuilder({ stanData: model.stanData, responseSpace: model.responseSpace });
 
 const params = {
   sensitivity: 2.2,
@@ -64,7 +67,7 @@ test("responseProbs includes response-position bias terms", () => {
   assert.ok(biased[1] > biased[0], "positive B bias should increase P(B)");
 });
 
-test("buildData maps jsPsych 0/1/2 choices and targets to Stan 1/2/3 categories", () => {
+test("generated buildData maps jsPsych 0/1/2 choices and targets to Stan 1/2/3 categories", () => {
   const data = buildData([
     { delta: 8, target_index: 0, choice: 0 },
     { delta: 16, target_index: 1, choice: 2 },
@@ -85,7 +88,8 @@ test("model package exposes the categorical ADO contract", () => {
   assert.deepEqual(model.params, ["sensitivity", "bias_b", "bias_c"]);
   assert.deepEqual(model.responseSpace, { type: "categorical", n_categories: 3 });
   assert.equal(typeof model.responseProbs, "function");
-  assert.equal(typeof model.buildData, "function");
+  assert.equal(typeof model.stanData, "object");
+  assert.deepEqual(model.stanData.target_index, { from: "target_index", index1: true });
   assert.equal(model.responseProb, undefined);
 });
 
