@@ -62,6 +62,24 @@ and point the URLs at `http://localhost:8083`.
 The compiled module is web/worker-only (`-sENVIRONMENT=web`); it runs in the
 browser and Web Worker, not in plain Node.
 
+### After (re)compiling: apply the bundler-safety patch (#57)
+
+The stan-playground toolchain builds with `-sINCOMING_MODULE_JS_API=print,printErr`,
+so the generated `main.js` ignores `Module.locateFile` and resolves its `.wasm` as an
+unhashed sibling — which works when served statically but 404s once a bundler
+(Vite/webpack) hashes the emitted `.wasm`. So after downloading a fresh `main.js`,
+re-run the one-line patch (from the repo root; it patches every model and is
+idempotent):
+
+```bash
+node scripts/patch-wasm-glue.mjs
+```
+
+This makes `main.js` honor `Module.locateFile`, which the worker feeds the model's
+bundler-emitted `wasmUrl` (`new URL("./main.wasm", import.meta.url)` in `model.js`).
+`tests/js/wasm_glue_patch.test.mjs` fails in CI if any committed `main.js` is left
+unpatched, so this can't be forgotten silently.
+
 ## Adding a new model
 
 1. Write `jspsych-ado/models/<name>/<name>.stan`.

@@ -1,0 +1,54 @@
+// Patch the committed emscripten glue (main.js) so it honors Module.locateFile.
+//
+// Why: the stan-playground compile server builds with
+// `-sINCOMING_MODULE_JS_API=print,printErr`, so emscripten does NOT wire
+// `Module.locateFile` (or `wasmBinary`/`instantiateWasm`) into the loader. Its
+// `findWasmBinary()` checks `Module["locateFile"]` but then calls the *local*
+// default `locateFile()` (which returns `scriptDirectory + "main.wasm"`), so the
+// wasm is always fetched as an unhashed sibling of main.js. That works when the
+// files are served statically, but a bundler (Vite/webpack) renames/hashes the
+// emitted wasm, so the sibling lookup 404s.
+//
+// Fix: make `findWasmBinary()` actually call `Module["locateFile"]("main.wasm")`.
+// The model adapter supplies `wasmUrl` (a `new URL("./main.wasm", import.meta.url)`
+// the bundler emits + hashes) and the worker injects it via Module.locateFile, so
+// after this patch the wasm resolves under any bundler AND when static-served.
+//
+// This is idempotent and verified by tests/js/wasm_glue_patch.test.mjs (CI fails
+// if any committed main.js is unpatched, e.g. after a fresh recompile). Re-run
+// this after recompiling a model:  node scripts/patch-wasm-glue.mjs
+import { readFile, writeFile, readdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const MODELS_DIR = join(ROOT, "jspsych-ado", "models");
+
+// Exact unpatched form emitted by the stan-playground toolchain, and its fix.
+export const UNPATCHED = 'if(Module["locateFile"]){return locateFile("main.wasm")}';
+export const PATCHED = 'if(Module["locateFile"]){return Module["locateFile"]("main.wasm")}';
+
+export function patchSource(source) {
+  if (source.includes(PATCHED)) return { changed: false, source };
+  if (source.includes(UNPATCHED)) return { changed: true, source: source.split(UNPATCHED).join(PATCHED) };
+  return { changed: false, source, missing: true };
+}
+
+async function main() {
+  const names = await readdir(MODELS_DIR, { withFileTypes: true });
+  let patched = 0, already = 0, missing = [];
+  for (const entry of names) {
+    if (!entry.isDirectory()) continue;
+    const file = join(MODELS_DIR, entry.name, "main.js");
+    let src;
+    try { src = await readFile(file, "utf8"); } catch { continue; }
+    const { changed, source, missing: notFound } = patchSource(src);
+    if (changed) { await writeFile(file, source); console.log(`  patched ${entry.name}/main.js`); patched++; }
+    else if (notFound) { console.log(`  WARNING: ${entry.name}/main.js has neither the patched nor the known unpatched form`); missing.push(entry.name); }
+    else { console.log(`  already patched ${entry.name}/main.js`); already++; }
+  }
+  console.log(`\n${patched} patched, ${already} already patched${missing.length ? `, ${missing.length} unrecognized: ${missing.join(", ")}` : ""}`);
+  if (missing.length) process.exitCode = 1;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) main();
