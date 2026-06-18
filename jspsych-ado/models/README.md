@@ -22,7 +22,7 @@ A package contains:
   designKeys,     // design fields consumed by responseProb/responseProbs/buildData
   responseSpace,  // {type:"binary"} or {type:"categorical", n_categories}
   prior,          // { param: {dist:"lognormal"|"normal"|"halfnormal", ...} }
-  posterior_display, // optional per-param chart labels/ranges for debug charts
+  posterior_display, // optional per-param chart labels, preferred ranges, true bounds
   moduleUrl,      // new URL("./main.js", import.meta.url).href
   buildData,      // (trials) => Stan data block
   responseProb,   // binary: (design, paramDraw) => P(outcome = 1)
@@ -35,6 +35,10 @@ mutual-information design selection. Binary models may expose `responseProb`;
 finite categorical models expose `responseProbs`. Probability vectors must be
 finite, nonnegative, in response-index order, and sum to 1. Continuous-response
 models are out of scope for the current engine.
+
+`posterior_display.y_min` and `posterior_display.y_max` are preferred/fallback
+debug-chart ranges, not hard parameter bounds. Use `lower_bound` or `upper_bound`
+only for true model constraints, and `min_y_span` to prevent over-zoomed axes.
 
 `designKeys` and `responseSpace` let `createTimeline({ task, model })` reject
 incompatible combinations before a participant sees the task.

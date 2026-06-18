@@ -275,12 +275,107 @@ function getParamDisplay(param_name, posterior_display) {
   return { label: param_name };
 }
 
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function getParamAxisDomain(series, opts) {
+  opts = opts || {};
+
+  var data_lo = Infinity, data_hi = -Infinity;
+  series.forEach(function(d) {
+    var sd = d.sd || 0;
+    var lo = d.mean - sd;
+    var hi = d.mean + sd;
+    if (Number.isFinite(lo)) {
+      data_lo = Math.min(data_lo, lo);
+    }
+    if (Number.isFinite(hi)) {
+      data_hi = Math.max(data_hi, hi);
+    }
+  });
+
+  var has_data = Number.isFinite(data_lo) && Number.isFinite(data_hi);
+  var has_preferred_range = isFiniteNumber(opts.y_min) && isFiniteNumber(opts.y_max) && opts.y_min < opts.y_max;
+  var has_lower_bound = isFiniteNumber(opts.lower_bound);
+  var has_upper_bound = isFiniteNumber(opts.upper_bound);
+  var min_y_span = isFiniteNumber(opts.min_y_span) && opts.min_y_span > 0 ? opts.min_y_span : null;
+  var axis_expanded = false;
+  var axis_lower_bounded = has_lower_bound && has_data && data_lo < opts.lower_bound;
+  var axis_upper_bounded = has_upper_bound && has_data && data_hi > opts.upper_bound;
+  var y_min, y_max;
+
+  if (!has_data) {
+    if (has_preferred_range) {
+      y_min = opts.y_min;
+      y_max = opts.y_max;
+    } else {
+      y_min = has_lower_bound ? opts.lower_bound : -0.001;
+      y_max = y_min + (min_y_span || 0.002);
+    }
+  } else if (data_hi > data_lo) {
+    var span = data_hi - data_lo;
+    var pad = span * 0.15;
+    y_min = data_lo - pad;
+    y_max = data_hi + pad;
+    axis_expanded = has_preferred_range && (data_lo < opts.y_min || data_hi > opts.y_max);
+  } else if (has_preferred_range && data_lo >= opts.y_min && data_hi <= opts.y_max) {
+    y_min = opts.y_min;
+    y_max = opts.y_max;
+  } else {
+    var half_span = (min_y_span || 0.002) / 2;
+    y_min = data_lo - half_span;
+    y_max = data_hi + half_span;
+    axis_expanded = has_preferred_range && (data_lo < opts.y_min || data_hi > opts.y_max);
+  }
+
+  if (min_y_span && y_max - y_min < min_y_span) {
+    var center = (y_min + y_max) / 2;
+    y_min = center - min_y_span / 2;
+    y_max = center + min_y_span / 2;
+  }
+
+  if (has_lower_bound && y_min < opts.lower_bound) {
+    y_min = opts.lower_bound;
+  }
+  if (has_upper_bound && y_max > opts.upper_bound) {
+    y_max = opts.upper_bound;
+  }
+
+  if (y_min >= y_max) {
+    var fallback_span = min_y_span || 0.002;
+    if (has_lower_bound && has_upper_bound && opts.lower_bound < opts.upper_bound) {
+      fallback_span = Math.min(fallback_span, opts.upper_bound - opts.lower_bound);
+      var bounded_center = has_data ? Math.min(opts.upper_bound - fallback_span / 2, Math.max(opts.lower_bound + fallback_span / 2, data_lo)) : (opts.lower_bound + opts.upper_bound) / 2;
+      y_min = bounded_center - fallback_span / 2;
+      y_max = bounded_center + fallback_span / 2;
+    } else if (has_upper_bound) {
+      y_max = opts.upper_bound;
+      y_min = y_max - fallback_span;
+      if (has_lower_bound && y_min < opts.lower_bound) {
+        y_min = opts.lower_bound;
+      }
+    } else {
+      y_min = has_lower_bound ? opts.lower_bound : y_min - fallback_span / 2;
+      y_max = y_min + fallback_span;
+    }
+  }
+
+  return {
+    y_min: y_min,
+    y_max: y_max,
+    axis_expanded: axis_expanded,
+    axis_lower_bounded: axis_lower_bounded,
+    axis_upper_bounded: axis_upper_bounded,
+  };
+}
+
 /**
  * Render a parameter posterior trajectory (mean ± SD per trial) as an SVG string.
  *
- * When y_min/y_max are provided, they are treated as preferred display ranges.
- * If the posterior mean ± SD exceeds those ranges, the axis expands and the
- * chart notes that expansion instead of silently clipping values.
+ * The visible y-axis is data-driven from the mean ± SD envelope. y_min/y_max
+ * are preferred/fallback ranges, while lower_bound/upper_bound are true model
+ * constraints used as hard display limits.
  *
  * @param {Array<{trial: number, mean: number, sd: number}>} series
  * @param {string} param_name - Parameter name ("k", "tau", ...).
@@ -291,6 +386,8 @@ function getParamDisplay(param_name, posterior_display) {
  * @param {number} [opts.y_min] - Preferred y minimum.
  * @param {number} [opts.y_max] - Preferred y maximum.
  * @param {number} [opts.lower_bound] - Hard lower display bound for constrained parameters.
+ * @param {number} [opts.upper_bound] - Hard upper display bound for constrained parameters.
+ * @param {number} [opts.min_y_span] - Minimum visible y-axis width.
  * @returns {string} SVG markup.
  */
 function makeParamConvergenceSvg(series, param_name, opts) {
@@ -305,40 +402,9 @@ function makeParamConvergenceSvg(series, param_name, opts) {
     return "<svg width=\"" + W + "\" height=\"" + H + "\"><text x=\"" + (W / 2) + "\" y=\"" + (H / 2) + "\" text-anchor=\"middle\" font-size=\"12\" fill=\"#6b7280\">No data yet</text></svg>";
   }
 
-  // Step 1: data envelope — mean ± SD across all accumulated points.
-  var data_lo = Infinity, data_hi = -Infinity;
-  series.forEach(function(d) {
-    data_lo = Math.min(data_lo, d.mean - (d.sd || 0));
-    data_hi = Math.max(data_hi, d.mean + (d.sd || 0));
-  });
-
-  var has_bounds = typeof opts.y_min === "number" && typeof opts.y_max === "number";
-  var has_lower_bound = typeof opts.lower_bound === "number";
-
-  // Hard outer bounds: y_min/y_max are clamps only, not the displayed range.
-  var hard_lo = has_lower_bound ? opts.lower_bound : -Infinity;
-  var hard_hi = has_bounds ? opts.y_max : Infinity;
-  if (has_bounds) { hard_lo = Math.max(hard_lo, opts.y_min); }
-
-  // Step 2: clamp data lo to hard floor before computing padding.
-  data_lo = Math.max(hard_lo, data_lo);
-
-  // Step 3: 15% padding on each side — axis follows the data, not the grid.
-  var span = data_hi - data_lo;
-  var pad = span * 0.15 || 0.001;
-  var y_min = data_lo - pad;
-  var y_max = data_hi + pad;
-
-  // Step 4: clamp to hard outer bounds.
-  y_min = Math.max(hard_lo, y_min);
-  if (has_bounds) { y_max = Math.min(hard_hi, y_max); }
-
-  // Step 5: degenerate guard.
-  if (y_min >= y_max) { y_min = data_lo - 0.001; y_max = data_hi + 0.001; }
-
-  // Flag if any data was clipped by the hard lower bound.
-  var axis_bounded = has_lower_bound && series.some(function(d) { return d.mean - (d.sd || 0) < opts.lower_bound; });
-  var axis_expanded = false;
+  var axis = getParamAxisDomain(series, opts);
+  var y_min = axis.y_min;
+  var y_max = axis.y_max;
 
   function sx(i) { return ml + (n === 1 ? pw / 2 : (i / (n - 1)) * pw); }
   function sy(v) {
@@ -375,11 +441,14 @@ function makeParamConvergenceSvg(series, param_name, opts) {
 
   var param_label = opts.label || param_name;
   var axis_notes = [];
-  if (axis_expanded) {
+  if (axis.axis_expanded) {
     axis_notes.push("axis expanded");
   }
-  if (axis_bounded) {
+  if (axis.axis_lower_bounded) {
     axis_notes.push("lower bound");
+  }
+  if (axis.axis_upper_bounded) {
+    axis_notes.push("upper bound");
   }
   var axis_note = axis_notes.length
     ? "<text x=\"" + (ml + pw) + "\" y=\"" + (mt + 10) + "\" text-anchor=\"end\" font-size=\"9\" fill=\"#b45309\">" + axis_notes.join("; ") + "</text>"
@@ -441,6 +510,8 @@ function updateLiveCharts(param_history, ado_state, run_context) {
         y_min: display.y_min,
         y_max: display.y_max,
         lower_bound: display.lower_bound,
+        upper_bound: display.upper_bound,
+        min_y_span: display.min_y_span,
       })
       + "</div>";
   });
@@ -488,6 +559,8 @@ function makeDebriefStimulus(param_history, posterior_display) {
           y_min: display.y_min,
           y_max: display.y_max,
           lower_bound: display.lower_bound,
+          upper_bound: display.upper_bound,
+          min_y_span: display.min_y_span,
         })
         + "</div>";
     }).join("")
@@ -957,6 +1030,7 @@ export {
   htmlButtonChoice,
   canvasFrame,
   canvasResponse,
+  getParamAxisDomain,
   makeParamConvergenceSvg,
   makeDebriefStimulus,
   removeAdoDebugPanels,
