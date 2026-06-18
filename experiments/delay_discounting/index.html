@@ -197,22 +197,13 @@
             } : null,
         };
 
-        // Register the hyperbolic model with the façade. linkProb bridges the
-        // friendly (theta, design) argument order; buildData is the model package's
-        // own Stan-data builder, used as-is. Everything else (presentation, choices,
-        // priors, posterior display) comes straight from the model package, so
-        // adding another model is just another registerModel call.
-        jsPsychADO.registerModel(hyperbolicModel.id, {
-            moduleUrl: hyperbolicModel.moduleUrl,
-            prior: hyperbolicModel.prior,
-            params: hyperbolicModel.params,
+        // Register the hyperbolic model package with the façade. registerModelPackage
+        // takes the package's default export as-is (deriving linkProb from its
+        // choiceProbLL and using its native buildData/presentation/priors); the
+        // experiment only supplies what's experiment-level (the design grid, sampler
+        // settings, trial count). Adding another model is the same single call.
+        jsPsychADO.registerModelPackage(hyperbolicModel, {
             design_grid: default_dd_config.grid_design,
-            linkProb: (theta, design) => hyperbolicModel.choiceProbLL(design, theta),
-            buildData: hyperbolicModel.buildData,
-            response_labels: hyperbolicModel.response_labels,
-            presentation: hyperbolicModel.presentation,
-            choices: hyperbolicModel.choices,
-            posterior_display: hyperbolicModel.posterior_display,
             stan: default_dd_config.stan,
             n_trials: default_dd_config.n_trials,
         });

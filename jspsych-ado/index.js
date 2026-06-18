@@ -368,7 +368,158 @@ function parseStanPriors(stanCode, paramSpecs) {
   return prior;
 }
 
-const jsPsychADO = { registerModel, prepareModels, createTimeline };
+// ---------------------------------------------------------------------------
+// One-call registration for a committed model package
+// ---------------------------------------------------------------------------
 
-export { jsPsychADO, registerModel, prepareModels, createTimeline, parseStanPriors, labelsToConfig, buildAdapter };
+// Prior families the JS first-design sampler (mi_engine.samplePriorValue) can draw.
+const SAMPLEABLE_PRIOR_DISTS = new Set(["lognormal", "normal", "halfnormal"]);
+
+/**
+ * Validate a model-package default export (the shape under models/<name>/model.js)
+ * before it is registered, so contributors fail fast with a clear message instead
+ * of debugging a silent argument-order or shape bug deep in the worker.
+ *
+ * Static by default; pass a {sampleDesign, sampleDraw} to also probe choiceProbLL
+ * and buildData at runtime.
+ *
+ * @param {Object} model - The model package default export.
+ * @param {Object} [opts]
+ * @param {Object} [opts.sampleDesign] - A design to probe choiceProbLL/buildData with.
+ * @param {Object} [opts.sampleDraw]   - A parameter draw to probe choiceProbLL with.
+ * @returns {{valid: boolean, problems: Array<{level: "error"|"warn", message: string}>}}
+ */
+function validateModel(model, opts = {}) {
+  const problems = [];
+  const err = (message) => problems.push({ level: "error", message });
+  const warn = (message) => problems.push({ level: "warn", message });
+
+  if (!model || typeof model !== "object") {
+    return { valid: false, problems: [{ level: "error", message: "validateModel: model must be an object (the model package default export)." }] };
+  }
+
+  const id = typeof model.id === "string" && model.id ? model.id : "<model>";
+  if (typeof model.id !== "string" || !model.id) err("`id` must be a non-empty string.");
+
+  const params = Array.isArray(model.params) ? model.params : null;
+  if (!params || params.length === 0 || !params.every((p) => typeof p === "string")) {
+    err("`params` must be a non-empty array of parameter-name strings.");
+  }
+  if (typeof model.moduleUrl !== "string" || !model.moduleUrl) {
+    err("`moduleUrl` must be the compiled module URL (e.g. new URL(\"./main.js\", import.meta.url).href).");
+  }
+  if (typeof model.buildData !== "function") err("`buildData(trials)` must be a function.");
+  if (typeof model.choiceProbLL !== "function") err("`choiceProbLL(design, draw)` must be a function.");
+
+  const presentation = model.presentation;
+  if (!presentation || (typeof presentation.getChoiceTrials !== "function" && typeof presentation.makeStimulus !== "function")) {
+    err("`presentation` must provide getChoiceTrials(ctx) or makeStimulus(design).");
+  }
+  if (model.response_labels == null) warn("`response_labels` is missing; recorded responses will have no human labels.");
+  if (model.choices == null && presentation && typeof presentation.makeStimulus === "function") {
+    warn("`choices` is missing; the single-button presentation path needs choices in index order.");
+  }
+
+  // Prior must cover every parameter, with a family the first-design sampler can draw.
+  if (params && model.prior && typeof model.prior === "object") {
+    for (const p of params) {
+      const spec = model.prior[p];
+      if (!spec || typeof spec !== "object") {
+        err(`prior for "${p}" is missing; the engine samples the prior to choose the first design.`);
+      } else if (!SAMPLEABLE_PRIOR_DISTS.has(spec.dist)) {
+        warn(`prior for "${p}" uses dist "${spec.dist}", which the first-design sampler can't draw ` +
+          `(supports ${[...SAMPLEABLE_PRIOR_DISTS].join(", ")}). The first design would fail.`);
+      }
+    }
+  } else if (params) {
+    err("`prior` must be an object mapping each parameter to a {dist, ...} spec matching the .stan priors.");
+  }
+
+  // Optional runtime probe.
+  if (opts.sampleDesign && typeof model.choiceProbLL === "function") {
+    try {
+      const p = model.choiceProbLL(opts.sampleDesign, opts.sampleDraw || {});
+      if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) {
+        err(`choiceProbLL(sampleDesign, sampleDraw) returned ${p}; expected a probability in [0, 1].`);
+      }
+    } catch (e) {
+      err(`choiceProbLL threw on the sample design: ${String((e && e.message) || e)}.`);
+    }
+  }
+
+  const valid = !problems.some((pr) => pr.level === "error");
+  return { valid, problems };
+}
+
+/**
+ * Register a committed model package in one call. Auto-derives the engine's
+ * `linkProb` from the package's `choiceProbLL` (flipping the argument order),
+ * uses the package's native `buildData`, and forwards its presentation/priors/etc.
+ * — so an experiment page does `registerModelPackage(model, { design_grid })`
+ * instead of restating the whole spec.
+ *
+ * @param {Object} model - The model package default export.
+ * @param {Object} [overrides]
+ * @param {Object|Array} [overrides.design_grid] - Candidate designs; falls back to model.design_grid.
+ * @param {string} [overrides.name]      - Registry name; defaults to model.id.
+ * @param {Object} [overrides.stan]      - Sampler settings; falls back to model.stan.
+ * @param {number} [overrides.n_trials]  - Trial count; falls back to model.n_trials.
+ * @param {string} [overrides.task]      - Task label; falls back to model.task.
+ * @returns {string} The registered model name.
+ */
+function registerModelPackage(model, overrides = {}) {
+  const name = overrides.name ?? (model && model.id);
+  const { valid, problems } = validateModel(model);
+  const errors = problems.filter((p) => p.level === "error");
+  if (errors.length) {
+    throw new Error(
+      `registerModelPackage("${name ?? "<model>"}"): invalid model package:\n  - ` +
+      errors.map((e) => e.message).join("\n  - ")
+    );
+  }
+  for (const w of problems.filter((p) => p.level === "warn")) {
+    console.warn(`registerModelPackage("${name}"): ${w.message}`);
+  }
+
+  const design_grid = overrides.design_grid ?? model.design_grid;
+  if (design_grid == null) {
+    throw new Error(
+      `registerModelPackage("${name}"): a design_grid is required ` +
+      `(pass it in overrides, or set model.design_grid on the package).`
+    );
+  }
+
+  registerModel(name, {
+    moduleUrl: model.moduleUrl,
+    prior: model.prior,
+    params: model.params,
+    design_grid,
+    // The engine calls choiceProbLL(design, draw); registerModel wants linkProb(theta, design).
+    linkProb: (theta, design) => model.choiceProbLL(design, theta),
+    buildData: model.buildData,
+    responseToOutcome: model.responseToOutcome,
+    response_labels: model.response_labels,
+    presentation: model.presentation,
+    choices: model.choices,
+    posterior_display: model.posterior_display,
+    stan: overrides.stan ?? model.stan,
+    n_trials: overrides.n_trials ?? model.n_trials,
+    task: overrides.task ?? model.task,
+  });
+  return name;
+}
+
+const jsPsychADO = { registerModel, registerModelPackage, validateModel, prepareModels, createTimeline };
+
+export {
+  jsPsychADO,
+  registerModel,
+  registerModelPackage,
+  validateModel,
+  prepareModels,
+  createTimeline,
+  parseStanPriors,
+  labelsToConfig,
+  buildAdapter,
+};
 export default jsPsychADO;

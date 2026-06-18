@@ -11,6 +11,8 @@ import {
   parseStanPriors,
   prepareModels,
   registerModel,
+  registerModelPackage,
+  validateModel,
 } from "../../jspsych-ado/index.js";
 
 const STAN_CODE = `
@@ -401,4 +403,109 @@ test("labelsToConfig maps arrays to response-index objects", () => {
   assert.deepEqual(labelsToConfig(["SS", "LL"]), { 0: "SS", 1: "LL" });
   const labels = { 0: "short", 1: "long" };
   assert.equal(labelsToConfig(labels), labels);
+});
+
+// A complete model-package default export (the models/<name>/model.js shape).
+function makePackage(overrides = {}) {
+  return {
+    id: "pkg-model",
+    params: ["k", "tau"],
+    prior: {
+      k: { dist: "lognormal", meanlog: -4, sdlog: 2 },
+      tau: { dist: "normal", mean: 1, sd: 3 },
+    },
+    moduleUrl: "/compiled/main.js",
+    buildData: (trials) => ({ N: trials.length, y: trials.map((t) => t.choice) }),
+    choiceProbLL: (design, draw) => linkProb(draw, design),
+    presentation: TEST_PRESENTATION,
+    choices: ["SS", "LL"],
+    response_labels: { 0: "SS", 1: "LL" },
+    posterior_display: { k: { label: "k" }, tau: { label: "τ" } },
+    ...overrides,
+  };
+}
+
+test("validateModel flags missing pieces, missing priors, and unsampleable prior families", () => {
+  assert.equal(validateModel(makePackage()).valid, true);
+
+  // Missing buildData / choiceProbLL / presentation -> errors.
+  const bad = validateModel({
+    id: "b",
+    params: ["k"],
+    prior: { k: { dist: "lognormal", meanlog: 0, sdlog: 1 } },
+    moduleUrl: "/m/main.js",
+  });
+  assert.equal(bad.valid, false);
+  assert.ok(bad.problems.some((p) => p.level === "error" && /choiceProbLL/.test(p.message)));
+  assert.ok(bad.problems.some((p) => p.level === "error" && /buildData/.test(p.message)));
+  assert.ok(bad.problems.some((p) => p.level === "error" && /presentation/.test(p.message)));
+
+  // A prior the first-design sampler can't draw is a warning, not an error.
+  const warned = validateModel(makePackage({ prior: { k: { dist: "gamma", alpha: 2, beta: 3 }, tau: { dist: "normal", mean: 0, sd: 1 } } }));
+  assert.equal(warned.valid, true);
+  assert.ok(warned.problems.some((p) => p.level === "warn" && /can't draw/.test(p.message)));
+
+  // A parameter with no prior entry is an error (the engine samples the prior first).
+  const missingPrior = validateModel(makePackage({ prior: { k: { dist: "normal", mean: 0, sd: 1 } } }));
+  assert.equal(missingPrior.valid, false);
+  assert.ok(missingPrior.problems.some((p) => p.level === "error" && /tau/.test(p.message)));
+});
+
+test("registerModelPackage rejects an invalid package and requires a design_grid", () => {
+  // Invalid package (no buildData/choiceProbLL) -> throws even though a grid is given.
+  assert.throws(
+    () => registerModelPackage(
+      { id: "invalid-pkg", params: ["k"], prior: { k: { dist: "lognormal", meanlog: 0, sdlog: 1 } }, moduleUrl: "/m/main.js", presentation: TEST_PRESENTATION },
+      { design_grid: DESIGN_GRID }
+    ),
+    /invalid model package/
+  );
+
+  // Valid package but no design_grid anywhere -> throws.
+  assert.throws(
+    () => registerModelPackage(makePackage({ id: "needs-grid" }), {}),
+    /design_grid is required/
+  );
+});
+
+test("registerModelPackage registers a package and wires choiceProbLL(design, draw) in the right order", async () => {
+  const restoreWorker = installFakeWorker();
+  globalThis.jsPsychCallFunction = "call-function";
+  globalThis.jsPsychHtmlButtonResponse = "html-button-response";
+
+  const seen = [];
+  try {
+    const pkg = makePackage({
+      id: "pkg-order",
+      // Spy on the call so we can confirm the façade derives linkProb without
+      // swapping the argument order (design first, parameter draw second).
+      choiceProbLL: (design, draw) => {
+        seen.push({ design, draw });
+        return linkProb(draw, design);
+      },
+    });
+
+    const name = registerModelPackage(pkg, {
+      design_grid: DESIGN_GRID,
+      n_trials: 1,
+      stan: { num_chains: 1, num_warmup: 0, num_samples: 1, seed: 3 },
+    });
+    assert.equal(name, "pkg-order");
+
+    const timeline = createTimeline({}, { model: "pkg-order", task: "demo" });
+    await new Promise((resolve, reject) => {
+      timeline[0].func((d) => resolve(d));
+      setTimeout(() => reject(new Error("timed out waiting for fake worker")), 100);
+    });
+
+    assert.ok(seen.length > 0, "choiceProbLL should run during first-design selection");
+    const { design, draw } = seen[0];
+    assert.ok("r_ss" in design && "t_ll" in design, "first arg should be the design");
+    assert.ok("k" in draw && "tau" in draw, "second arg should be the parameter draw");
+    assert.equal(timeline[1].data().task, "demo");
+  } finally {
+    restoreWorker();
+    delete globalThis.jsPsychCallFunction;
+    delete globalThis.jsPsychHtmlButtonResponse;
+  }
 });
