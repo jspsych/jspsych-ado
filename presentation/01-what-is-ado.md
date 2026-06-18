@@ -1,3 +1,17 @@
+<p align="center">
+  <img src="jspsych-ado.png" alt="jspsych-ado — the adaptive loop: model → design → stimulus → response → update" width="180">
+</p>
+
+<h1 align="center">jspsych-ado</h1>
+
+<p align="center"><strong>Adaptive design optimization (ADO), entirely in the browser, for jsPsych experiments.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/githubpsyche/jspsych-ado/actions/workflows/ci.yml">
+    <img src="https://github.com/githubpsyche/jspsych-ado/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+</p>
+
 # What is Adaptive Design Optimization?
 
 Most experiments ask every participant the same questions in the same order. Some questions are informative for a given person; most are not. ADO eliminates the wasted ones.
