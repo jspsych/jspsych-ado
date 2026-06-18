@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { samplePriorDraws } from "../../jspsych-ado/ado/mi_engine.js";
 import { createAdoTimeline } from "../../jspsych-ado/ado/ado_timeline.js";
 import { createSeededRng } from "../../jspsych-ado/ado/ado_simulation.js";
+import { createStanAdoController } from "../../jspsych-ado/controllers/stan_ado_controller.js";
 import { compileStanModel } from "../../jspsych-ado/models/compile_stan_model.js";
 import {
   buildAdapter,
@@ -488,6 +489,9 @@ test("createAdoTimeline passes completed testlets as batches and refills designs
       trial_index: 0,
       next_design: designs[0],
       next_designs: designs.slice(0, 2),
+      next_design_metrics: [{ mutual_info: 0.11 }, { mutual_info: 0.22 }],
+      selection_time_ms: 4,
+      max_mutual_info: 0.22,
       post_mean: null,
       post_sd: null,
       api_latency_ms: null,
@@ -501,6 +505,9 @@ test("createAdoTimeline passes completed testlets as batches and refills designs
         trial_index: done,
         next_design: done < designs.length ? designs[done] : null,
         next_designs: done < designs.length ? [designs[done]] : [],
+        next_design_metrics: done < designs.length ? [{ mutual_info: 0.30 }] : [],
+        selection_time_ms: done < designs.length ? 5 : null,
+        max_mutual_info: done < designs.length ? 0.30 : null,
         post_mean: { k: done },
         post_sd: { k: 0.1 },
         api_latency_ms: 1,
@@ -526,10 +533,14 @@ test("createAdoTimeline passes completed testlets as batches and refills designs
     timeline[1].on_start({});
     const first = { ...timeline[1].data(), response: 1 };
     timeline[1].on_finish(first);
+    assert.equal(first.ado_selection_time_ms, 4);
+    assert.equal(first.ado_mutual_info, 0.11);
 
     timeline[2].on_start({});
     const second = { ...timeline[2].data(), response: 0 };
     timeline[2].on_finish(second);
+    assert.equal(second.ado_selection_time_ms, 4);
+    assert.equal(second.ado_mutual_info, 0.22);
 
     const first_update = await new Promise((resolve, reject) => {
       timeline[3].func(resolve);
@@ -539,6 +550,8 @@ test("createAdoTimeline passes completed testlets as batches and refills designs
     timeline[4].on_start({});
     const third = { ...timeline[4].data(), response: 1 };
     timeline[4].on_finish(third);
+    assert.equal(third.ado_selection_time_ms, 5);
+    assert.equal(third.ado_mutual_info, 0.30);
 
     const second_update = await new Promise((resolve, reject) => {
       timeline[5].func(resolve);
@@ -554,9 +567,79 @@ test("createAdoTimeline passes completed testlets as batches and refills designs
     assert.equal(seen_batches[1][0].post_mean_k, 2);
     assert.equal(first_update.ado_testlet_size, 2);
     assert.equal(second_update.ado_testlet_size, 1);
+    assert.deepEqual(first_update.ado_next_design_metrics, [{ mutual_info: 0.30 }]);
+    assert.equal(first_update.ado_selection_time_ms, 5);
+    assert.equal(first_update.ado_max_mutual_info, 0.30);
+    assert.deepEqual(second_update.ado_next_design_metrics, []);
+    assert.equal(second_update.ado_selection_time_ms, null);
+    assert.equal(second_update.ado_max_mutual_info, null);
   } finally {
     delete globalThis.jsPsychCallFunction;
     delete globalThis.jsPsychHtmlButtonResponse;
+  }
+});
+
+test("Stan controller exposes design-selection diagnostics for ADO testlets", async () => {
+  const restoreWorker = installFakeWorker();
+  try {
+    const controller = createStanAdoController({
+      model: {
+        params: ["x"],
+        prior: { x: { dist: "normal", mean: 0, sd: 1 } },
+        moduleUrl: "/fake.js",
+        buildData: () => ({ N: 0 }),
+        responseProb: (design, draw) => {
+          if (design.d === 0) {
+            return 0.5;
+          }
+          return draw.x > 0 ? 0.9 : 0.1;
+        },
+      },
+      grid_design: { d: [0, 1] },
+      stan: { num_chains: 1, num_warmup: 0, num_samples: 1, seed: 13 },
+      n_trials: 2,
+      testlet_size: 2,
+    });
+
+    const state = await controller.start();
+
+    assert.equal(state.next_designs.length, 2);
+    assert.equal(state.next_design_metrics.length, 2);
+    assert.equal(state.next_design.d, 1);
+    assert.equal(state.next_design_metrics[0].mutual_info, state.max_mutual_info);
+    assert.ok(state.max_mutual_info > 0);
+    assert.ok(state.selection_time_ms >= 0);
+  } finally {
+    restoreWorker();
+  }
+});
+
+test("Stan random strategy reports null mutual information diagnostics", async () => {
+  const restoreWorker = installFakeWorker();
+  try {
+    const controller = createStanAdoController({
+      model: {
+        params: ["x"],
+        prior: { x: { dist: "normal", mean: 0, sd: 1 } },
+        moduleUrl: "/fake.js",
+        buildData: () => ({ N: 0 }),
+        responseProb: () => 0.5,
+      },
+      grid_design: { d: [0, 1, 2] },
+      stan: { num_chains: 1, num_warmup: 0, num_samples: 1, seed: 23 },
+      design_strategy: "random",
+      n_trials: 2,
+      testlet_size: 2,
+    });
+
+    const state = await controller.start();
+
+    assert.equal(state.next_designs.length, 2);
+    assert.deepEqual(state.next_design_metrics, [{ mutual_info: null }, { mutual_info: null }]);
+    assert.equal(state.max_mutual_info, null);
+    assert.ok(state.selection_time_ms >= 0);
+  } finally {
+    restoreWorker();
   }
 });
 

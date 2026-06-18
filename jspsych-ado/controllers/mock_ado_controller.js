@@ -2,7 +2,8 @@
 // the in-browser Stan controller, but without WASM — for fast timeline/UI work and
 // browser smoke tests. It knows nothing about any specific task: designs are drawn
 // from the candidate grid via the generic engine, and mock posteriors are emitted
-// for whatever parameter names the model declares.
+// for whatever parameter names the model declares. Selection diagnostics are
+// reported as null so mock runs never imply real information-gain estimates.
 
 import { enumerateDesigns } from "../ado/mi_engine.js";
 
@@ -49,6 +50,14 @@ function createMockAdoController({ grid_design, params = [], n_trials = null, te
     return next_designs;
   }
 
+  function nullDesignMetrics(count) {
+    const metrics = [];
+    for (let i = 0; i < count; i++) {
+      metrics.push({ mutual_info: null });
+    }
+    return metrics;
+  }
+
   // Deterministic per-parameter summaries that drift with the trial index, so the
   // live posterior charts have something monotone-ish to render.
   function mockPosterior(index) {
@@ -77,6 +86,9 @@ function createMockAdoController({ grid_design, params = [], n_trials = null, te
         trial_index,
         next_design: next_designs[0] ?? null,
         next_designs,
+        next_design_metrics: nullDesignMetrics(next_designs.length),
+        selection_time_ms: null,
+        max_mutual_info: null,
         post_mean: null,
         post_sd: null,
         api_latency_ms: null,
@@ -99,6 +111,9 @@ function createMockAdoController({ grid_design, params = [], n_trials = null, te
         trial_index,
         next_design: next_designs[0] ?? null,
         next_designs,
+        next_design_metrics: nullDesignMetrics(next_designs.length),
+        selection_time_ms: null,
+        max_mutual_info: null,
         post_mean,
         post_sd,
         api_latency_ms: null,

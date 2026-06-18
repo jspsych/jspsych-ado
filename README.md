@@ -46,7 +46,8 @@ experiments/delay_discounting/index.html?controller=stan&strategy=ado&debug=1
   deterministic, no-WASM controller for fast UI work.
 - `strategy=ado` (default) — MI-optimal designs; `strategy=random` — a random baseline
   drawn from the same grid.
-- `debug=1` — per-trial console summary + live posterior-convergence charts.
+- `debug=1` — per-trial console summary, selection diagnostics when available,
+  and live posterior-convergence charts.
 - `simulate=data-only` | `simulate=visual` — run a simulated participant.
 
 ## Usage

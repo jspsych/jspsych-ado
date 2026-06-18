@@ -45,22 +45,33 @@ async function runMode(browser, baseUrl, spec) {
   const result = await page.waitForFunction(() => {
     const jp = window.jsPsych;
     if (!jp || !jp.data) return false;
+    const allRows = jp.data.get().values();
     const rows = jp.data.get().filter({ task: "delay_discounting" }).values();
-    const errored = jp.data.get().values().find((r) => r.ado_event === "error" || r.ado_error);
+    const eventRows = allRows.map((r) => r.value || r);
+    const updateRows = eventRows.filter((r) => r.ado_event === "update");
+    const errored = eventRows.find((r) => r.ado_event === "error" || r.ado_error);
     if (errored) return { errored: true, message: errored.ado_error || "unknown" };
-    if (rows.length < 42) return false;
+    if (rows.length < 42 || updateRows.length < 42) return false;
     const last = rows[rows.length - 1];
+    const hasChoiceMi = Object.prototype.hasOwnProperty.call(last, "ado_mutual_info");
+    const hasChoiceSelectionTime = Object.prototype.hasOwnProperty.call(last, "ado_selection_time_ms");
     return {
       errored: false,
       choiceRows: rows.length,
+      updateRows: updateRows.length,
       hasAdoDesign: !!last.ado_design && typeof last.ado_design === "object",
+      hasChoiceMi,
+      hasChoiceSelectionTime,
       choice: last.choice,
+      choiceMutualInfo: last.ado_mutual_info ?? null,
+      choiceSelectionTime: last.ado_selection_time_ms ?? null,
       postMeanK: last.post_mean_k ?? null,
       postSdK: last.post_sd_k ?? null,
       postMeanTau: last.post_mean_tau ?? null,
       postSdTau: last.post_sd_tau ?? null,
       controllerMode: last.controller_mode,
       designStrategy: last.design_strategy ?? null,
+      updateRowsWithMetrics: updateRows.filter((r) => Array.isArray(r.ado_next_design_metrics)).length,
     };
   }, { timeout: spec.timeout, polling: 500 }).then((h) => h.jsonValue());
 
@@ -94,10 +105,23 @@ try {
     note(!r.errored, r.errored ? `${mode}: controller error -> ${r.message}` : `${mode}: completed without controller error`);
     if (!r.errored) {
       note(r.choiceRows === 42, `${mode}: 42 choice trials recorded (got ${r.choiceRows})`);
+      note(r.updateRows === 42, `${mode}: 42 update rows recorded (got ${r.updateRows})`);
       note(r.hasAdoDesign, `${mode}: last row carries ado_design`);
+      note(r.hasChoiceMi, `${mode}: choice row carries ado_mutual_info`);
+      note(r.hasChoiceSelectionTime, `${mode}: choice row carries ado_selection_time_ms`);
+      note(r.updateRowsWithMetrics === 42, `${mode}: update rows carry ado_next_design_metrics`);
       note(r.choice === 0 || r.choice === 1, `${mode}: choice is 0/1 (got ${r.choice})`);
       note(r.controllerMode === (mode === "quest_plus" ? "quest_plus" : mode),
         `${mode}: controller_mode recorded (got ${r.controllerMode})`);
+      if (mode === "stan") {
+        note(typeof r.choiceMutualInfo === "number" && Number.isFinite(r.choiceMutualInfo),
+          `${mode}: selected-design MI recorded (${r.choiceMutualInfo})`);
+        note(typeof r.choiceSelectionTime === "number" && r.choiceSelectionTime >= 0,
+          `${mode}: selection time recorded (${r.choiceSelectionTime} ms)`);
+      } else {
+        note(r.choiceMutualInfo === null, `${mode}: selected-design MI is null when unavailable`);
+        note(r.choiceSelectionTime === null, `${mode}: selection time is null when unavailable`);
+      }
       if (mode === "stan" || mode === "quest_plus") {
         note(typeof r.postMeanK === "number" && typeof r.postSdK === "number" &&
           typeof r.postMeanTau === "number" && typeof r.postSdTau === "number",

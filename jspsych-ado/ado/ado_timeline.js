@@ -55,6 +55,44 @@ function copyPosteriorFields(data, ado_state) {
   }
 }
 
+function normalizeDesignMetric(metric) {
+  if (!metric || typeof metric !== "object") {
+    return { mutual_info: null };
+  }
+  const mutual_info = metric.mutual_info;
+  return {
+    ...metric,
+    mutual_info: typeof mutual_info === "number" && Number.isFinite(mutual_info) ? mutual_info : null,
+  };
+}
+
+function metricsFromResult(result, design_count) {
+  const metrics = Array.isArray(result.next_design_metrics) ? result.next_design_metrics : [];
+  const normalized = [];
+  for (let i = 0; i < design_count; i++) {
+    normalized.push(normalizeDesignMetric(metrics[i]));
+  }
+  return normalized;
+}
+
+/**
+ * Copy design-selection diagnostics onto a jsPsych choice row.
+ *
+ * selection_time_ms is the batch-level time spent choosing the current testlet.
+ * ado_mutual_info is the metric for the specific design presented on this row.
+ *
+ * @param {Object} data - jsPsych choice-trial data row, mutated in place.
+ * @param {Object} ado_state - Controller state that selected the current design.
+ * @param {?Object} design_metric - Metric aligned with the current design.
+ */
+function copySelectionFields(data, ado_state, design_metric) {
+  data.ado_selection_time_ms = ado_state && ado_state.selection_time_ms != null
+    ? ado_state.selection_time_ms
+    : null;
+  const normalized = normalizeDesignMetric(design_metric);
+  data.ado_mutual_info = normalized.mutual_info;
+}
+
 function formatDebugNumber(value, digits = 4) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return "NA";
@@ -66,7 +104,17 @@ function formatDebugLatency(value) {
   if (value === null || value === undefined) {
     return "not measured";
   }
-  return `${value} ms`;
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return "not measured";
+  }
+  if (number < 1) {
+    return `${(number * 1000).toPrecision(3)} us`;
+  }
+  if (number < 10) {
+    return `${number.toPrecision(3)} ms`;
+  }
+  return `${Math.round(number)} ms`;
 }
 
 /**
@@ -117,9 +165,11 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
     const label = `ADO update ${trial_data.trial_number}/${total_trials} | ${mode_label} | response: ${trial_data.choice_label}`;
     const summary = [
       `${label} | latency: ${formatDebugLatency(ado_result.api_latency_ms)}`,
+      `Design selection: ${formatDebugLatency(ado_result.selection_time_ms)} | max MI: ${formatDebugNumber(ado_result.max_mutual_info)}`,
       "",
       "Presented:",
       ...describeDesign(trial_data.ado_design, config).map(line => "  " + line),
+      "  mutual_info: " + formatDebugNumber(trial_data.ado_mutual_info),
       "",
       "Posterior after response:",
       ...Object.keys(post_mean).map(param =>
@@ -136,9 +186,14 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
 
     if (console.groupCollapsed && console.table && console.groupEnd) {
       console.groupCollapsed(`${label} details`);
-      const design_rows = [{ when: "presented", ...trial_data.ado_design }];
-      if (next_design) {
-        design_rows.push({ when: "next", ...next_design });
+      const design_rows = [{ when: "presented", mutual_info: trial_data.ado_mutual_info, ...trial_data.ado_design }];
+      const next_designs = ado_result.next_designs || (next_design ? [next_design] : []);
+      const next_metrics = Array.isArray(ado_result.next_design_metrics) ? ado_result.next_design_metrics : [];
+      if (next_designs.length) {
+        next_designs.forEach(function(design, index) {
+          const metric = normalizeDesignMetric(next_metrics[index]);
+          design_rows.push({ when: "next " + (index + 1), mutual_info: metric.mutual_info, ...design });
+        });
       }
       console.table(design_rows);
       console.table(Object.keys(post_mean).map(param => ({
@@ -598,9 +653,9 @@ function canvasResponse({ draw, getDesign, choices }, ctx) {
  *
  * The timeline depends only on the ADO controller contract (start() provides the
  * first design(s); update(trial_data) returns posterior summaries plus the next
- * design(s)) and on the task's presentation spec. It is independent of whether
- * the controller is mock-backed or the in-browser Stan controller, and of how the
- * stimulus is drawn.
+ * design(s) and optional aligned design-selection metrics) and on the task's
+ * presentation spec. It is independent of whether the controller is mock-backed
+ * or the in-browser Stan controller, and of how the stimulus is drawn.
  *
  * @param {Object} jsPsych - jsPsych instance returned by initJsPsych().
  * @param {Object} adaptive_controller - Controller with start/update methods.
@@ -612,7 +667,9 @@ function canvasResponse({ draw, getDesign, choices }, ctx) {
 function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {}) {
   let ado_state = null;
   let current_design = null;
+  let current_design_metric = null;
   let current_designs = [];
+  let current_design_metrics = [];
   let testlet_rows = [];
 
   const presentation = config.presentation;
@@ -674,7 +731,9 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
           );
         }
         current_designs = designsFromResult(result);
+        current_design_metrics = metricsFromResult(result, current_designs.length);
         current_design = current_designs[0] ?? null;
+        current_design_metric = current_design_metrics[0] ?? null;
         done({
           ado_event: "start",
           ado_session_id: result.session_id,
@@ -682,6 +741,11 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
           ado_mode: run_context.ado_mode,
           controller_mode: run_context.controller_mode,
           design_strategy: run_context.design_strategy,
+          ado_next_design: result.next_design,
+          ado_next_designs: current_designs.slice(),
+          ado_next_design_metrics: current_design_metrics.slice(),
+          ado_selection_time_ms: result.selection_time_ms ?? null,
+          ado_max_mutual_info: result.max_mutual_info ?? null,
         });
       }).catch(error => failExperiment(error, done));
     }
@@ -718,6 +782,7 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
     const inner_on_start = first_trial.on_start;
     first_trial.on_start = function(trial) {
       current_design = current_designs.shift();
+      current_design_metric = current_design_metrics.shift() ?? null;
       if (current_design == null) {
         console.error("ADO design queue underflow at choice trial.");
         jsPsych.endExperiment("<p>The experiment encountered an error and cannot continue.</p>");
@@ -748,6 +813,7 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
       data.testlet_index = Math.floor(i / testlet_size);
       data.testlet_position = i % testlet_size;
       copyPosteriorFields(data, ado_state);
+      copySelectionFields(data, ado_state, current_design_metric);
       testlet_rows.push(data);
     };
 
@@ -765,7 +831,9 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
           adaptive_controller.update(payload).then(result => {
             ado_state = result;
             current_designs = designsFromResult(result);
+            current_design_metrics = metricsFromResult(result, current_designs.length);
             current_design = current_designs[0] ?? null;
+            current_design_metric = current_design_metrics[0] ?? null;
             logAdoTrial(run_context, batch[batch.length - 1], result, config);
             appendPosteriorHistory(run_context, result);
             done({
@@ -777,10 +845,13 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
               controller_mode: run_context.controller_mode,
               design_strategy: run_context.design_strategy,
               ado_next_design: result.next_design,
-              ado_next_designs: result.next_designs,
+              ado_next_designs: current_designs.slice(),
+              ado_next_design_metrics: current_design_metrics.slice(),
               ado_post_mean: result.post_mean,
               ado_post_sd: result.post_sd,
               ado_api_latency_ms: result.api_latency_ms,
+              ado_selection_time_ms: result.selection_time_ms ?? null,
+              ado_max_mutual_info: result.max_mutual_info ?? null,
             });
           }).catch(error => failExperiment(error, done));
         },

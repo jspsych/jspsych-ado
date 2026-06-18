@@ -13,7 +13,8 @@ const PRIOR_DRAWS = 2000;
  * Create a fully in-browser, model-agnostic adaptive controller.
  *
  * It satisfies the same contract as the mock/API controllers (start/update
- * returning {session_id, trial_index, next_design, post_mean, post_sd}), but does
+ * returning the next design/testlet, posterior summaries, and optional
+ * design-selection diagnostics), but does
  * the work locally: Stan (via a Web Worker + WASM) infers the posterior over the
  * model parameters from the accumulated choices, and the generic MI engine picks
  * the next design. No Python, no network.
@@ -31,6 +32,8 @@ const PRIOR_DRAWS = 2000;
  *   selection. Defaults to stan.seed so existing runs stay reproducible.
  * @param {number} [options.testlet_size=1] - Choice trials shown between Stan refits.
  * @returns {Object} Controller with async start(context) and update(trial_data).
+ *   Results include next_designs plus aligned next_design_metrics, where
+ *   mutual_info is available for MI-selected ADO designs and null for random.
  */
 function createStanAdoController({
   model,
@@ -173,18 +176,59 @@ function createStanAdoController({
     return next_designs;
   }
 
+  function nullDesignMetrics(count) {
+    const metrics = [];
+    for (let i = 0; i < count; i++) {
+      metrics.push({ mutual_info: null });
+    }
+    return metrics;
+  }
+
+  function maxMutualInfo(metrics) {
+    let max_mi = null;
+    for (const metric of metrics) {
+      const mi = metric && metric.mutual_info;
+      if (typeof mi === "number" && Number.isFinite(mi)) {
+        max_mi = max_mi == null ? mi : Math.max(max_mi, mi);
+      }
+    }
+    return max_mi;
+  }
+
   /**
    * Select the next design under the configured policy.
    *
    * The "random" policy intentionally ignores posterior draws for design
    * selection but still receives them so this helper has one call shape.
    */
-  function selectDesigns(draws, count) {
-    if (design_strategy === "random") {
-      return sampleRandomDesigns(count);
+  function selectDesignsWithMetrics(draws, count) {
+    if (count <= 0) {
+      return {
+        next_designs: [],
+        next_design_metrics: [],
+        selection_time_ms: null,
+        max_mutual_info: null,
+      };
     }
-    return selectOptimalDesigns(designs, draws, model.responseProb, count, { rng: design_rng })
-      .map((pick) => pick.design);
+
+    const selection_started_at = now();
+    let next_designs = [];
+    let next_design_metrics = [];
+    if (design_strategy === "random") {
+      next_designs = sampleRandomDesigns(count);
+      next_design_metrics = nullDesignMetrics(next_designs.length);
+    } else {
+      const picks = selectOptimalDesigns(designs, draws, model.responseProb, count, { rng: design_rng });
+      next_designs = picks.map((pick) => pick.design);
+      next_design_metrics = picks.map((pick) => ({ mutual_info: pick.mutual_info }));
+    }
+
+    return {
+      next_designs,
+      next_design_metrics,
+      selection_time_ms: now() - selection_started_at,
+      max_mutual_info: maxMutualInfo(next_design_metrics),
+    };
   }
 
   function nextBlockSize(from_index) {
@@ -204,20 +248,23 @@ function createStanAdoController({
 
       trials.length = 0;
 
-      let next_designs = [];
       const block_size = nextBlockSize(trials.length);
+      let selection = selectDesignsWithMetrics([], 0);
       if (design_strategy === "random") {
-        next_designs = sampleRandomDesigns(block_size);
+        selection = selectDesignsWithMetrics([], block_size);
       } else {
         const prior = samplePriorDraws(model.prior, PRIOR_DRAWS, design_rng);
-        next_designs = selectDesigns(prior, block_size);
+        selection = selectDesignsWithMetrics(prior, block_size);
       }
 
       return {
         session_id,
         trial_index: trials.length,
-        next_design: next_designs[0] ?? null,
-        next_designs,
+        next_design: selection.next_designs[0] ?? null,
+        next_designs: selection.next_designs,
+        next_design_metrics: selection.next_design_metrics,
+        selection_time_ms: selection.selection_time_ms,
+        max_mutual_info: selection.max_mutual_info,
         post_mean: null,
         post_sd: null,
         api_latency_ms: null,
@@ -245,13 +292,16 @@ function createStanAdoController({
       // The design produced after the final choice is never shown, so skip the
       // ~1M-evaluation MI scan on the last update.
       const block_size = nextBlockSize(trials.length);
-      const next_designs = block_size > 0 ? selectDesigns(draws, block_size) : [];
+      const selection = selectDesignsWithMetrics(draws, block_size);
 
       return {
         session_id,
         trial_index: trials.length,
-        next_design: next_designs[0] ?? null,
-        next_designs,
+        next_design: selection.next_designs[0] ?? null,
+        next_designs: selection.next_designs,
+        next_design_metrics: selection.next_design_metrics,
+        selection_time_ms: selection.selection_time_ms,
+        max_mutual_info: selection.max_mutual_info,
         post_mean,
         post_sd,
         // Reuse the latency field to report local sampling+MI time (ms).
