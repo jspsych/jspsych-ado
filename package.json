@@ -1,0 +1,15 @@
+{
+  "name": "jspsych-ado",
+  "version": "0.1.0",
+  "private": true,
+  "description": "In-browser adaptive design optimization (ADO) for jsPsych experiments — Stan/WASM, no server, no Python.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/js/*.test.mjs",
+    "test:smoke": "node tests/js/stan_recovery.smoke.mjs",
+    "test:browser": "node tests/browser/dd_smoke.mjs"
+  },
+  "devDependencies": {
+    "puppeteer": "^24.15.0"
+  }
+}

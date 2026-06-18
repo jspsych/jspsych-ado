@@ -1,0 +1,36 @@
+name: CI
+
+# Runs on PRs and on pushes to main. The unit job needs no dependencies; the
+# browser job installs puppeteer (which brings its own Chromium) to exercise the
+# Web Worker + WASM path that the node tests deliberately bypass.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Unit tests + Stan recovery smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Unit tests (MI engine, model adapter, façade)
+        run: node --test tests/js/*.test.mjs
+      - name: Stan recovery smoke (real WASM via fetch shim)
+        run: node tests/js/stan_recovery.smoke.mjs
+
+  browser:
+    name: Headless Worker/WASM smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dev deps (puppeteer + Chromium)
+        run: npm install --no-audit --no-fund
+      - name: Delay-discounting browser smoke (mock + stan)
+        run: node tests/browser/dd_smoke.mjs
