@@ -5,6 +5,10 @@ can run. The generic engine (`../ado/mi_engine.js`), worker (`../ado/stan_worker
 and controller (`../controllers/stan_ado_controller.js`) are model-agnostic — adding
 a model never touches them.
 
+> **New here?** [ADDING_A_MODEL.md](ADDING_A_MODEL.md) is the full walkthrough, with
+> two worked examples (a model swap on the same task, and a new canvas task). This
+> file is the quick reference for the package contract and the compile steps.
+
 A package contains:
 
 | File | What it is |

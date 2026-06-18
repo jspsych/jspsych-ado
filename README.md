@@ -20,6 +20,9 @@ client-side via [tinystan](https://github.com/WardBrian/tinystan) + WASM.
   the façade to build the timeline. `experiments/delay_discounting/` is the first
   example (the hyperbolic model).
 
+**Adding your own model?** See the walkthrough:
+[jspsych-ado/models/ADDING_A_MODEL.md](jspsych-ado/models/ADDING_A_MODEL.md).
+
 ## Run it
 
 Open with Live Server (no build step):

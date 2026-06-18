@@ -120,81 +120,13 @@ The knobs live in `default_dd_config` (or your own copy):
 
 ### Adding a model
 
-A model is a folder under `jspsych-ado/models/`. Three steps, no local compiler
-toolchain required.
-
-**1. Write the Stan model** at `jspsych-ado/models/<name>/<name>.stan` (likelihood
-+ priors).
-
-**2. Compile it once** with the public Flatiron server and drop the two artifacts
-in the folder (keep the `main.js` / `main.wasm` names — `main.js` hardcodes loading
-its sibling `main.wasm`):
-
-```bash
-cd jspsych-ado/models/<name>
-ID=$(curl -s -X POST https://stan-wasm.flatironinstitute.org/compile \
-  -H "Content-Type: text/plain" -H "Authorization: Bearer 1234" \
-  --data-binary @<name>.stan | sed -E 's/.*"model_id":"([^"]+)".*/\1/')
-curl -s "https://stan-wasm.flatironinstitute.org/download/$ID/main.js"   -o main.js
-curl -s "https://stan-wasm.flatironinstitute.org/download/$ID/main.wasm" -o main.wasm
-```
-
-(Or paste the model into https://stan-playground.flatironinstitute.org and download
-`main.js` + `main.wasm`. Or run the server locally:
-`docker run -p 8083:8080 ghcr.io/flatironinstitute/stan-wasm-server:latest` and point
-the URLs at `http://localhost:8083`.)
-
-**3. Write the adapter** at `jspsych-ado/models/<name>/model.js`. It owns the
-likelihood (mirroring the `.stan` block), the priors, and the **presentation** —
-how a design is shown and answered. The generic timeline consumes `presentation`
-through either the single-button convenience path (`makeStimulus` + optional
-`button_html`/`keymap`/`prompt`) or `getChoiceTrials(ctx)` for multi-frame tasks.
-
-```js
-export default {
-  id: "exponential",
-  params: ["r", "tau"],                          // parameters to summarize
-  prior: {                                        // MUST match <name>.stan priors
-    r:   { dist: "lognormal", meanlog: -2, sdlog: 1 },
-    tau: { dist: "halfnormal", sd: 3 },
-  },
-  posterior_display: {                            // optional chart labels/ranges (debug)
-    r:   { label: "r", y_min: 0, y_max: 1, lower_bound: 0 },
-    tau: { label: "τ", y_min: 0, y_max: 7, lower_bound: 0 },
-  },
-  moduleUrl: new URL("./main.js", import.meta.url).href,
-  buildData: (trials) => ({                       // trials: {t_ss,t_ll,r_ss,r_ll,choice}
-    N: trials.length,
-    t_ss: trials.map(t => t.t_ss), t_ll: trials.map(t => t.t_ll),
-    r_ss: trials.map(t => t.r_ss), r_ll: trials.map(t => t.r_ll),
-    y:    trials.map(t => t.choice),
-  }),
-  choiceProbLL: (design, p) => {                  // P(LL); design first, param-draw second
-    const vss = design.r_ss * Math.exp(-p.r * design.t_ss);
-    const vll = design.r_ll * Math.exp(-p.r * design.t_ll);
-    return 1 / (1 + Math.exp(-p.tau * (vll - vss)));
-  },
-  // Stimulus + response contract consumed by the generic timeline.
-  presentation: {
-    makeStimulus: (design) => `<p>Which would you prefer?</p>`,
-    button_html:  (design) => [card(design, 0), card(design, 1)],
-    keymap:       { s: 0, l: 1 },                 // physical key -> button index
-    prompt:       "<p>Press S for sooner · L for later</p>",
-  },
-  choices: ["SS", "LL"],
-  response_labels: { 0: "SS", 1: "LL" },
-};
-```
-
-Then register it exactly like the hyperbolic model above and pass `model: "exponential"`
-to `createTimeline`. `choiceProbLL` is the JS mirror of the `.stan` likelihood and
-must agree with it; the adapter unit test (`tests/js/<name>.test.mjs`) guards the
-formula.
-
-For a task whose binary outcome depends on the design (e.g. "chose the more
-numerous side"), add `responseToOutcome: (design, choiceIndex) => 0 | 1` to the
-spec; it defaults to identity (the raw button index is the outcome), which is
-correct for delay discounting.
+A model is a folder under `jspsych-ado/models/<name>/` (a `.stan` file, the compiled
+`main.js`/`main.wasm`, and a `model.js` adapter), registered with one
+`registerModel` call. The full step-by-step — with two worked examples (a model swap
+on the same task, and a new canvas task with a design-dependent outcome) — lives in
+**[jspsych-ado/models/ADDING_A_MODEL.md](../../jspsych-ado/models/ADDING_A_MODEL.md)**.
+For the no-toolchain compile steps see
+**[jspsych-ado/models/README.md](../../jspsych-ado/models/README.md)**.
 
 ### (Optional) Compile from a `.stan` string at setup
 
