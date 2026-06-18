@@ -16,8 +16,8 @@ The runnable experiment now follows the same thin-consumer structure as
 `experiments/delay_discounting`:
 
 ```text
-experiments/experiment_halberda_dot_comparison/index.html
-experiments/experiment_halberda_dot_comparison/halberda_config.js
+experiments/halberda_dot_comparison/index.html
+experiments/halberda_dot_comparison/halberda_config.js
 jspsych-ado/tasks/halberda_dot_comparison/task.js
 jspsych-ado/models/weber_dots/model.js
 jspsych-ado/models/weber_dots/weber_dot_comparison.stan
