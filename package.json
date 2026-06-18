@@ -1,6 +1,6 @@
 {
   "name": "jspsych-ado",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "In-browser adaptive design optimization (ADO) for jsPsych experiments — Stan/WASM, no server, no Python.",
   "type": "module",
   "license": "MIT",
