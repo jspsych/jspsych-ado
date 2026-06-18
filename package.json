@@ -28,7 +28,8 @@
     "./controllers/*": "./jspsych-ado/controllers/*",
     "./models/*": "./jspsych-ado/models/*",
     "./tasks/*": "./jspsych-ado/tasks/*",
-    "./core/tinystan/*": "./core/tinystan/*"
+    "./core/tinystan/*": "./core/tinystan/*",
+    "./package.json": "./package.json"
   },
   "sideEffects": [
     "**/model.js",

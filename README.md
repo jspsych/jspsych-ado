@@ -7,8 +7,14 @@
 <p align="center"><strong>Adaptive design optimization (ADO), entirely in the browser, for jsPsych experiments.</strong></p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/jspsych-ado">
+    <img src="https://img.shields.io/npm/v/jspsych-ado.svg" alt="npm version">
+  </a>
   <a href="https://github.com/githubpsyche/jspsych-ado/actions/workflows/ci.yml">
     <img src="https://github.com/githubpsyche/jspsych-ado/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/githubpsyche/jspsych-ado/blob/main/LICENSE">
+    <img src="https://img.shields.io/npm/l/jspsych-ado.svg" alt="MIT license">
   </a>
 </p>
 
@@ -27,15 +33,14 @@ have written, which are ready to be used out of the box.
 
 ## Status
 
-🚧 **In active development, preparing the first npm release.** The in-browser
-engine, the binary delay-discounting example, the 3IFC categorical line-length
-example, and the Halberda-style dot comparison example work and are covered by CI
-(unit tests + real headless Worker/WASM smokes). The committed WASM is now
-bundler-safe and the package builds under Vite and webpack 5 (see
-[Using with a bundler](#using-with-a-bundler) and
-[#57](https://github.com/githubpsyche/jspsych-ado/issues/57)). Still settling: the
-experiment API around future task/model/controller extensions. Not yet published to
-npm — for now, either serve the repo (above) or install from a packed tarball / git.
+🚧 **Early release — published as `jspsych-ado` on npm (v0.1.0).** `npm install jspsych-ado`.
+The in-browser engine, the binary delay-discounting example, the 3IFC categorical
+line-length example, and the Halberda-style dot comparison example work and are
+covered by CI (unit tests + real headless Worker/WASM smokes + a bundler build
+smoke). The committed WASM is bundler-safe and the package builds under Vite and
+webpack 5 (see [Using with a bundler](#using-with-a-bundler)). Still settling and
+pre-1.0: the experiment API around future task/model/controller extensions, so
+expect changes before 1.0.
 
 ## Quick start
 
