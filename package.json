@@ -1,6 +1,6 @@
 {
   "name": "jspsych-ado",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "In-browser adaptive design optimization (ADO) for jsPsych experiments — Stan/WASM, no server, no Python.",
   "type": "module",
   "license": "MIT",
@@ -61,9 +61,15 @@
     "@jspsych/plugin-canvas-keyboard-response": ">=1"
   },
   "peerDependenciesMeta": {
-    "@jspsych/plugin-html-button-response": { "optional": true },
-    "@jspsych/plugin-call-function": { "optional": true },
-    "@jspsych/plugin-canvas-keyboard-response": { "optional": true }
+    "@jspsych/plugin-html-button-response": {
+      "optional": true
+    },
+    "@jspsych/plugin-call-function": {
+      "optional": true
+    },
+    "@jspsych/plugin-canvas-keyboard-response": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "puppeteer": "^24.15.0"
