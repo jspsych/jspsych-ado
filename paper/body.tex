@@ -62,7 +62,9 @@ In general optimal design based on a mutual-information formulation like these a
 
 While running Stan in the browser via WebAssembly was recently demonstrated\citep{stanplayground}, but it has not been used for applicaitons like adaptive design. \texttt{jspsych-ado} combines in-browser inference with mutual-information design optimization inside the jsPsych ecosystem.
 
-% Can refer to https://github.com/githubpsyche/jspsych-ado/issues/35 for other possibly useful references
+% TODO: expand statement of need / state of field with the concrete use cases and who benefits.
+%clinicnal settings? automated testing?
+% Can refer to https://github.com/githubpsyche/jspsych-ado/issues/35 for other possibly useful references. We hopefully want to 
 
 \section{Software design}
 
@@ -97,7 +99,7 @@ A model package therefore supplies parameter names and priors, Stan code or a co
 The Stan controller scores each candidate design by the expected information
 gain defined above, applied at every trial with the current posterior
 $p(\theta \mid D)$ in place of the prior. Stan then supplies the posterior draws
-$\theta^{(s)} \sim p(\theta \mid D)$, while the model's response-probability function supplies the likelihood $p(y \mid d, \theta)$. Because mutual information is only the entropy of the posterior-predictive response minus the expected entropy of the per-draw response, the controller evaluates the mathrm{EIG} in a relatively sparse response space (binary or a few categories) making the computation inexpensive. It computes this over the task's finite design grid $\mathcal{G}$ and selects the highest-scoring design $d^{*}$ for the next trial.
+$\theta^{(s)} \sim p(\theta \mid D)$, while the model's response-probability function supplies the likelihood $p(y \mid d, \theta)$. Because mutual information is only the entropy of the posterior-predictive response minus the expected entropy of the per-draw response, the controller evaluates the $\mathrm{EIG}(d)$ in a relatively sparse response space (binary or a few categories) making the computation inexpensive. It computes this over the task's finite design grid $\mathcal{G}$ and selects the highest-scoring design $d^{*}$ for the next trial.
 
 Running posterior inference in the browser makes deployment simpler, but also sets practical limits on model complexity and per-trial update time.
 Stan models must be compiled before they can run in the browser; models bundled with \texttt{jspsych-ado} include these compiled WebAssembly files.
@@ -156,8 +158,6 @@ The included examples span delay discounting, line-length psychophysics, and app
 This structure provides a common scaffold for collaborative development within the jsPsych ecosystem.
 The validation materials exercise the browser workflow directly: simulated participants run through the same jsPsych pages used in live studies, parameter-recovery examples compare information-based designs with random designs from the same candidate grid, and likelihood-parity checks compare the JavaScript and compiled Stan likelihoods.
 Continuous integration covers unit tests, browser smoke tests, Worker/WebAssembly execution, and bundler compatibility, supporting reuse by researchers who want to inspect, extend, and share adaptive jsPsych experiments.
-
-Because the nontrivial technical skills required to use ADO have been a barrier to its wider adoption, we believe jsPsych-ADO will positively impact the integration of adaptive designs across a broader range of tasks in the social and behavioral sciences. It lowers the barrier to entry for including an adaptive version of a task by eliminating the need to write bespoke adaptive design code, while offering implementations across a range of existing tasks and computational models used in prior work on adaptive designs, such as delay discounting \citep{lee2026rapid} and numeric discrimination \citep{halberda2008individual}. Further, it enhances collaboration by providing researchers with a shared scaffold for developing and sharing new adaptive designs within a common ecosystem (i.e., jsPsych). We aim to continue developing jsPsych-ADO and extend its capabilities beyond those of existing implementations for adaptive experimental design.
 
 \section{AI usage disclosure}
 Generative AI tools were used during the development of jspsych-ado. Claude Code and OpenAI Codex assisted with code implementation, automating the release workflow, and providing code reviews during pull requests. All AI-generated content was reviewed and edited by the authors to ensure accuracy and clarity.
