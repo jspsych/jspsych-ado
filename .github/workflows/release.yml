@@ -1,0 +1,51 @@
+name: Release (publish to npm)
+
+# Cut a release by tagging a commit on main that is already green on CI (see
+# RELEASING.md). On a vX.Y.Z tag this re-runs the publish-critical gates (unit +
+# headless Worker/WASM + bundler) and, only if they pass, publishes to npm with
+# build provenance. Requires the NPM_TOKEN repository secret (an npm automation
+# token). The job never publishes if any gate fails or the tag/version disagree.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write # required for `npm publish --provenance`
+
+jobs:
+  publish:
+    name: Test gates + npm publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+      - name: Install (locked)
+        run: npm ci
+      - name: Tag must match package.json version
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json ($PKG_VERSION)"
+            exit 1
+          fi
+      - name: Unit tests + real-WASM recovery smokes
+        run: |
+          npm test
+          node tests/js/stan_recovery.smoke.mjs
+          node tests/js/weber_recovery.smoke.mjs
+          node tests/js/likelihood_parity.smoke.mjs
+      - name: Headless Worker/WASM smoke
+        run: npm run test:browser
+      - name: Bundler smoke (npm pack -> Vite build -> headless WASM)
+        run: npm run test:bundler
+      - name: Publish to npm (with provenance)
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

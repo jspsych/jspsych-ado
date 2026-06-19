@@ -40,8 +40,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
       - name: Install dev deps (puppeteer + Chromium)
-        run: npm install --no-audit --no-fund
+        run: npm ci
       - name: Headless browser smokes (delay discounting + line length)
         run: npm run test:browser
 
@@ -53,8 +54,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
       - name: Install dev deps (puppeteer + Chromium)
-        run: npm install --no-audit --no-fund
+        run: npm ci
       # Packs the library, installs the tarball into tests/bundler/fixture, runs a
       # real Vite production build, and headlessly confirms the hashed WASM loads
       # through the public API — the only check that exercises the #57 fix under a

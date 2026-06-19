@@ -39,6 +39,7 @@
     "jspsych-ado",
     "core/tinystan",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
@@ -50,6 +51,9 @@
     "prepublishOnly": "npm test"
   },
   "author": "The jspsych-ado contributors",
+  "engines": {
+    "node": ">=18"
+  },
   "peerDependencies": {
     "jspsych": ">=7",
     "@jspsych/plugin-html-button-response": ">=1",
