@@ -44,11 +44,7 @@ bibliography: paper.bib
 
 # Summary
 
-`jspsych-ado` brings *adaptive design optimization* (ADO) to browser-based
-behavioral experiments built with jsPsych [@deleeuw2015jspsych]. After each
-response, a Bayesian model written in Stan [@carpenter2017stan] --- compiled to
-WebAssembly and run client-side in a Web Worker --- updates the posterior over the
-model parameters, and the next stimulus is chosen to maximize the expected information
+`jspsych-ado` brings *adaptive design optimization* (ADO) to browser-based behavioral experiments built with jsPsych [@deleeuw2015jspsych]. After each response, a Bayesian model written in Stan [@carpenter2017stan] --- compiled to WebAssembly and run client-side in a Web Worker --- updates the posterior over the model parameters, and the next stimulus is chosen to maximize the expected information
 it provides about those parameters. The whole adaptive loop runs in the participant's
 browser: there is no analysis server and no Python dependency, so an experiment remains
 a set of static files that can be hosted by any ordinary static web server.
@@ -78,13 +74,7 @@ mutual-information design optimization inside the jsPsych ecosystem.
 
 # Software design
 
-The package separates a model-agnostic ADO engine from per-model packages. The engine
-estimates the posterior from Stan draws and scores candidate designs by mutual
-information; a model package supplies the Stan program, a JavaScript link function (the
-same likelihood the engine and a simulated participant use), a design space, and a
-stimulus renderer. Stan models are compiled to WebAssembly with the stan-playground
-compile server [@stanplayground; @zakai2011emscripten] and the compiled artifact
-runs in a Web Worker so sampling never blocks the interface.
+The package separates a model-agnostic ADO engine from per-model packages. The engine estimates the posterior from Stan draws and scores candidate designs by mutual information; a model package supplies the Stan program, a JavaScript link function (the same likelihood the engine and a simulated participant use), a design space, and a stimulus renderer. Stan models are compiled to WebAssembly with the stan-playground compile server [@stanplayground; @zakai2011emscripten] and the compiled artifact runs in a Web Worker so sampling never blocks the interface.
 
 Key trade-offs: committing the compiled WebAssembly (self-contained, offline-capable)
 versus compiling on study setup (arbitrary user models, but needs a reachable compile
