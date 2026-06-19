@@ -177,6 +177,23 @@ test("parseStanPriors emits the prior schema sampled by mi_engine", () => {
   }
 });
 
+test("parseStanPriors ignores commented-out sampling statements (#6)", () => {
+  const code = "model {\n  // k ~ normal(0, 1); legacy line\n  k ~ lognormal(-4, 2);\n}";
+  assert.deepEqual(parseStanPriors(code, ["k"]), { k: { dist: "lognormal", meanlog: -4, sdlog: 2 } });
+});
+
+test("parseStanPriors treats lower=0.5 as not-half-normal but still recognizes exact lower=0 (#7)", () => {
+  const truncated = "parameters { real<lower=0.5> k; }\nmodel { k ~ normal(0, 1); }";
+  assert.deepEqual(parseStanPriors(truncated, ["k"]), { k: { dist: "normal", mean: 0, sd: 1 } });
+  assert.deepEqual(parseStanPriors("real<lower=0> w; w ~ normal(0, 1);", ["w"]), { w: { dist: "halfnormal", sd: 1 } });
+  assert.deepEqual(parseStanPriors("real<lower=0, upper=1> w; w ~ normal(0, 2);", ["w"]), { w: { dist: "halfnormal", sd: 2 } });
+});
+
+test("parseStanPriors rejects a wrong-arity normal/lognormal prior instead of yielding NaN draws (#13)", () => {
+  assert.throws(() => parseStanPriors("tau ~ normal(1);", ["tau"]), /expects 2 numeric arguments/);
+  assert.throws(() => parseStanPriors("k ~ lognormal(-4);", ["k"]), /expects 2 numeric arguments/);
+});
+
 test("stanUrl registration derives priors after prepareModels fetches the source", async () => {
   const restoreFetch = installFakeFetch();
   const restoreWorker = installFakeWorker();

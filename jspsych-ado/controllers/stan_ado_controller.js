@@ -129,13 +129,17 @@ function createStanAdoController({
     };
     // Worker-script-level failures (bad module path / 404 / parse error in the
     // worker or its imports) fire onerror and never post a message, so the pending
-    // request would otherwise hang forever. Drop the dead worker so a later call
-    // rebuilds it, and reject the in-flight request with a clear error.
+    // request would otherwise hang forever. Terminate and drop the dead worker (so
+    // its thread/WASM instance isn't leaked), then reject the in-flight request with
+    // a clear error; any later send() fails fast rather than null-dereferencing the
+    // worker. (#8)
     worker.onerror = function(event) {
+      if (worker) { worker.terminate(); }
       worker = null;
       settlePending(p => p.reject(new Error("Stan worker failed to load: " + (event.message || "worker error"))));
     };
     worker.onmessageerror = function() {
+      if (worker) { worker.terminate(); }
       worker = null;
       settlePending(p => p.reject(new Error("Stan worker message could not be deserialized")));
     };
@@ -146,6 +150,12 @@ function createStanAdoController({
     // pending slot and orphan the first promise, so fail loudly instead.
     if (pending) {
       return Promise.reject(new Error("Stan controller received a request while one was already in flight"));
+    }
+    // The worker is created in start() via ensureWorker(); if it died (onerror/
+    // onmessageerror nulled it), fail with a clear message instead of dereferencing
+    // null. (#8)
+    if (!worker) {
+      return Promise.reject(new Error("Stan worker is unavailable (it failed to load earlier)."));
     }
     return new Promise((resolve, reject) => {
       pending = { resolve, reject };
@@ -161,10 +171,10 @@ function createStanAdoController({
    * Sample the posterior given the accumulated trials and return draws as an
    * array of per-draw parameter objects (the shape the MI engine expects).
    */
-  async function samplePosterior() {
+  async function samplePosterior(sampleTrials) {
     const result = await send({
       type: "sample",
-      data: model.buildData(trials),
+      data: model.buildData(sampleTrials),
       params: model.params,
       sampleConfig: sample_config,
     });
@@ -313,22 +323,18 @@ function createStanAdoController({
       stopper.reset();
 
       const block_size = nextBlockSize(trials.length);
-      let selection = selectDesignsWithMetrics([], 0);
       let prior = null;
       if (block_size > 0) {
         // ADO uses the prior draws to choose the first design. Random ignores the
         // draws for selection, but keeps a separate prior sample so realized IG
         // for the first response can still be computed without perturbing the
-        // random design sequence.
+        // random design sequence. selectDesignsWithMetrics applies the configured
+        // policy (ado vs random) internally, so both strategies share this one call.
         const prior_rng = design_strategy === "random" ? debug_draw_rng : design_rng;
         prior = samplePriorDraws(model.prior, PRIOR_DRAWS, prior_rng);
       }
       current_design_draws = prior;
-      if (design_strategy === "random") {
-        selection = selectDesignsWithMetrics(prior, block_size);
-      } else {
-        selection = selectDesignsWithMetrics(prior, block_size);
-      }
+      const selection = selectDesignsWithMetrics(prior, block_size);
 
       return {
         session_id,
@@ -338,7 +344,12 @@ function createStanAdoController({
         next_design_metrics: selection.next_design_metrics,
         selection_time_ms: selection.selection_time_ms,
         max_mutual_info: selection.max_mutual_info,
-        ...stopper.evaluate(trials.length, selection.max_mutual_info),
+        // The first design is chosen from the PRIOR, not a real refit, so pass eig=null
+        // here: do NOT feed its EIG into the stopping de-bounce streak. Otherwise a
+        // sub-threshold prior EIG with the default min_trials=0 pre-increments the
+        // streak, firing EIG stopping one real trial too early. The mock controller
+        // already passes null here. (#1)
+        ...stopper.evaluate(trials.length, null),
         post_mean: null,
         post_sd: null,
         posterior_draws: null,
@@ -361,11 +372,14 @@ function createStanAdoController({
       const rows = Array.isArray(trial_data) ? trial_data : [trial_data];
       const realized_information_gains = computeRealizedInformationGains(rows);
       const realized_information_gain = sumFinite(realized_information_gains);
-      for (const row of rows) {
-        trials.push({ ...row.ado_design, choice: row.choice });
-      }
+      const new_trials = rows.map((row) => ({ ...row.ado_design, choice: row.choice }));
 
-      const draws = await samplePosterior();
+      // Sample on the accumulated trials PLUS the new rows, but commit the new rows to
+      // `trials` only after sampling succeeds. A rejected sample (in-flight guard,
+      // worker failure, or empty draws) must not leave a phantom trial behind, which
+      // would corrupt every later posterior fit. (#3)
+      const draws = await samplePosterior(trials.concat(new_trials));
+      trials.push(...new_trials);
       current_design_draws = draws;
       const { post_mean, post_sd } = summarizeDraws(draws, model.params);
 

@@ -25,7 +25,7 @@ const DEFAULT_TOKEN = "1234";
 
 const MODEL_REGISTRY = new Map();  // name -> entry
 const TASK_REGISTRY = new Map();   // name -> task spec
-const _compileCache = new Map();   // stanCode -> moduleUrl (per page session)
+const _compileCache = new Map();   // `${server}\n${stanCode}` -> moduleUrl (per page session)
 
 // ---------------------------------------------------------------------------
 // registerTask
@@ -224,10 +224,13 @@ async function prepareModels({ compileServer, authToken = DEFAULT_TOKEN } = {}) 
     }
     requirePriorCoverage(entry.prior, entry.paramNames, `prepareModels("${entry.name}")`);
 
-    let moduleUrl = _compileCache.get(stanCode);
+    // Key the cache by server AND source so the same .stan compiled against a
+    // different server doesn't return the first server's stale module URL. (#10)
+    const cacheKey = `${(compileServer || "").replace(/\/+$/, "")}\n${stanCode}`;
+    let moduleUrl = _compileCache.get(cacheKey);
     if (!moduleUrl) {
       moduleUrl = await compileToModuleUrl(stanCode, compileServer, authToken);
-      _compileCache.set(stanCode, moduleUrl);
+      _compileCache.set(cacheKey, moduleUrl);
     }
     entry.moduleUrl = moduleUrl;
   }
@@ -561,15 +564,23 @@ async function compileToModuleUrl(stanCode, server, authToken) {
 function parseStanPriors(stanCode, paramSpecs) {
   const prior = {};
 
+  // Strip comments first so a commented-out or stale sampling statement
+  // (e.g. `// k ~ normal(0,1);`) can't be matched instead of the real prior. (#6)
+  const source = stanCode
+    .replace(/\/\*[\s\S]*?\*\//g, " ")  // block comments
+    .replace(/\/\/[^\n]*/g, " ");       // line comments
+
   for (const p of paramSpecs) {
     const name = typeof p === "string" ? p : p.name;
     const meta = typeof p === "string" ? {} : p;
 
     const declaredPositive =
       meta.lower === 0 ||
-      new RegExp(`real\\s*<[^>]*lower\\s*=\\s*0[^>]*>\\s*${name}\\b`).test(stanCode);
+      // Match a lower bound of EXACTLY 0 — "lower=0" followed by "," or ">", so a
+      // parameter bounded above 0 (`lower=0.5`, `lower=0.1`) isn't misread as 0. (#7)
+      new RegExp(`real\\s*<[^>]*lower\\s*=\\s*0\\s*(?:,[^>]*)?>\\s*${name}\\b`).test(source);
 
-    const match = new RegExp(`\\b${name}\\s*~\\s*(\\w+)\\s*\\(([^;]*)\\)\\s*;`).exec(stanCode);
+    const match = new RegExp(`\\b${name}\\s*~\\s*(\\w+)\\s*\\(([^;]*)\\)\\s*;`).exec(source);
     if (!match) {
       throw new Error(
         `registerModel: no prior found for "${name}" in the Stan source. Add a sampling ` +
@@ -582,6 +593,14 @@ function parseStanPriors(stanCode, paramSpecs) {
       throw new Error(
         `registerModel: could not read numeric prior arguments for "${name}" ("${match[2].trim()}"). ` +
         `Pass an explicit \`prior\`.`
+      );
+    }
+    // normal/lognormal each take exactly 2 numeric arguments; a wrong arity would
+    // silently leave sd/sdlog undefined and produce NaN prior draws. (#13)
+    if ((dist === "normal" || dist === "lognormal") && args.length !== 2) {
+      throw new Error(
+        `registerModel: "${name}" prior ${dist}(...) expects 2 numeric arguments but got ` +
+        `${args.length} ("${match[2].trim()}"). Pass an explicit \`prior\`.`
       );
     }
 

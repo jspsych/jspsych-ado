@@ -24,9 +24,15 @@ function arange(start, stop, step = 1) {
   if (!(step > 0)) {
     throw new Error(`arange(${start}, ${stop}, ${step}): step must be a positive number.`);
   }
+  // Compute the count up front from the rounded ratio, then derive each value from
+  // `start` (not an accumulator). This avoids two float traps: (a) accumulation
+  // drift across many steps, and (b) the half-open contract being broken when the
+  // raw accumulator undershoots `stop` by an epsilon (e.g. 0.9999999999999999 < 1)
+  // and the rounded value then snaps onto the excluded endpoint.
+  const count = Math.max(0, Math.ceil(round10((stop - start) / step)));
   const values = [];
-  for (let value = start; value < stop; value += step) {
-    values.push(round10(value));
+  for (let i = 0; i < count; i++) {
+    values.push(round10(start + i * step));
   }
   return values;
 }

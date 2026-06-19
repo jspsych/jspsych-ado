@@ -22,8 +22,10 @@
 const DEFAULT_SERVER = "https://stan-wasm.flatironinstitute.org";
 const DEFAULT_TOKEN = "1234";
 
-// In-memory cache: identical source compiled once per page session.
-const _moduleUrlCache = new Map(); // stanSource -> moduleUrl
+// In-memory cache keyed by server+source: identical source compiled once per
+// (server, page session). Keying on source alone would return one server's stale
+// download URL when the same .stan is later compiled against a different server.
+const _moduleUrlCache = new Map(); // `${server}\n${stanSource}` -> moduleUrl
 
 /**
  * Compile a .stan source string and return a model adapter for
@@ -72,6 +74,16 @@ async function compileStanModel({
   if (typeof responseProb !== "function" && typeof responseProbs !== "function") {
     throw new Error("compileStanModel: provide responseProb or responseProbs.");
   }
+  // Validate responseSpace up front so a typo fails here, not deep in the engine. (#12)
+  if (responseSpace.type !== "binary" && responseSpace.type !== "categorical") {
+    throw new Error(
+      `compileStanModel: unsupported responseSpace.type "${responseSpace.type}" (expected "binary" or "categorical").`
+    );
+  }
+  if (responseSpace.type === "categorical" &&
+      !(Number.isInteger(responseSpace.n_categories) && responseSpace.n_categories >= 2)) {
+    throw new Error("compileStanModel: categorical responseSpace needs an integer n_categories >= 2.");
+  }
   if (responseSpace.type === "categorical" && typeof responseProbs !== "function") {
     throw new Error("compileStanModel: categorical models must provide responseProbs.");
   }
@@ -79,7 +91,8 @@ async function compileStanModel({
   // Normalize a trailing slash so `${server}/compile` is always well-formed.
   const base = server.replace(/\/+$/, "");
 
-  let moduleUrl = _moduleUrlCache.get(stan);
+  const cacheKey = `${base}\n${stan}`;
+  let moduleUrl = _moduleUrlCache.get(cacheKey);
   if (!moduleUrl) {
     let response;
     try {
@@ -117,7 +130,7 @@ async function compileStanModel({
     // download path therefore makes main.wasm load from the adjacent server path —
     // no committing and no worker/engine changes needed.
     moduleUrl = `${base}/download/${model_id}/main.js`;
-    _moduleUrlCache.set(stan, moduleUrl);
+    _moduleUrlCache.set(cacheKey, moduleUrl);
   }
 
   // Identical shape to models/<name>/model.js default export.

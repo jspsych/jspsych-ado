@@ -252,7 +252,7 @@ function copySimulationAuditFields(data, run_context) {
     return;
   }
   for (const [key, value] of Object.entries(simulation_data)) {
-    if ((key === "sim_draw" || key.startsWith("sim_")) && data[key] === undefined) {
+    if (key.startsWith("sim_") && data[key] === undefined) {
       data[key] = value;
     }
   }
@@ -753,7 +753,11 @@ function htmlButtonChoice(ctx, presentation, plugins = ctx && ctx.plugins) {
         if (index === undefined) {
           return;
         }
-        const btn = document.querySelector("#jspsych-html-button-response-button-" + index);
+        // jsPsych v8 / plugin-html-button-response v2 renders buttons as
+        // `#...-btngroup [data-choice="N"]`; v7 used `#...-button-N`. Try the v8
+        // selector first and fall back to v7 so keyboard shortcuts work on both. (#5)
+        const btn = document.querySelector('#jspsych-html-button-response-btngroup [data-choice="' + index + '"]')
+          || document.querySelector("#jspsych-html-button-response-button-" + index);
         if (btn) { btn.click(); }
       };
       document.addEventListener("keydown", key_handler);

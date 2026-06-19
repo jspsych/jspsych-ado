@@ -30,6 +30,14 @@ test("normalizeStoppingConfig rejects junk and turns EIG stopping off for non-po
   assert.equal(n.consecutive, 1);
 });
 
+test("normalizeStoppingConfig keeps eig_fraction == 1 but turns it off for > 1 (#4)", () => {
+  // A fraction > 1 sets a threshold above the max achievable EIG (ln K), i.e.
+  // "always stop at min_trials" — a footgun, so it must disable EIG stopping.
+  assert.equal(normalizeStoppingConfig({ eig_fraction: 1 }).eig_fraction, 1);
+  assert.equal(normalizeStoppingConfig({ eig_fraction: 1.5 }).eig_fraction, null);
+  assert.equal(normalizeStoppingConfig({ eig_fraction: 2 }).eig_fraction, null);
+});
+
 test("maxPossibleEig = ln(K)", () => {
   assert.equal(maxPossibleEig({ type: "binary" }), LN2);
   assert.equal(maxPossibleEig({ type: "categorical", n_categories: 3 }), LN3);

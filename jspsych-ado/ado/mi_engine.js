@@ -33,6 +33,12 @@ function binaryEntropy(p) {
  * @returns {number} Entropy H(probs) = -sum p log(p).
  */
 function categoricalEntropy(probs) {
+  // Binary responses are the common case; route them through binaryEntropy so the
+  // engine and that exported helper share one definition (and gain its log1p
+  // precision near the endpoints). The general loop handles 3+ categories.
+  if (probs.length === 2) {
+    return binaryEntropy(probs[1]);
+  }
   let entropy = 0;
   for (const p of probs) {
     if (p > 0) {

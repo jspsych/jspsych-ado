@@ -14,6 +14,16 @@ test("arange rounds to 10 decimals so float steps stay clean", () => {
   assert.deepEqual(arange(0, 0.7, 0.1), [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
 });
 
+test("arange excludes the endpoint even when float undershoot would re-include it (#2)", () => {
+  // 0.1 steps: the raw accumulator reaches 0.9999999999999999 (< 1) on the 11th
+  // step, which used to round up to 1 and wrongly include the excluded endpoint.
+  const tenths = arange(0, 1, 0.1);
+  assert.equal(tenths.length, 10);
+  assert.equal(tenths.at(-1), 0.9);
+  assert.deepEqual(arange(0, 0.9, 0.3), [0, 0.3, 0.6]);
+  assert.deepEqual(arange(0, 0.3, 0.1), [0, 0.1, 0.2]);
+});
+
 test("arange rejects a non-positive step", () => {
   assert.throws(() => arange(0, 10, 0), /step must be a positive number/);
   assert.throws(() => arange(0, 10, -1), /step must be a positive number/);

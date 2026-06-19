@@ -28,8 +28,12 @@ function toPositiveInteger(value, fallback) {
   return Number.isInteger(value) && value >= 1 ? value : fallback;
 }
 
-function toPositiveNumberOrNull(value) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+function toUnitFractionOrNull(value) {
+  // Must be in (0, 1]. A value > 1 would set a stopping threshold above the maximum
+  // achievable EIG (ln K), i.e. "always stop the instant min_trials is reached" — a
+  // footgun, not a feature; <= 0 is meaningless. Anything outside (0, 1] (including
+  // non-numeric) disables EIG stopping.
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1 ? value : null;
 }
 
 function toFiniteNumberOrNull(value) {
@@ -50,9 +54,9 @@ function normalizeStoppingConfig(stopping, default_max_trials = null) {
   return {
     min_trials: toNonNegativeInteger(source.min_trials, 0),
     max_trials: toNonNegativeInteger(source.max_trials, toNonNegativeInteger(default_max_trials, null)),
-    // Fraction of the maximum achievable EIG, in (0, 1]; anything else turns EIG
-    // stopping off. (> 1 would mean "stop as soon as min_trials is reached".)
-    eig_fraction: toPositiveNumberOrNull(source.eig_fraction),
+    // Fraction of the maximum achievable EIG, in (0, 1]; anything outside that range
+    // (<= 0, > 1, or non-numeric) turns EIG stopping off.
+    eig_fraction: toUnitFractionOrNull(source.eig_fraction),
     consecutive: toPositiveInteger(source.consecutive, 1),
   };
 }
