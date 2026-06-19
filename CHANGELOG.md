@@ -9,6 +9,8 @@ task/model/controller extension APIs.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-18
+
 ### Added
 - Adaptive early stopping: a `stopping` config (`eig_fraction` / `min_trials` /
   `max_trials` / `consecutive`) stops the run once the best available next design's
@@ -17,11 +19,15 @@ task/model/controller extension APIs.
 - Declarative `stanData` map on a model adapter, replacing hand-written
   `buildData` for the common case (#81).
 - Shared design-grid helpers `arange` / `linspace`, re-exported from the façade (#88).
+- Demos restructured to teach the package: "drop-in" examples plus
+  bring-your-own-task and bring-your-own-model demos (the latter authors its model
+  in-folder), and a `demos/README` guide covering the `tasks/`-vs-`demos/`
+  distinction and a plain-jsPsych-vs-ADO contrast (#106, #68, #43).
 
 ### Changed
 - Demos load jsPsych and its plugins from a pinned CDN; the `experiments/` folder
   was renamed to `demos/` (#90, #98).
-- Documentation accuracy pass on the README (#99).
+- Documentation accuracy passes on the README (#99).
 
 ### Removed
 - **Quest+ / jsQuestPlus** removed from the mainline package and demos; the
@@ -30,10 +36,10 @@ task/model/controller extension APIs.
 
 ### Internal
 - Test hardening: controller/timeline failure-path coverage, a JS-vs-compiled-Stan
-  likelihood-parity smoke (+ fixed-seed determinism), and a real-WASM recovery smoke
-  for the 3-parameter categorical model (#104, #87, #89).
-- Release engineering: committed `package-lock.json` (CI uses `npm ci`), this
-  `CHANGELOG`, and a tag-triggered, fully-gated `npm publish` workflow with provenance.
+  likelihood-parity smoke (+ fixed-seed determinism), and real-WASM recovery smokes
+  for the 3-parameter categorical model and the exponential demo model (#104, #87, #89).
+- Release engineering: committed `package-lock.json` (CI uses `npm ci`), `engines.node`,
+  this `CHANGELOG`, and a tag-triggered, fully-gated `npm publish --provenance` workflow.
 
 ## [0.1.1] - 2026-06-18
 
@@ -57,6 +63,7 @@ server and no Python).
   fallback for static pages.
 - Per-task CSS, committed compiled models, and the vendored tinystan sampler.
 
-[Unreleased]: https://github.com/githubpsyche/jspsych-ado/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/githubpsyche/jspsych-ado/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/githubpsyche/jspsych-ado/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/githubpsyche/jspsych-ado/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/githubpsyche/jspsych-ado/releases/tag/v0.1.0
