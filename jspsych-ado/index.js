@@ -15,6 +15,7 @@ import { makeStanDataBuilder, validateStanDataSpec } from "./ado/stan_data.js";
 import {
   enumerateDesigns,
   getResponseProbsFunction,
+  makeContinuousSupportResolver,
   samplePriorDraws,
   validateResponseProbs,
 } from "./ado/mi_engine.js";
@@ -43,7 +44,9 @@ const _compileCache = new Map();   // `${server}\n${stanCode}` -> moduleUrl (per
  * @param {Object} spec.presentation - getChoiceTrials(ctx) OR makeStimulus(design).
  * @param {string[]} [spec.choices] - Button/key labels in index order.
  * @param {string[]|Object} spec.response_labels - ["SS","LL"] or {0:"SS",1:"LL"}.
- * @param {Function} [spec.responseToOutcome] - (design, choiceIndex) => 0|1.
+ * @param {Function} [spec.responseToOutcome] - (design, rawResponse) => outcome.
+ *   Discrete: maps a choice index to an outcome index (default identity). Continuous:
+ *   defaults to identity, passing the raw real-valued response through as the outcome.
  */
 function registerTask(name, spec) {
   if (!name || typeof name !== "string") {
@@ -141,18 +144,22 @@ function registerModel(name, spec) {
   if (!Array.isArray(spec.designKeys) || spec.designKeys.length === 0) {
     throw new Error(`registerModel("${name}"): designKeys must be a non-empty array.`);
   }
-  if (!spec.responseSpace || typeof spec.responseSpace.type !== "string") {
-    throw new Error(`registerModel("${name}"): responseSpace.type must be a string.`);
+  const response_space_error = validateResponseSpace(spec.responseSpace, `registerModel("${name}")`);
+  if (response_space_error) {
+    throw new Error(response_space_error);
   }
-  const response_count = getResponseCount(spec.responseSpace);
-  if (response_count == null) {
-    throw new Error(`registerModel("${name}"): unsupported responseSpace ${JSON.stringify(spec.responseSpace)}.`);
-  }
-  if (spec.responseSpace.type === "categorical" && typeof spec.responseProbs !== "function") {
-    throw new Error(`registerModel("${name}"): categorical models must provide responseProbs(design, draw).`);
-  }
-  if (typeof spec.responseProb !== "function" && typeof spec.responseProbs !== "function") {
-    throw new Error(`registerModel("${name}"): provide responseProb(design, draw) or responseProbs(design, draw).`);
+  if (isContinuous(spec.responseSpace)) {
+    const cont_problems = continuousModelProblems(spec);
+    if (cont_problems.length) {
+      throw new Error(`registerModel("${name}"): ${cont_problems[0]}`);
+    }
+  } else {
+    if (spec.responseSpace.type === "categorical" && typeof spec.responseProbs !== "function") {
+      throw new Error(`registerModel("${name}"): categorical models must provide responseProbs(design, draw).`);
+    }
+    if (typeof spec.responseProb !== "function" && typeof spec.responseProbs !== "function") {
+      throw new Error(`registerModel("${name}"): provide responseProb(design, draw) or responseProbs(design, draw).`);
+    }
   }
   if (MODEL_REGISTRY.has(name)) {
     console.warn(`registerModel: overwriting already-registered model "${name}".`);
@@ -371,6 +378,14 @@ function buildAdapter(entry) {
           return [1 - p, p];
         }
       : null),
+    // Continuous-response adapter fields (undefined for discrete models). The
+    // engine's createDesignScorer reads these when responseSpace.type === "continuous".
+    responseDensity: spec.responseDensity,
+    responseDensityFactory: spec.responseDensityFactory,
+    conditionalEntropy: spec.conditionalEntropy,
+    responseMoments: spec.responseMoments,
+    responseSupport: spec.responseSupport,
+    responseSampler: spec.responseSampler,
   };
 }
 
@@ -406,6 +421,48 @@ function getResponseCount(responseSpace) {
   return null;
 }
 
+// A continuous response has no finite category count; the engine scores it by
+// numerical integration of a density rather than enumerating outcomes.
+function isContinuous(responseSpace) {
+  return Boolean(responseSpace) && responseSpace.type === "continuous";
+}
+
+// One source of truth for what a CONTINUOUS model must provide. Returns problem
+// messages (empty if OK); registerModel throws the first, validateModel collects all.
+function continuousModelProblems(model) {
+  const problems = [];
+  if (typeof model.responseDensity !== "function") {
+    problems.push("continuous models must provide responseDensity(design, draw, y).");
+  }
+  if (typeof model.responseMoments !== "function" && model.responseSupport == null) {
+    problems.push(
+      "continuous models need responseMoments(design, draw) => {mean, sd} or an explicit responseSupport for the integration support."
+    );
+  }
+  return problems;
+}
+
+// Probe a continuous model's density at a representative response value. Returns an
+// error message, or null when the density is a finite nonnegative number. Shared by
+// validateTaskModelPair and validateModel.
+function probeContinuousDensity(model, design, draw) {
+  const support = makeContinuousSupportResolver(model)(design, [draw]);
+  const probe_y = (support[0] + support[1]) / 2;
+  const density = model.responseDensity(design, draw, probe_y);
+  if (typeof density !== "number" || !Number.isFinite(density) || density < 0) {
+    return `response density probe returned ${density}; expected a finite nonnegative number`;
+  }
+  // If a fast-path factory is supplied, it must compute the same density (the engine
+  // uses it on the MI hot loop while realized gain still uses responseDensity).
+  if (typeof model.responseDensityFactory === "function") {
+    const fast = model.responseDensityFactory(design, draw)(probe_y);
+    if (!Number.isFinite(fast) || Math.abs(fast - density) > 1e-9 * (1 + Math.abs(density))) {
+      return `responseDensityFactory disagrees with responseDensity (${fast} vs ${density}); they must compute the same density`;
+    }
+  }
+  return null;
+}
+
 function validateResponseSpace(responseSpace, context) {
   if (!responseSpace || typeof responseSpace.type !== "string") {
     return `${context}: responseSpace.type must be a string.`;
@@ -416,6 +473,12 @@ function validateResponseSpace(responseSpace, context) {
   if (responseSpace.type === "categorical") {
     if (!Number.isInteger(responseSpace.n_categories) || responseSpace.n_categories < 2) {
       return `${context}: categorical responseSpace needs integer n_categories >= 2.`;
+    }
+    return null;
+  }
+  if (responseSpace.type === "continuous") {
+    if (responseSpace.intervals != null && (!Number.isInteger(responseSpace.intervals) || responseSpace.intervals < 2)) {
+      return `${context}: continuous responseSpace intervals must be an integer >= 2.`;
     }
     return null;
   }
@@ -445,7 +508,8 @@ function validateTaskModelPair(task, model, taskName, modelName) {
   const model_type = model.responseSpace && model.responseSpace.type;
   if (task_type !== model_type) {
     problems.push(`responseSpace mismatch: task has "${task_type}", model has "${model_type}"`);
-  } else if (getResponseCount(task.responseSpace) !== getResponseCount(model.responseSpace)) {
+  } else if (!isContinuous(model.responseSpace) && getResponseCount(task.responseSpace) !== getResponseCount(model.responseSpace)) {
+    // Category-count matching only applies to discrete responses; continuous has none.
     problems.push(`responseSpace category count mismatch: task has ${getResponseCount(task.responseSpace)}, model has ${getResponseCount(model.responseSpace)}`);
   }
 
@@ -475,11 +539,18 @@ function validateTaskModelPair(task, model, taskName, modelName) {
   if (sample_design) {
     try {
       sample_draw = samplePriorDraws(model.prior, 1, createSeededRng(8675309))[0];
-      const responseProbs = getResponseProbsFunction(model);
-      const probs = validateResponseProbs(responseProbs(sample_design, sample_draw), "response likelihood probe");
-      const response_count = getResponseCount(model.responseSpace);
-      if (probs.length !== response_count) {
-        problems.push(`response likelihood returned ${probs.length} probabilities; expected ${response_count}`);
+      if (isContinuous(model.responseSpace)) {
+        const probe_error = probeContinuousDensity(model, sample_design, sample_draw);
+        if (probe_error) {
+          problems.push(probe_error);
+        }
+      } else {
+        const responseProbs = getResponseProbsFunction(model);
+        const probs = validateResponseProbs(responseProbs(sample_design, sample_draw), "response likelihood probe");
+        const response_count = getResponseCount(model.responseSpace);
+        if (probs.length !== response_count) {
+          problems.push(`response likelihood returned ${probs.length} probabilities; expected ${response_count}`);
+        }
       }
     } catch (e) {
       problems.push(`response likelihood probe failed: ${String((e && e.message) || e)}`);
@@ -668,7 +739,11 @@ function validateTask(task) {
   if (!presentation || (typeof presentation.getChoiceTrials !== "function" && typeof presentation.makeStimulus !== "function")) {
     err("`presentation` must provide getChoiceTrials(ctx) or makeStimulus(design).");
   }
-  if (task.response_labels == null) err("`response_labels` is required.");
+  // Continuous responses have no discrete labels; response_labels only applies to
+  // binary/categorical tasks.
+  if (task.response_labels == null && !isContinuous(task.responseSpace)) {
+    err("`response_labels` is required.");
+  }
   if (task.choices == null && presentation && typeof presentation.makeStimulus === "function") {
     warn("`choices` is missing; the single-button presentation path needs choices in index order.");
   }
@@ -750,7 +825,9 @@ function validateModel(model, opts = {}) {
   } else if (typeof model.buildData !== "function" && typeof model.toStanData !== "function") {
     err("provide a `stanData` map (preferred), or `buildData(trials)`, or `toStanData(rows)`.");
   }
-  if (model.responseSpace && model.responseSpace.type === "categorical") {
+  if (isContinuous(model.responseSpace)) {
+    for (const p of continuousModelProblems(model)) err(p);
+  } else if (model.responseSpace && model.responseSpace.type === "categorical") {
     if (typeof model.responseProbs !== "function") {
       err("categorical models must provide `responseProbs(design, draw)`.");
     }
@@ -782,7 +859,16 @@ function validateModel(model, opts = {}) {
   }
 
   // Optional runtime probe.
-  if (opts.sampleDesign && (typeof model.responseProb === "function" || typeof model.responseProbs === "function")) {
+  if (opts.sampleDesign && isContinuous(model.responseSpace) && typeof model.responseDensity === "function") {
+    try {
+      const probe_error = probeContinuousDensity(model, opts.sampleDesign, opts.sampleDraw || {});
+      if (probe_error) {
+        err(probe_error + ".");
+      }
+    } catch (e) {
+      err(`response density threw on the sample design: ${String((e && e.message) || e)}.`);
+    }
+  } else if (opts.sampleDesign && (typeof model.responseProb === "function" || typeof model.responseProbs === "function")) {
     try {
       const responseProbs = getResponseProbsFunction(model);
       const probs = validateResponseProbs(responseProbs(opts.sampleDesign, opts.sampleDraw || {}), "validateModel");
@@ -842,6 +928,12 @@ function registerModelPackage(model, overrides = {}) {
     responseSpace: model.responseSpace,
     responseProb: model.responseProb,
     responseProbs: model.responseProbs,
+    responseDensity: model.responseDensity,
+    responseDensityFactory: model.responseDensityFactory,
+    conditionalEntropy: model.conditionalEntropy,
+    responseMoments: model.responseMoments,
+    responseSupport: model.responseSupport,
+    responseSampler: model.responseSampler,
     buildData: model.buildData,
     toStanData: model.toStanData,
     stanData: model.stanData,

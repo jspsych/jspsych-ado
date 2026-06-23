@@ -11,11 +11,11 @@ A task package exports:
   id,              // task id saved into jsPsych data rows
   design_grid,     // candidate designs, object-of-arrays or array of objects
   designKeys,      // design fields provided by the grid
-  responseSpace,   // {type:"binary"} or {type:"categorical", n_categories}
+  responseSpace,   // {type:"binary"}, {type:"categorical", n_categories}, or {type:"continuous"}
   presentation,    // getChoiceTrials(ctx) OR makeStimulus(design)
-  choices,         // button/key labels in index order
-  response_labels, // labels by model outcome, e.g. {0:"SS", 1:"LL"}
-  responseToOutcome, // optional (design, choiceIndex) => model outcome index
+  choices,         // button/key labels in index order (discrete tasks)
+  response_labels, // labels by model outcome, e.g. {0:"SS", 1:"LL"} (omit for continuous)
+  responseToOutcome, // optional (design, rawResponse) => model outcome/value
 }
 ```
 
@@ -34,11 +34,24 @@ linspace(4, 48, 12)      // INCLUSIVE [start, stop]: 12 points, 4 .. 48
 For simple button tasks, `presentation` can provide `makeStimulus(design)` plus
 optional `button_html(design)`, `keymap`, `prompt`, and `describeDesign(design)`.
 For multi-frame tasks, provide `getChoiceTrials(ctx)` and use the timeline helper
-factories (`htmlButtonChoice`, `canvasFrame`, `canvasResponse`) to mark the
-response-collecting trial. Those factories need the jsPsych plugin classes; on a
-static page they come from the plugins' UMD `<script>` globals, and a bundler
-consumer injects them via `createTimeline(jsPsych, { ..., plugins })` (see the
-top-level README "Using with a bundler").
+factories to mark the response-collecting trial: `htmlButtonChoice` and
+`canvasResponse` collect a discrete choice, `canvasSliderChoice` collects a
+**continuous** slider value, and `canvasFrame` shows a timed no-response frame. Those
+factories need the jsPsych plugin classes; on a static page they come from the
+plugins' UMD `<script>` globals, and a bundler consumer injects them via
+`createTimeline(jsPsych, { ..., plugins })` (see the top-level README "Using with a
+bundler").
+
+### Continuous-response tasks
+
+For a continuous response set `responseSpace: {type:"continuous"}` and omit
+`response_labels`/`choices`. Collect the value with `canvasSliderChoice` (a
+canvas-slider-response trial), which records the raw slider value on
+`data.__ado_response`. The paired model's density is over the modeled response space,
+so use `responseToOutcome(design, rawValue)` to transform the raw slider value into it
+(e.g. `Math.log(estimate)` for a log-log power-law model). See
+`tasks/magnitude_estimation/task.js` (Stevens magnitude estimation) for a worked
+example, paired with `models/magnitude_estimation/`.
 
 ## Styles
 
@@ -58,5 +71,5 @@ building the adaptive timeline.
 
 For finite categorical tasks, choices are integer indices `0..K-1` and the
 paired model must return a probability vector of length `K` from
-`responseProbs(design, params)`. Continuous response spaces are not supported
-yet.
+`responseProbs(design, params)`. For continuous tasks the model instead supplies a
+response density (see the models README "Continuous-response models").

@@ -663,6 +663,7 @@ const PLUGIN_GLOBALS = {
   htmlButtonResponse: "jsPsychHtmlButtonResponse",
   callFunction: "jsPsychCallFunction",
   canvasKeyboardResponse: "jsPsychCanvasKeyboardResponse",
+  canvasSliderResponse: "jsPsychCanvasSliderResponse",
 };
 
 function resolvePlugin(plugins, key) {
@@ -840,6 +841,73 @@ function canvasResponse({ draw, getDesign, choices }, ctx, plugins = ctx && ctx.
     },
     __ado_is_response: true,
   };
+}
+
+/**
+ * A response-collecting canvas-slider trial: the CONTINUOUS-response counterpart to
+ * canvasResponse. Draws a design-dependent stimulus and records the slider value as
+ * the raw response on data.__ado_response (a real number). A continuous task's
+ * responseToOutcome typically maps that raw value into the modeled response (e.g.
+ * log(estimate) for a power-law model); with the default identity it passes through.
+ *
+ * @param {Object} opts
+ * @param {Function} opts.draw - (canvas, design) => void.
+ * @param {Function} opts.getDesign - () => current design.
+ * @param {number} [opts.min=0] - Slider minimum.
+ * @param {number} [opts.max=100] - Slider maximum.
+ * @param {number} [opts.step=1] - Slider step.
+ * @param {?number} [opts.slider_start] - Initial slider position (defaults to the midpoint).
+ * @param {string[]} [opts.labels] - Tick labels under the slider.
+ * @param {string} [opts.prompt] - HTML shown with the slider.
+ * @param {boolean} [opts.require_movement=false] - Require the slider to move before continuing.
+ * @param {Array<number>} [opts.canvas_size] - [height, width] passed to the plugin.
+ * @param {Object} ctx - { getState, run_context, trial_number, task, plugins? }.
+ * @param {Object} [plugins] - Injected jsPsych plugin classes; defaults to ctx.plugins (then globalThis).
+ * @returns {Object} jsPsych canvas-slider-response trial (response-collecting).
+ */
+function canvasSliderChoice(
+  { draw, getDesign, min = 0, max = 100, step = 1, slider_start = null, labels, prompt, require_movement = false, canvas_size },
+  ctx,
+  plugins = ctx && ctx.plugins
+) {
+  const trial = {
+    type: requirePlugin(plugins, "canvasSliderResponse"),
+    stimulus: function(canvas) {
+      draw(canvas, getDesign());
+    },
+    min,
+    max,
+    step,
+    slider_start: slider_start != null ? slider_start : (min + max) / 2,
+    require_movement,
+    simulation_options: function() {
+      return makeChoiceSimulationOptions(ctx.run_context, getDesign());
+    },
+    data: function() {
+      const state = ctx.getState();
+      return {
+        task: ctx.task,
+        ado_session_id: state.session_id,
+        ado_trial_index: state.trial_index,
+        trial_number: ctx.trial_number,
+        ...getDesign(),
+      };
+    },
+    on_finish: function(data) {
+      data.__ado_response = data.response; // raw slider value (continuous)
+    },
+    __ado_is_response: true,
+  };
+  if (labels) {
+    trial.labels = labels;
+  }
+  if (prompt != null) {
+    trial.prompt = prompt;
+  }
+  if (canvas_size) {
+    trial.canvas_size = canvas_size;
+  }
+  return trial;
 }
 
 // ---------------------------------------------------------------------------
@@ -1027,7 +1095,9 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
       const choice = responseToOutcome(design, choice_raw);
       data.choice_raw = choice_raw;
       data.choice = choice;
-      data.choice_label = config.response_labels[choice];
+      // Discrete tasks map the outcome index to a label; continuous tasks have no
+      // labels (response_labels is absent), so the label is simply null there.
+      data.choice_label = config.response_labels ? config.response_labels[choice] ?? null : null;
       data.ado_design = { ...design };
       data.testlet_index = Math.floor(i / testlet_size);
       data.testlet_position = i % testlet_size;
@@ -1104,6 +1174,7 @@ export {
   htmlButtonChoice,
   canvasFrame,
   canvasResponse,
+  canvasSliderChoice,
   getParamAxisDomain,
   makeParamConvergenceSvg,
   makeDebriefStimulus,

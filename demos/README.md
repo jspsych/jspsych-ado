@@ -26,6 +26,7 @@ So: the library gives you tasks + models; a demo is an experiment page that uses
 | [`delay_discounting/`](delay_discounting/) | packaged | packaged | **Drop-in** — the minimal interface; plain-jsPsych-vs-ADO |
 | [`halberda_dot_comparison/`](halberda_dot_comparison/) | packaged | packaged | Drop-in (binary correctness / ANS) |
 | [`line_length_discrimination/`](line_length_discrimination/) | packaged | packaged | Drop-in (3-way categorical) |
+| [`magnitude_estimation/`](magnitude_estimation/) | packaged | packaged | Drop-in (**continuous** slider response / Stevens power law) |
 | [`byo_task_*/`](.) | **authored here** | packaged | **Bring your own task** — `registerTask` a new presentation, reuse a model |
 | [`byo_model_exponential/`](.) | packaged | **authored here** | **Bring your own model** — a new `.stan` + adapter, reuse a task |
 

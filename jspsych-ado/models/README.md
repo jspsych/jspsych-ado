@@ -19,23 +19,54 @@ A package contains:
 {
   id,             // string id, saved into the data
   params,         // parameter names to summarize, e.g. ["k", "tau"]
-  designKeys,     // design fields consumed by responseProb/responseProbs
-  responseSpace,  // {type:"binary"} or {type:"categorical", n_categories}
+  designKeys,     // design fields consumed by the likelihood
+  responseSpace,  // {type:"binary"}, {type:"categorical", n_categories}, or {type:"continuous"}
   prior,          // { param: {dist:"lognormal"|"normal"|"halfnormal", ...} }
   posterior_display, // optional per-param chart labels, preferred ranges, true bounds
   moduleUrl,      // new URL("./main.js", import.meta.url).href
   wasmUrl,        // new URL("./main.wasm", import.meta.url).href (so bundlers emit the wasm; see #57 below)
-  stanData,       // declarative map: Stan data var -> trial column (see below)
+  stanData,       // declarative map: Stan data var -> trial column (or a hand-written buildData; see below)
   responseProb,   // binary: (design, paramDraw) => P(outcome = 1)
   responseProbs,  // categorical: (design, paramDraw) => [p0, p1, ...]
+  // CONTINUOUS models replace responseProb(s) with a density (see "Continuous-response models"):
+  responseDensity,        // (design, paramDraw, y) => p(y | theta, design) >= 0
+  responseMoments,        // (design, paramDraw) => {mean, sd}  (auto integration support)
+  conditionalEntropy,     // (design, paramDraw) => H(y | theta, design)  (closed form; recommended)
+  responseDensityFactory, // optional (design, paramDraw) => (y) => density  (hot-loop fast path)
+  responseSampler,        // (design, params, rng) => y  (simulated participant)
 }
 ```
 
 The JS likelihood is the mirror of the `.stan` likelihood used for fast
 mutual-information design selection. Binary models may expose `responseProb`;
 finite categorical models expose `responseProbs`. Probability vectors must be
-finite, nonnegative, in response-index order, and sum to 1. Continuous-response
-models are out of scope for the current engine.
+finite, nonnegative, in response-index order, and sum to 1.
+
+### Continuous-response models
+
+A model whose response is a real number (a slider estimate, a reproduction, an RT)
+sets `responseSpace: {type:"continuous"}` and replaces the probability functions with
+a **density**. The engine scores designs by numerically integrating the predictive
+density — expected information gain `EIG(d) = H(Y|d) − E_θ[H(Y|θ,d)]` via 1-D
+quadrature (`ado/mi_engine.js` `mutualInfoContinuous`) — so the model supplies:
+
+- `responseDensity(design, draw, y)` → `p(y | θ, d) ≥ 0` — the response density (required).
+- `responseMoments(design, draw)` → `{mean, sd}` — used to auto-derive the integration
+  support; or supply `responseSupport` (`[lo, hi]` or `(design, draws) => [lo, hi]`).
+- `conditionalEntropy(design, draw)` → `H(y | θ, d)` — closed form when available
+  (a Gaussian response: `0.5·ln(2πe·σ²)`, exported as `gaussianEntropy`); otherwise the
+  engine estimates it by quadrature on the same mesh.
+- `responseDensityFactory(design, draw)` → `(y) => density` — optional fast path that
+  hoists per-`(design, draw)` constants out of the integration loop; it must compute
+  the same density as `responseDensity` (a registration probe checks they agree).
+- `responseSampler(design, params, rng)` → `y` — for the simulated participant.
+
+The response that flows through the pipeline (jsPsych `choice`) must be in the same
+space the density is over; a task's `responseToOutcome` can transform the raw response
+into it. See `models/magnitude_estimation/` (Stevens' power law: the task logs the raw
+slider estimate into the log space the Gaussian density lives in). Adaptive EIG-fraction
+stopping does not apply to continuous responses (there is no finite `ln(K)` to normalize
+against), so those runs are fixed-length unless a precision-target rule is configured.
 
 ### The Stan data boundary: `stanData`
 
@@ -125,8 +156,9 @@ unpatched, so this can't be forgotten silently.
    (CI fails otherwise — see the bundler-safety patch above).
 4. Write `jspsych-ado/models/<name>/model.js` with `params`, `designKeys`,
    `responseSpace`, priors matching the `.stan`, a `stanData` map mirroring the
-   `.stan` data block, the matching likelihood function (`responseProb` for binary
-   or `responseProbs` for finite categorical responses),
+   `.stan` data block, the matching likelihood (`responseProb` for binary,
+   `responseProbs` for finite categorical, or `responseDensity` + moments/entropy/sampler
+   for continuous responses — see "Continuous-response models"),
    `moduleUrl: new URL("./main.js", import.meta.url).href`, and
    `wasmUrl: new URL("./main.wasm", import.meta.url).href` (so bundlers emit the wasm).
 5. Add `tests/js/<name>.test.mjs`.

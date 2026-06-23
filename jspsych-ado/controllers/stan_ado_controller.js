@@ -1,9 +1,6 @@
 import {
+  createDesignScorer,
   enumerateDesigns,
-  getResponseProbsFunction,
-  mutualInfo,
-  realizedInformationGain,
-  selectOptimalDesigns,
   summarizeDraws,
   samplePriorDraws,
 } from "../ado/mi_engine.js";
@@ -70,7 +67,9 @@ function createStanAdoController({
   // The candidate design grid is constant, so enumerate it once. An empty grid
   // (a dimension with no values) would make every design selection return null.
   const designs = enumerateDesigns(grid_design);
-  const responseProbs = getResponseProbsFunction(model);
+  // One response-type-agnostic scorer (discrete vs continuous dispatch lives in the
+  // engine); fails fast here if a continuous model lacks responseDensity/support.
+  const scorer = createDesignScorer(model);
   if (designs.length === 0) {
     throw new Error("createStanAdoController: grid_design produced no candidate designs (a dimension is empty)");
   }
@@ -88,16 +87,25 @@ function createStanAdoController({
   // compute the grid-max EIG (random exists as a cheap baseline), so eig_fraction
   // stopping is ignored there — only the max_trials cap applies. max_trials defaults
   // to n_trials, so with no stopping config the run is fixed-length.
+  const max_possible_eig = maxPossibleEig(model.responseSpace);
   const stopper = makeStoppingEvaluator({
     stopping,
     default_max_trials: n_trials,
-    max_possible_eig: maxPossibleEig(model.responseSpace),
+    max_possible_eig,
   });
 
   if (design_strategy === "random" && stopper.config.eig_fraction != null) {
     console.warn(
       "createStanAdoController: eig_fraction stopping is ignored under " +
       "design_strategy=\"random\" (EIG stopping is ADO-only); only max_trials applies."
+    );
+  } else if (stopper.config.eig_fraction != null && max_possible_eig == null) {
+    // No finite maximum EIG to normalize the fraction against (e.g. a continuous
+    // response, whose ln(K) is undefined), so EIG-fraction stopping is inert and the
+    // run is fixed-length via max_trials. See #110 (continuous) and #101 (precision-target).
+    console.warn(
+      "createStanAdoController: eig_fraction stopping is inert because this response " +
+      "space has no finite maximum EIG; only max_trials applies."
     );
   }
 
@@ -226,7 +234,7 @@ function createStanAdoController({
       return nullDesignMetrics(next_designs.length);
     }
     return next_designs.map(design => ({
-      mutual_info: mutualInfo(design, draws, responseProbs),
+      mutual_info: scorer.mutualInfo(design, draws),
     }));
   }
 
@@ -258,7 +266,7 @@ function createStanAdoController({
       return rows.map(() => null);
     }
     return rows.map(row => {
-      const gain = realizedInformationGain(row.ado_design, current_design_draws, row.choice, responseProbs);
+      const gain = scorer.realizedInformationGain(row.ado_design, current_design_draws, row.choice);
       return typeof gain === "number" && Number.isFinite(gain) ? gain : null;
     });
   }
@@ -286,7 +294,7 @@ function createStanAdoController({
       next_designs = sampleRandomDesigns(count);
       next_design_metrics = scoreSelectedDesigns(next_designs, draws);
     } else {
-      const picks = selectOptimalDesigns(designs, draws, responseProbs, count, { rng: design_rng });
+      const picks = scorer.selectOptimalDesigns(designs, draws, count, { rng: design_rng });
       next_designs = picks.map((pick) => pick.design);
       next_design_metrics = picks.map((pick) => ({ mutual_info: pick.mutual_info }));
       max_mutual_info = maxMutualInfo(next_design_metrics);
