@@ -34,6 +34,20 @@ jobs:
       - name: Likelihood parity smoke (JS responseProb == compiled Stan, all models)
         run: node tests/js/likelihood_parity.smoke.mjs
 
+  format:
+    name: Prettier format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dev deps (prettier)
+        run: npm ci
+      - name: Check formatting (prettier --check .)
+        run: npm run format:check
+
   browser:
     name: Headless Worker/WASM smoke
     runs-on: ubuntu-latest

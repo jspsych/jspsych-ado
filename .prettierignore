@@ -1,0 +1,22 @@
+# Generated and vendored — never reformat.
+
+# Dependencies + lockfile
+node_modules/
+package-lock.json
+
+# Vendored tinystan sampler glue (keep upstream formatting + license intact)
+core/tinystan/
+
+# Committed emscripten model glue — generated, and patch-wasm-glue.mjs matches exact
+# substrings in it (reformatting would break the patch + bloat the diff)
+src/models/**/main.js
+demos/**/main.js
+
+# Compiled WASM (binary)
+**/*.wasm
+
+# Bundler test fixture (generated build output + a vendored package copy)
+tests/bundler/fixture/
+
+# Paper build artifacts
+paper/*.bbl

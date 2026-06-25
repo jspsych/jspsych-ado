@@ -45,18 +45,21 @@
     "test:browser": "node tests/browser/dd_smoke.mjs && node tests/browser/line_length_discrimination_smoke.mjs && node tests/browser/magnitude_estimation_smoke.mjs && node tests/browser/byo_model_exponential_smoke.mjs && node tests/browser/byo_task_money_choice_smoke.mjs",
     "patch:wasm": "node scripts/patch-wasm-glue.mjs",
     "test:bundler": "node tests/bundler/run.mjs",
-    "prepublishOnly": "npm test"
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepublishOnly": "npm test",
+    "prepare": "husky"
   },
   "author": "The jspsych-ado contributors",
   "engines": {
     "node": ">=18"
   },
   "peerDependencies": {
-    "jspsych": ">=7",
-    "@jspsych/plugin-html-button-response": ">=1",
     "@jspsych/plugin-call-function": ">=1",
     "@jspsych/plugin-canvas-keyboard-response": ">=1",
-    "@jspsych/plugin-canvas-slider-response": ">=1"
+    "@jspsych/plugin-canvas-slider-response": ">=1",
+    "@jspsych/plugin-html-button-response": ">=1",
+    "jspsych": ">=7"
   },
   "peerDependenciesMeta": {
     "@jspsych/plugin-html-button-response": {
@@ -73,6 +76,15 @@
     }
   },
   "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.4",
     "puppeteer": "^24.15.0"
+  },
+  "prettier": {
+    "printWidth": 100
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs,json,md,css}": "prettier --write"
   }
 }
