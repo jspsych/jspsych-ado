@@ -457,7 +457,6 @@ function validateModel(model, opts = {}) {
 }
 
 export {
-  getResponseCount,
   isContinuous,
   continuousModelProblems,
   validateResponseSpace,
