@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { samplePriorDraws } from "../../jspsych-ado/ado/mi_engine.js";
-import { createAdoTimeline } from "../../jspsych-ado/ado/ado_timeline.js";
-import { createSeededRng } from "../../jspsych-ado/ado/ado_simulation.js";
-import { createStanAdoController } from "../../jspsych-ado/controllers/stan_ado_controller.js";
-import { createMockAdoController } from "../../jspsych-ado/controllers/mock_ado_controller.js";
-import { compileStanModel } from "../../jspsych-ado/models/compile_stan_model.js";
+import { samplePriorDraws } from "../../src/ado/mi_engine.js";
+import { createAdoTimeline } from "../../src/ado/ado_timeline.js";
+import { createSeededRng } from "../../src/ado/ado_simulation.js";
+import { createStanAdoController } from "../../src/controllers/stan_ado_controller.js";
+import { createMockAdoController } from "../../src/controllers/mock_ado_controller.js";
+import { compileStanModel } from "../../src/models/compile_stan_model.js";
 import {
   buildAdapter,
   createTimeline,
@@ -18,7 +18,7 @@ import {
   registerTask,
   validateModel,
   validateTask,
-} from "../../jspsych-ado/index.js";
+} from "../../src/index.js";
 
 // The ADO timeline wraps each testlet (its choices + the update) in a node with a
 // conditional_function so it can be skipped for early stopping (#21). These

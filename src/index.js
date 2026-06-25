@@ -1,4 +1,4 @@
-// jspsych-ado/index.js — the jsPsychADO façade (package entry point).
+// src/index.js — the jsPsychADO façade (package entry point).
 //
 // Researchers register two composable pieces:
 //   - a task:  design grid, presentation, choices, and response labels

@@ -193,20 +193,20 @@ The timeline talks to an **adaptive controller** with two async methods —
 current posterior. Swapping the deterministic mock controller for the in-browser Stan
 controller is the entire abstraction; the timeline never sees Stan or WASM.
 
-- **`jspsych-ado/ado/mi_engine.js`** — model-agnostic mutual-information design selection.
-- **`jspsych-ado/ado/stan_worker.js`** — one generic Web Worker that runs NUTS off the main thread.
-- **`jspsych-ado/ado/ado_timeline.js`** — the generic, stimulus-agnostic timeline.
-- **`jspsych-ado/ado/experiment_shell.js`** — shared experiment-page run-mode and simulation wiring.
-- **`jspsych-ado/controllers/`** — the in-browser Stan controller and the mock controller.
-- **`jspsych-ado/index.js`** — the `jsPsychADO` façade.
+- **`src/ado/mi_engine.js`** — model-agnostic mutual-information design selection.
+- **`src/ado/stan_worker.js`** — one generic Web Worker that runs NUTS off the main thread.
+- **`src/ado/ado_timeline.js`** — the generic, stimulus-agnostic timeline.
+- **`src/ado/experiment_shell.js`** — shared experiment-page run-mode and simulation wiring.
+- **`src/controllers/`** — the in-browser Stan controller and the mock controller.
+- **`src/index.js`** — the `jsPsychADO` façade.
 
 ## Repository layout
 
-- **`jspsych-ado/`** — the general, model- and stimulus-agnostic library (engine,
+- **`src/`** — the general, model- and stimulus-agnostic library (engine,
   worker, controllers, generic timeline, façade). It knows nothing about any task.
-- **`jspsych-ado/tasks/<name>/`** — a pluggable task package: design grid,
+- **`src/tasks/<name>/`** — a pluggable task package: design grid,
   presentation, choices, response labels, and response mapping.
-- **`jspsych-ado/models/<name>/`** — a pluggable model package: a `model.js` adapter
+- **`src/models/<name>/`** — a pluggable model package: a `model.js` adapter
   (`params`, `prior`, `responseProb` or `responseProbs`, `stanData`, …) plus its
   compiled `.stan` artifacts. Shipped models: `hyperbolic` (delay discounting),
   `weber_dots` (ANS acuity), `line_length_discrimination_3ifc` (3-way categorical),
@@ -218,16 +218,16 @@ controller is the entire abstraction; the timeline never sees Stan or WASM.
 
 ## Adding tasks and models
 
-Drop task packages under `jspsych-ado/tasks/<name>/` and model packages under
-`jspsych-ado/models/<name>/`. The engine, controller, and timeline stay generic.
-Model compilation steps are in [jspsych-ado/models/README.md](jspsych-ado/models/README.md);
-the task package contract is in [jspsych-ado/tasks/README.md](jspsych-ado/tasks/README.md).
+Drop task packages under `src/tasks/<name>/` and model packages under
+`src/models/<name>/`. The engine, controller, and timeline stay generic.
+Model compilation steps are in [src/models/README.md](src/models/README.md);
+the task package contract is in [src/tasks/README.md](src/tasks/README.md).
 For runnable end-to-end walkthroughs, see the **bring-your-own-task** and
 **bring-your-own-model** demos in [`demos/README.md`](demos/README.md).
 Binary models expose `responseProb(design, params) -> P(response = 1)`.
 Finite categorical models expose `responseProbs(design, params) -> [p0, p1, ...]`.
 Continuous models expose a response density `responseDensity(design, params, y)` (plus
-moments/entropy/sampler); see the [models README](jspsych-ado/models/README.md).
+moments/entropy/sampler); see the [models README](src/models/README.md).
 
 ## Development
 

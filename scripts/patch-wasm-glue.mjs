@@ -22,7 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const MODELS_DIR = join(ROOT, "jspsych-ado", "models");
+const MODELS_DIR = join(ROOT, "src", "models");
 // Demos may author their own model (e.g. demos/byo_model_exponential/), so its
 // compiled main.js must be patched + guarded too.
 const DEMOS_DIR = join(ROOT, "demos");
@@ -39,7 +39,7 @@ export function patchSource(source) {
   return { changed: false, source, missing: true };
 }
 
-/** Every committed model with a compiled `main.js` — packaged (jspsych-ado/models/)
+/** Every committed model with a compiled `main.js` — packaged (src/models/)
  *  or authored in a demo folder (demos/): [{ name, dir, file }]. Shared with the
  *  guard test (tests/js/wasm_glue_patch.test.mjs) so both agree on what to check. */
 export async function listModelMains() {

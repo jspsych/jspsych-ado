@@ -8,10 +8,10 @@ import model, {
   conditionalEntropy,
   responseSampler,
   buildData,
-} from "../../jspsych-ado/models/magnitude_estimation/model.js";
-import { validateModel } from "../../jspsych-ado/index.js";
-import { createDesignScorer, samplePriorDraws } from "../../jspsych-ado/ado/mi_engine.js";
-import { createSeededRng } from "../../jspsych-ado/ado/ado_simulation.js";
+} from "../../src/models/magnitude_estimation/model.js";
+import { validateModel } from "../../src/index.js";
+import { createDesignScorer, samplePriorDraws } from "../../src/ado/mi_engine.js";
+import { createSeededRng } from "../../src/ado/ado_simulation.js";
 
 test("magnitude_estimation validates as a continuous model package", () => {
   const { valid, problems } = validateModel(model);

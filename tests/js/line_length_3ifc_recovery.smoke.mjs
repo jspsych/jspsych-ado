@@ -32,11 +32,11 @@ globalThis.fetch = async (url, opts) => {
 };
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
-const lll = (await import("../../jspsych-ado/models/line_length_discrimination_3ifc/model.js")).default;
+const lll = (await import("../../src/models/line_length_discrimination_3ifc/model.js")).default;
 const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws, getResponseProbsFunction } =
-  await import("../../jspsych-ado/ado/mi_engine.js");
-const { createSeededRng, simulateCategoricalChoice } = await import("../../jspsych-ado/ado/ado_simulation.js");
-const { makeStanDataBuilder } = await import("../../jspsych-ado/ado/stan_data.js");
+  await import("../../src/ado/mi_engine.js");
+const { createSeededRng, simulateCategoricalChoice } = await import("../../src/ado/ado_simulation.js");
+const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
 
 const buildData = makeStanDataBuilder({ stanData: lll.stanData, responseSpace: lll.responseSpace });
 const responseProbs = getResponseProbsFunction(lll);

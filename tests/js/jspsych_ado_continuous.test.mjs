@@ -7,9 +7,9 @@ import {
   validateModel,
   validateTaskModelPair,
   buildAdapter,
-} from "../../jspsych-ado/index.js";
-import { createDesignScorer, gaussianEntropy } from "../../jspsych-ado/ado/mi_engine.js";
-import { simulateContinuousResponse, createSeededRng } from "../../jspsych-ado/ado/ado_simulation.js";
+} from "../../src/index.js";
+import { createDesignScorer, gaussianEntropy } from "../../src/ado/mi_engine.js";
+import { simulateContinuousResponse, createSeededRng } from "../../src/ado/ado_simulation.js";
 
 // End-to-end facade support for a continuous (pseudo-continuous) response: a model
 // supplies a density + moments instead of a probability vector, and a task carries

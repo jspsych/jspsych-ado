@@ -9,7 +9,7 @@
 //
 // Adding a new model = copy this folder, write the new <model>.stan, compile it,
 // and edit params/prior/stanData/responseProb. Task presentation and design
-// grids live under jspsych-ado/tasks/.
+// grids live under src/tasks/.
 //
 // The compiled artifacts are kept under their downloaded names (main.js + main.wasm)
 // because the emscripten glue in main.js hardcodes its sibling "main.wasm"; the

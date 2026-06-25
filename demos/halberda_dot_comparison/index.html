@@ -14,8 +14,8 @@
     </head>
     <body></body>
     <script type="module">
-        import { makeDebriefStimulus } from "./jspsych-ado/ado/ado_timeline.js";
-        import { createSeededRng } from "./jspsych-ado/ado/ado_simulation.js";
+        import { makeDebriefStimulus } from "./src/ado/ado_timeline.js";
+        import { createSeededRng } from "./src/ado/ado_simulation.js";
         import {
             addAdoDataProperties,
             createExperimentAdoTimeline,
@@ -25,11 +25,11 @@
             makeInstructionSimulationData,
             registerAdoExperiment,
             resolveSimulationConfig,
-        } from "./jspsych-ado/ado/experiment_shell.js";
+        } from "./src/ado/experiment_shell.js";
         import halberdaTask, {
             correctChoiceIndex,
-        } from "./jspsych-ado/tasks/halberda_dot_comparison/task.js";
-        import weberDotsModel from "./jspsych-ado/models/weber_dots/model.js";
+        } from "./src/tasks/halberda_dot_comparison/task.js";
+        import weberDotsModel from "./src/models/weber_dots/model.js";
         import {
             default_halberda_config,
             default_halberda_simulation_config,

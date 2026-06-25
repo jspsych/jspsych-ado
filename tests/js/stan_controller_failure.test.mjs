@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createStanAdoController } from "../../jspsych-ado/controllers/stan_ado_controller.js";
+import { createStanAdoController } from "../../src/controllers/stan_ado_controller.js";
 
 // A binary model stub sufficient for the controller (params/prior/buildData/responseProb).
 function makeModel() {

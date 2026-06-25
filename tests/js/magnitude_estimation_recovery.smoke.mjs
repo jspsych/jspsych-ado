@@ -34,11 +34,11 @@ globalThis.fetch = async (url, opts) => {
 };
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
-const me = (await import("../../jspsych-ado/models/magnitude_estimation/model.js")).default;
+const me = (await import("../../src/models/magnitude_estimation/model.js")).default;
 const { enumerateDesigns, createDesignScorer, summarizeDraws, samplePriorDraws } = await import(
-  "../../jspsych-ado/ado/mi_engine.js"
+  "../../src/ado/mi_engine.js"
 );
-const { createSeededRng, simulateContinuousResponse } = await import("../../jspsych-ado/ado/ado_simulation.js");
+const { createSeededRng, simulateContinuousResponse } = await import("../../src/ado/ado_simulation.js");
 
 const createModule = (await import(me.moduleUrl)).default;
 const model = await StanModel.load(createModule, () => {});

@@ -26,11 +26,11 @@ globalThis.fetch = async (url, opts) => {
 };
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
-const hyp = (await import("../../jspsych-ado/models/hyperbolic/model.js")).default;
-const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } = await import("../../jspsych-ado/ado/mi_engine.js");
-const { createSeededRng, simulateDelayDiscountingChoice } = await import("../../jspsych-ado/ado/ado_simulation.js");
-const { makeStanDataBuilder } = await import("../../jspsych-ado/ado/stan_data.js");
-const { normalizeStoppingConfig, evaluateStopping, maxPossibleEig } = await import("../../jspsych-ado/ado/stopping.js");
+const hyp = (await import("../../src/models/hyperbolic/model.js")).default;
+const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } = await import("../../src/ado/mi_engine.js");
+const { createSeededRng, simulateDelayDiscountingChoice } = await import("../../src/ado/ado_simulation.js");
+const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
+const { normalizeStoppingConfig, evaluateStopping, maxPossibleEig } = await import("../../src/ado/stopping.js");
 
 const buildData = makeStanDataBuilder({ stanData: hyp.stanData, responseSpace: hyp.responseSpace });
 const createModule = (await import(hyp.moduleUrl)).default;
@@ -38,7 +38,7 @@ const model = await StanModel.load(createModule, () => {});
 console.log("stan version:", model.stanVersion());
 
 const designs = enumerateDesigns((await import("../../demos/delay_discounting/dd_config.js")).default_dd_config.grid_design
-  ?? (await import("../../jspsych-ado/tasks/delay_discounting/task.js")).default.design_grid);
+  ?? (await import("../../src/tasks/delay_discounting/task.js")).default.design_grid);
 const sample_config = { num_chains: 2, num_warmup: 300, num_samples: 300, seed: 123 };
 const max_possible_eig = maxPossibleEig(hyp.responseSpace); // ln 2
 

@@ -8,7 +8,7 @@ a demo's `index.html`.
 
 This trips people up, so first:
 
-- **`jspsych-ado/tasks/<name>/`** and **`jspsych-ado/models/<name>/`** are **packaged,
+- **`src/tasks/<name>/`** and **`src/models/<name>/`** are **packaged,
   reusable, shipped-on-npm** pieces. A **task** owns *how a design is shown and answered*
   (presentation, the candidate **design grid**, response coding). A **model** owns *the
   likelihood* (a Stan file + a small JS adapter: priors, `responseProb`, `stanData`).

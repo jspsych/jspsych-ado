@@ -83,8 +83,8 @@
     </head>
     <body></body>
     <script type="module">
-        import { makeDebriefStimulus } from "./jspsych-ado/ado/ado_timeline.js";
-        import { createSeededRng, simulateCategoricalChoice } from "./jspsych-ado/ado/ado_simulation.js";
+        import { makeDebriefStimulus } from "./src/ado/ado_timeline.js";
+        import { createSeededRng, simulateCategoricalChoice } from "./src/ado/ado_simulation.js";
         import {
             addAdoDataProperties,
             createExperimentAdoTimeline,
@@ -94,9 +94,9 @@
             makeInstructionSimulationData,
             registerAdoExperiment,
             resolveSimulationConfig,
-        } from "./jspsych-ado/ado/experiment_shell.js";
-        import lineLengthTask from "./jspsych-ado/tasks/line_length_discrimination/task.js";
-        import lineLengthModel from "./jspsych-ado/models/line_length_discrimination_3ifc/model.js";
+        } from "./src/ado/experiment_shell.js";
+        import lineLengthTask from "./src/tasks/line_length_discrimination/task.js";
+        import lineLengthModel from "./src/models/line_length_discrimination_3ifc/model.js";
         import {
             default_line_length_config,
             default_line_length_simulation_config,

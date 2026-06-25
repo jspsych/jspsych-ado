@@ -6,9 +6,9 @@ import task, {
   correctChoiceIndex,
   makeDotComparisonDesigns,
   responseToOutcome,
-} from "../../jspsych-ado/tasks/halberda_dot_comparison/task.js";
-import model from "../../jspsych-ado/models/weber_dots/model.js";
-import { validateTask, validateModel } from "../../jspsych-ado/index.js";
+} from "../../src/tasks/halberda_dot_comparison/task.js";
+import model from "../../src/models/weber_dots/model.js";
+import { validateTask, validateModel } from "../../src/index.js";
 
 test("Halberda task package exposes an adaptive dot-comparison design list", () => {
   assert.equal(task.id, "halberda_dot_comparison");

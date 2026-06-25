@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   simulateCategoricalChoice,
   simulateDelayDiscountingChoice,
-} from "../../jspsych-ado/ado/ado_simulation.js";
+} from "../../src/ado/ado_simulation.js";
 
 const DESIGN = {
   r_ss: 100,

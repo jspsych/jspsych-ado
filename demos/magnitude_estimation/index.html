@@ -13,8 +13,8 @@
     </head>
     <body></body>
     <script type="module">
-        import { makeDebriefStimulus } from "./jspsych-ado/ado/ado_timeline.js";
-        import { createSeededRng, simulateContinuousResponse } from "./jspsych-ado/ado/ado_simulation.js";
+        import { makeDebriefStimulus } from "./src/ado/ado_timeline.js";
+        import { createSeededRng, simulateContinuousResponse } from "./src/ado/ado_simulation.js";
         import {
             addAdoDataProperties,
             createExperimentAdoTimeline,
@@ -24,12 +24,12 @@
             makeInstructionSimulationData,
             registerAdoExperiment,
             resolveSimulationConfig,
-        } from "./jspsych-ado/ado/experiment_shell.js";
+        } from "./src/ado/experiment_shell.js";
         import magnitudeTask, {
             SLIDER_MIN,
             SLIDER_MAX,
-        } from "./jspsych-ado/tasks/magnitude_estimation/task.js";
-        import magnitudeModel from "./jspsych-ado/models/magnitude_estimation/model.js";
+        } from "./src/tasks/magnitude_estimation/task.js";
+        import magnitudeModel from "./src/models/magnitude_estimation/model.js";
         import {
             default_magnitude_estimation_config,
             default_magnitude_estimation_simulation_config,

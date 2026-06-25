@@ -40,9 +40,9 @@ but new examples should use `controller=` and `strategy=`.
 Register the task and model separately, then build the timeline from both:
 
 ```js
-import { jsPsychADO } from "./jspsych-ado/index.js";
-import hyperbolicModel from "./jspsych-ado/models/hyperbolic/model.js";
-import delayDiscountingTask from "./jspsych-ado/tasks/delay_discounting/task.js";
+import { jsPsychADO } from "./src/index.js";
+import hyperbolicModel from "./src/models/hyperbolic/model.js";
+import delayDiscountingTask from "./src/tasks/delay_discounting/task.js";
 import { default_dd_config } from "./demos/delay_discounting/dd_config.js";
 
 const jsPsych = initJsPsych();
@@ -74,10 +74,10 @@ The generic timeline accepts any controller, so fast UI iteration can drive the
 same task presentation with the deterministic mock controller:
 
 ```js
-import { createAdoTimeline } from "./jspsych-ado/ado/ado_timeline.js";
-import { createMockAdoController } from "./jspsych-ado/controllers/mock_ado_controller.js";
-import hyperbolicModel from "./jspsych-ado/models/hyperbolic/model.js";
-import delayDiscountingTask from "./jspsych-ado/tasks/delay_discounting/task.js";
+import { createAdoTimeline } from "./src/ado/ado_timeline.js";
+import { createMockAdoController } from "./src/controllers/mock_ado_controller.js";
+import hyperbolicModel from "./src/models/hyperbolic/model.js";
+import delayDiscountingTask from "./src/tasks/delay_discounting/task.js";
 import { default_dd_config } from "./demos/delay_discounting/dd_config.js";
 
 const controller = createMockAdoController({
@@ -103,7 +103,7 @@ const timeline = createAdoTimeline(jsPsych, controller, {
 
 ### Adding a task
 
-A task package lives under `jspsych-ado/tasks/`. It owns the design grid and the
+A task package lives under `src/tasks/`. It owns the design grid and the
 stimulus/response contract:
 
 ```js
@@ -127,7 +127,7 @@ For tasks where the binary model outcome differs from the raw button index, add
 
 ### Adding a model
 
-A model package lives under `jspsych-ado/models/`. It owns the statistical pieces:
+A model package lives under `src/models/`. It owns the statistical pieces:
 
 ```js
 export default {
@@ -165,11 +165,11 @@ formula and metadata before using the model in a browser experiment.
 
 ### Compiling a model
 
-Write the Stan model at `jspsych-ado/models/<name>/<name>.stan`, compile it once,
+Write the Stan model at `src/models/<name>/<name>.stan`, compile it once,
 and commit `main.js` + `main.wasm` next to `model.js`:
 
 ```bash
-cd jspsych-ado/models/<name>
+cd src/models/<name>
 ID=$(curl -s -X POST https://stan-wasm.flatironinstitute.org/compile \
   -H "Content-Type: text/plain" -H "Authorization: Bearer 1234" \
   --data-binary @<name>.stan | sed -E 's/.*"model_id":"([^"]+)".*/\1/')

@@ -4,12 +4,12 @@ import assert from "node:assert/strict";
 import {
   default as model,
   responseProbs,
-} from "../../jspsych-ado/models/line_length_discrimination_3ifc/model.js";
+} from "../../src/models/line_length_discrimination_3ifc/model.js";
 import {
   default as task,
   make3IFCDesign,
-} from "../../jspsych-ado/tasks/line_length_discrimination/task.js";
-import { makeStanDataBuilder } from "../../jspsych-ado/ado/stan_data.js";
+} from "../../src/tasks/line_length_discrimination/task.js";
+import { makeStanDataBuilder } from "../../src/ado/stan_data.js";
 
 // The model declares a stanData map; the framework generates buildData from it.
 const buildData = makeStanDataBuilder({ stanData: model.stanData, responseSpace: model.responseSpace });

@@ -34,17 +34,17 @@ globalThis.fetch = async (url, opts) => {
 };
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
-const hyp = (await import("../../jspsych-ado/models/hyperbolic/model.js")).default;
+const hyp = (await import("../../src/models/hyperbolic/model.js")).default;
 const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } = await import(
-  "../../jspsych-ado/ado/mi_engine.js"
+  "../../src/ado/mi_engine.js"
 );
 const { createSeededRng, simulateDelayDiscountingChoice } = await import(
-  "../../jspsych-ado/ado/ado_simulation.js"
+  "../../src/ado/ado_simulation.js"
 );
 const { default_dd_config } = await import("../../demos/delay_discounting/dd_config.js");
-const delayDiscountingTask = (await import("../../jspsych-ado/tasks/delay_discounting/task.js")).default;
+const delayDiscountingTask = (await import("../../src/tasks/delay_discounting/task.js")).default;
 
-const { makeStanDataBuilder } = await import("../../jspsych-ado/ado/stan_data.js");
+const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
 // The model declares a stanData map; generate its buildData (the framework does this
 // in buildAdapter — done here directly since this smoke bypasses the facade/worker).
 const buildData = makeStanDataBuilder({ stanData: hyp.stanData, responseSpace: hyp.responseSpace });

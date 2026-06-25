@@ -13,7 +13,7 @@ folder and committed so the adaptive demo runs as pure static assets.
 ## Regenerate
 
 ```bash
-cd jspsych-ado/models/line_length_discrimination_3ifc
+cd src/models/line_length_discrimination_3ifc
 ID=$(curl -s -X POST https://stan-wasm.flatironinstitute.org/compile \
   -H "Content-Type: text/plain" -H "Authorization: Bearer 1234" \
   --data-binary @line_length_discrimination_3ifc.stan | sed -E 's/.*"model_id":"([^"]+)".*/\1/')

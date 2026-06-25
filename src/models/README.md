@@ -106,7 +106,7 @@ resolves `main.wasm` as a sibling of `main.js`; under a bundler the
 the model's `wasmUrl` instead):
 
 ```bash
-cd jspsych-ado/models/<name>
+cd src/models/<name>
 ID=$(curl -s -X POST https://stan-wasm.flatironinstitute.org/compile \
   -H "Content-Type: text/plain" -H "Authorization: Bearer 1234" \
   --data-binary @<name>.stan | sed -E 's/.*"model_id":"([^"]+)".*/\1/')
@@ -150,11 +150,11 @@ unpatched, so this can't be forgotten silently.
 
 ## Adding a new model
 
-1. Write `jspsych-ado/models/<name>/<name>.stan`.
+1. Write `src/models/<name>/<name>.stan`.
 2. Compile it and drop `main.js` + `main.wasm` in the folder.
 3. Run `npm run patch:wasm` so the fresh `main.js` honors `Module.locateFile`
    (CI fails otherwise — see the bundler-safety patch above).
-4. Write `jspsych-ado/models/<name>/model.js` with `params`, `designKeys`,
+4. Write `src/models/<name>/model.js` with `params`, `designKeys`,
    `responseSpace`, priors matching the `.stan`, a `stanData` map mirroring the
    `.stan` data block, the matching likelihood (`responseProb` for binary,
    `responseProbs` for finite categorical, or `responseDensity` + moments/entropy/sampler

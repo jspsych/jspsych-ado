@@ -6,8 +6,8 @@ import model, {
   numerosities,
   responseProb,
   responseProbs,
-} from "../../jspsych-ado/models/weber_dots/model.js";
-import { makeStanDataBuilder } from "../../jspsych-ado/ado/stan_data.js";
+} from "../../src/models/weber_dots/model.js";
+import { makeStanDataBuilder } from "../../src/ado/stan_data.js";
 
 // The model declares a stanData map; the framework generates buildData from it.
 const buildData = makeStanDataBuilder({ stanData: model.stanData, responseSpace: model.responseSpace });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeStanDataBuilder, validateStanDataSpec } from "../../jspsych-ado/ado/stan_data.js";
+import { makeStanDataBuilder, validateStanDataSpec } from "../../src/ado/stan_data.js";
 
 test("copies trial columns and injects N", () => {
   const build = makeStanDataBuilder({

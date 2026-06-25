@@ -33,10 +33,10 @@ globalThis.fetch = async (url, opts) => {
 };
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
-const { makeStanDataBuilder } = await import("../../jspsych-ado/ado/stan_data.js");
-const hyp = (await import("../../jspsych-ado/models/hyperbolic/model.js")).default;
-const weber = (await import("../../jspsych-ado/models/weber_dots/model.js")).default;
-const lll = (await import("../../jspsych-ado/models/line_length_discrimination_3ifc/model.js")).default;
+const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
+const hyp = (await import("../../src/models/hyperbolic/model.js")).default;
+const weber = (await import("../../src/models/weber_dots/model.js")).default;
+const lll = (await import("../../src/models/line_length_discrimination_3ifc/model.js")).default;
 const exp = (await import("../../demos/byo_model_exponential/model.js")).default;
 
 let failures = 0;

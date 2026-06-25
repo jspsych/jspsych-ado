@@ -15,7 +15,7 @@ import { UNPATCHED, PATCHED, listModelMains } from "../../scripts/patch-wasm-glu
 const models = await listModelMains();
 
 test("there is at least one committed model to check", () => {
-  assert.ok(models.length > 0, "expected compiled model main.js files under jspsych-ado/models/*");
+  assert.ok(models.length > 0, "expected compiled model main.js files under src/models/*");
 });
 
 for (const { name, dir, file } of models) {

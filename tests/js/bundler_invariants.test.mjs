@@ -31,7 +31,7 @@ test("each model.js emits its assets via new URL(..., import.meta.url), not hard
 });
 
 test("stan_worker.js keeps the bundler-ignore comments and the locateFile injection", async () => {
-  const src = await read("jspsych-ado/ado/stan_worker.js");
+  const src = await read("src/ado/stan_worker.js");
   // The model main.js must stay a runtime import (the bundler already emitted it as
   // an asset via model.js's new URL); both ignore comments must survive.
   assert.match(src, /@vite-ignore/, "stan_worker.js must keep the /* @vite-ignore */ comment on the dynamic import.");
@@ -42,7 +42,7 @@ test("stan_worker.js keeps the bundler-ignore comments and the locateFile inject
 });
 
 test("the controller spawns the worker via new URL(..., import.meta.url) so the chunk is emitted", async () => {
-  const src = await read("jspsych-ado/controllers/stan_ado_controller.js");
+  const src = await read("src/controllers/stan_ado_controller.js");
   assert.match(
     src,
     /new Worker\(\s*new URL\(\s*["']\.\.\/ado\/stan_worker\.js["']\s*,\s*import\.meta\.url\s*\)/,

@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createAdoTimeline } from "../../jspsych-ado/ado/ado_timeline.js";
+import { createAdoTimeline } from "../../src/ado/ado_timeline.js";
 
 const TEST_PRESENTATION = { makeStimulus: () => "<p>choose</p>" };
 const DESIGN = { t_ss: 0, t_ll: 1, r_ss: 100, r_ll: 200 };

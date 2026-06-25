@@ -8,8 +8,8 @@ import {
   mutualInfoContinuous,
   realizedInformationGainContinuous,
   samplePriorDraws,
-} from "../../jspsych-ado/ado/mi_engine.js";
-import { createSeededRng } from "../../jspsych-ado/ado/ado_simulation.js";
+} from "../../src/ado/mi_engine.js";
+import { createSeededRng } from "../../src/ado/ado_simulation.js";
 
 // Continuous EIG by 1-D quadrature. The correctness anchor is the linear-Gaussian
 // model y ~ Normal(theta * x, sigma) with a Gaussian prior theta ~ Normal(m, v),

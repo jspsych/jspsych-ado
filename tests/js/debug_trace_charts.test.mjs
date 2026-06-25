@@ -9,7 +9,7 @@ import {
   removeInfoGainDebugPanel,
   renderInfoGainDebugPanel,
   updateInfoGainDebugPanel,
-} from "../../jspsych-ado/ado/debug/debug_trace_charts.js";
+} from "../../src/ado/debug/debug_trace_charts.js";
 
 test("getFiniteTracePoints keeps original trial numbers when values are missing", () => {
   const points = getFiniteTracePoints([null, 0.04, Number.NaN, 0.02]);

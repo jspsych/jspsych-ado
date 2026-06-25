@@ -1,4 +1,4 @@
-// jspsych-ado/models/compile_stan_model.js
+// src/models/compile_stan_model.js
 //
 // OPTIONAL convenience. Compile a Stan model from a source STRING at experiment
 // setup and return a ready-to-use model adapter — the same shape the committed

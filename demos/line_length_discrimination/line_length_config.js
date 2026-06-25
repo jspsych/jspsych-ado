@@ -1,7 +1,7 @@
 /**
  * 3IFC line-length discrimination run configuration.
  * Task-owned pieces such as design_grid, presentation, choices, and response
- * labels live in jspsych-ado/tasks/line_length_discrimination/task.js.
+ * labels live in src/tasks/line_length_discrimination/task.js.
  */
 const default_line_length_config = {
   n_trials: 18,

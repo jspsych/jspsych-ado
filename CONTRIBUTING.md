@@ -42,29 +42,29 @@ If you have an idea for a new feature, such as a new task, model, controller opt
 `jspsych-ado` accepts contributions in a few different areas:
 
 - **Core package** changes affect the adaptive engine, controllers, timeline construction, or public API.
-- **Tasks and models** are reusable packages under `jspsych-ado/tasks/` and `jspsych-ado/models/`.
+- **Tasks and models** are reusable packages under `src/tasks/` and `src/models/`.
 - **Demos** are example pages under `demos/` that show how to use or extend the package.
 
 For task, model, or demo contributions, start with the relevant README:
 
-- [tasks README](jspsych-ado/tasks/README.md)
-- [models README](jspsych-ado/models/README.md)
+- [tasks README](src/tasks/README.md)
+- [models README](src/models/README.md)
 - [demos README](demos/README.md)
 
 ### Architecture at a glance
 
 The library is organized around a single coupling point — the **controller contract**:
 
-- `jspsych-ado/index.js` — the public **facade**: `registerTask`, `registerModel` / `registerModelPackage`, `prepareModels`, `createTimeline`.
-- `jspsych-ado/controllers/` — an adaptive **controller** exposing two async methods, `start(context)` and `update(trial_data)`. This `start`/`update` contract is the *only* coupling between the timeline and inference, so `stan_ado_controller.js` (live; Stan compiled to WASM, run in a Web Worker) and `mock_ado_controller.js` (no-WASM dev) are interchangeable behind it.
-- `jspsych-ado/ado/` — the model- and task-agnostic engine: mutual-information design selection (`mi_engine.js`), the Stan Web Worker (`stan_worker.js`), the generic timeline (`ado_timeline.js`), early stopping (`stopping.js`), and the simulated participant (`ado_simulation.js`).
-- `jspsych-ado/tasks/<name>/` and `jspsych-ado/models/<name>/` — pluggable **task** (presentation, design grid, response coding) and **model** (parameters, prior, likelihood, Stan data + compiled artifacts) packages.
+- `src/index.js` — the public **facade**: `registerTask`, `registerModel` / `registerModelPackage`, `prepareModels`, `createTimeline`.
+- `src/controllers/` — an adaptive **controller** exposing two async methods, `start(context)` and `update(trial_data)`. This `start`/`update` contract is the *only* coupling between the timeline and inference, so `stan_ado_controller.js` (live; Stan compiled to WASM, run in a Web Worker) and `mock_ado_controller.js` (no-WASM dev) are interchangeable behind it.
+- `src/ado/` — the model- and task-agnostic engine: mutual-information design selection (`mi_engine.js`), the Stan Web Worker (`stan_worker.js`), the generic timeline (`ado_timeline.js`), early stopping (`stopping.js`), and the simulated participant (`ado_simulation.js`).
+- `src/tasks/<name>/` and `src/models/<name>/` — pluggable **task** (presentation, design grid, response coding) and **model** (parameters, prior, likelihood, Stan data + compiled artifacts) packages.
 - `demos/` — runnable example pages (not part of the published library).
 
 ### Two ways to build the timeline
 
 - **Library consumers** call `jsPsychADO.createTimeline(jsPsych, { task, model, ... })` — the documented public API.
-- **The demo pages** call `createExperimentAdoTimeline(...)` from `jspsych-ado/ado/experiment_shell.js`, which wraps `createTimeline` and adds URL-driven controller/strategy switching and simulation. That shell is demo scaffolding — your own experiment should call `createTimeline` directly.
+- **The demo pages** call `createExperimentAdoTimeline(...)` from `src/ado/experiment_shell.js`, which wraps `createTimeline` and adds URL-driven controller/strategy switching and simulation. That shell is demo scaffolding — your own experiment should call `createTimeline` directly.
 
 ---
 

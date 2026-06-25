@@ -5,7 +5,7 @@ import {
   buildHistogram,
   inferPosteriorParams,
   formatPosteriorDrawCharts,
-} from "../../jspsych-ado/ado/debug/posterior_debug_charts.js";
+} from "../../src/ado/debug/posterior_debug_charts.js";
 
 test("buildHistogram preserves the number of finite values", () => {
   const histogram = buildHistogram([1, 2, 2, 4, Number.NaN], 4);

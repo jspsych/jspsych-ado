@@ -30,12 +30,12 @@ globalThis.fetch = async (url, opts) => {
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 const exp = (await import("../../demos/byo_model_exponential/model.js")).default;
-const ddTask = (await import("../../jspsych-ado/tasks/delay_discounting/task.js")).default;
+const ddTask = (await import("../../src/tasks/delay_discounting/task.js")).default;
 const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } = await import(
-  "../../jspsych-ado/ado/mi_engine.js"
+  "../../src/ado/mi_engine.js"
 );
-const { createSeededRng, simulateDelayDiscountingChoice } = await import("../../jspsych-ado/ado/ado_simulation.js");
-const { makeStanDataBuilder } = await import("../../jspsych-ado/ado/stan_data.js");
+const { createSeededRng, simulateDelayDiscountingChoice } = await import("../../src/ado/ado_simulation.js");
+const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
 
 const buildData = makeStanDataBuilder({ stanData: exp.stanData, responseSpace: exp.responseSpace });
 const createModule = (await import(exp.moduleUrl)).default;

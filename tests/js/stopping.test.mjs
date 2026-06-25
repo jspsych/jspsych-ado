@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeStoppingConfig, evaluateStopping, maxPossibleEig, makeStoppingEvaluator } from "../../jspsych-ado/ado/stopping.js";
+import { normalizeStoppingConfig, evaluateStopping, maxPossibleEig, makeStoppingEvaluator } from "../../src/ado/stopping.js";
 
 const LN2 = Math.log(2);
 const LN3 = Math.log(3);

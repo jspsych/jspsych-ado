@@ -30,15 +30,15 @@ globalThis.fetch = async (url, opts) => {
 };
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
-const weber = (await import("../../jspsych-ado/models/weber_dots/model.js")).default;
+const weber = (await import("../../src/models/weber_dots/model.js")).default;
 const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } = await import(
-  "../../jspsych-ado/ado/mi_engine.js"
+  "../../src/ado/mi_engine.js"
 );
 const { createSeededRng, simulateDelayDiscountingChoice } = await import(
-  "../../jspsych-ado/ado/ado_simulation.js"
+  "../../src/ado/ado_simulation.js"
 );
 
-const { makeStanDataBuilder } = await import("../../jspsych-ado/ado/stan_data.js");
+const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
 // The model declares a stanData map; generate its buildData (the framework does this
 // in buildAdapter — done here directly since this smoke bypasses the facade/worker).
 const buildData = makeStanDataBuilder({ stanData: weber.stanData, responseSpace: weber.responseSpace });

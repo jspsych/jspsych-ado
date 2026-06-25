@@ -12,7 +12,7 @@
 //   2. presentation  — how a design is shown and answered
 //   3. response coding — choices / response_labels (+ responseToOutcome if needed)
 
-import { arange } from "../../jspsych-ado/ado/grid.js"; // reuse the shipped grid helper
+import { arange } from "../../src/ado/grid.js"; // reuse the shipped grid helper
 
 function weeks(t) {
   if (t === 0) return "today";

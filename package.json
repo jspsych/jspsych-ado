@@ -21,11 +21,11 @@
   "bugs": {
     "url": "https://github.com/githubpsyche/jspsych-ado/issues"
   },
-  "main": "./jspsych-ado/index.js",
+  "main": "./src/index.js",
   "exports": {
-    ".": "./jspsych-ado/index.js",
-    "./models/*": "./jspsych-ado/models/*",
-    "./tasks/*": "./jspsych-ado/tasks/*",
+    ".": "./src/index.js",
+    "./models/*": "./src/models/*",
+    "./tasks/*": "./src/tasks/*",
     "./package.json": "./package.json"
   },
   "sideEffects": [
@@ -33,7 +33,7 @@
     "**/main.js"
   ],
   "files": [
-    "jspsych-ado",
+    "src",
     "core/tinystan",
     "README.md",
     "CHANGELOG.md",
