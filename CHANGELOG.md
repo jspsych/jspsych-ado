@@ -18,6 +18,8 @@ task/model/controller extension APIs.
 
 ### Changed
 
+- Raised the minimum Node to `>=20` (was `>=18`); CI now runs the unit suite + recovery
+  smokes on a 20.x/22.x matrix instead of only Node 22.
 - Narrowed the package `exports` to the supported public surface: the façade (`.`),
   `./models/*`, `./tasks/*`, and `./package.json`. The `./ado/*`, `./controllers/*`,
   and `./core/tinystan/*` subpaths are no longer importable — they were internal

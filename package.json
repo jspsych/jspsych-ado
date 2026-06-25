@@ -52,7 +52,7 @@
   },
   "author": "The jspsych-ado contributors",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "peerDependencies": {
     "@jspsych/plugin-call-function": ">=1",
