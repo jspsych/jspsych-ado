@@ -41,12 +41,25 @@ test("stan_worker.js keeps the bundler-ignore comments and the locateFile inject
   assert.match(src, /message\.wasmUrl/, "stan_worker.js must use the wasmUrl from the init message.");
 });
 
-test("the controller spawns the worker via new URL(..., import.meta.url) so the chunk is emitted", async () => {
-  const src = await read("src/controllers/stan_ado_controller.js");
+test("the worker client spawns the worker via new URL(..., import.meta.url) so the chunk is emitted", async () => {
+  const src = await read("src/controllers/stan_worker_client.js");
   assert.match(
     src,
     /new Worker\(\s*new URL\(\s*["']\.\.\/ado\/stan_worker\.js["']\s*,\s*import\.meta\.url\s*\)/,
-    "stan_ado_controller.js must spawn the worker with new Worker(new URL('../ado/stan_worker.js', import.meta.url)) so bundlers emit the worker chunk."
+    "stan_worker_client.js must spawn the worker with new Worker(new URL('../ado/stan_worker.js', import.meta.url)) so bundlers emit the worker chunk."
   );
-  assert.match(src, /wasmUrl:\s*model\.wasmUrl/, "stan_ado_controller.js must forward model.wasmUrl in the worker init message.");
+  assert.match(
+    src,
+    /type:\s*["']init["'],\s*moduleUrl,\s*wasmUrl/,
+    "stan_worker_client.js init() must forward wasmUrl in the worker init message."
+  );
+});
+
+test("the controller forwards model.wasmUrl to the worker client init", async () => {
+  const src = await read("src/controllers/stan_ado_controller.js");
+  assert.match(
+    src,
+    /client\.init\(\s*model\.moduleUrl,\s*model\.wasmUrl\s*\)/,
+    "stan_ado_controller.js must forward model.moduleUrl/model.wasmUrl to client.init()."
+  );
 });

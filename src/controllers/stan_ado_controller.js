@@ -6,6 +6,8 @@ import {
 } from "../ado/mi_engine.js";
 import { createSeededRng } from "../ado/ado_simulation.js";
 import { maxPossibleEig, makeStoppingEvaluator } from "../ado/stopping.js";
+import { createStanWorkerClient } from "./stan_worker_client.js";
+import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
 
 // Number of prior draws used to pick the first design (before any data exist).
 const PRIOR_DRAWS = 2000;
@@ -109,67 +111,10 @@ function createStanAdoController({
     );
   }
 
-  let worker = null;
+  // The Web Worker transport (lifecycle + single in-flight slot) lives in
+  // stan_worker_client.js; this controller only awaits init()/sample().
+  const client = createStanWorkerClient();
   let current_design_draws = null;
-  // Requests are strictly sequential (init, then one awaited sample per trial),
-  // so a single in-flight slot is enough.
-  let pending = null;
-
-  function settlePending(settle) {
-    if (!pending) {
-      return;
-    }
-    const current = pending;
-    pending = null;
-    settle(current);
-  }
-
-  function ensureWorker() {
-    if (worker) {
-      return;
-    }
-    worker = new Worker(new URL("../ado/stan_worker.js", import.meta.url), {
-      type: "module",
-    });
-    worker.onmessage = function(event) {
-      const message = event.data;
-      settlePending(p => (message.type === "error" ? p.reject(new Error(message.error)) : p.resolve(message)));
-    };
-    // Worker-script-level failures (bad module path / 404 / parse error in the
-    // worker or its imports) fire onerror and never post a message, so the pending
-    // request would otherwise hang forever. Terminate and drop the dead worker (so
-    // its thread/WASM instance isn't leaked), then reject the in-flight request with
-    // a clear error; any later send() fails fast rather than null-dereferencing the
-    // worker. (#8)
-    worker.onerror = function(event) {
-      if (worker) { worker.terminate(); }
-      worker = null;
-      settlePending(p => p.reject(new Error("Stan worker failed to load: " + (event.message || "worker error"))));
-    };
-    worker.onmessageerror = function() {
-      if (worker) { worker.terminate(); }
-      worker = null;
-      settlePending(p => p.reject(new Error("Stan worker message could not be deserialized")));
-    };
-  }
-
-  function send(message) {
-    // Requests are strictly sequential; a concurrent send would clobber the single
-    // pending slot and orphan the first promise, so fail loudly instead.
-    if (pending) {
-      return Promise.reject(new Error("Stan controller received a request while one was already in flight"));
-    }
-    // The worker is created in start() via ensureWorker(); if it died (onerror/
-    // onmessageerror nulled it), fail with a clear message instead of dereferencing
-    // null. (#8)
-    if (!worker) {
-      return Promise.reject(new Error("Stan worker is unavailable (it failed to load earlier)."));
-    }
-    return new Promise((resolve, reject) => {
-      pending = { resolve, reject };
-      worker.postMessage(message);
-    });
-  }
 
   function now() {
     return typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -180,8 +125,7 @@ function createStanAdoController({
    * array of per-draw parameter objects (the shape the MI engine expects).
    */
   async function samplePosterior(sampleTrials) {
-    const result = await send({
-      type: "sample",
+    const result = await client.sample({
       data: model.buildData(sampleTrials),
       params: model.params,
       sampleConfig: sample_config,
@@ -219,14 +163,6 @@ function createStanAdoController({
       next_designs.push(sampleRandomDesign());
     }
     return next_designs;
-  }
-
-  function nullDesignMetrics(count) {
-    const metrics = [];
-    for (let i = 0; i < count; i++) {
-      metrics.push({ mutual_info: null });
-    }
-    return metrics;
   }
 
   function scoreSelectedDesigns(next_designs, draws) {
@@ -308,14 +244,7 @@ function createStanAdoController({
     };
   }
 
-  function nextBlockSize(from_index) {
-    // The effective trial cap is the stopping max_trials (which already falls back
-    // to n_trials), so the controller supplies designs for every node the timeline
-    // can run — `stopping: { max_trials > n_trials }` no longer underflows.
-    const cap = stopper.config.max_trials;
-    const remaining = cap == null ? testlet_size : Math.max(0, cap - from_index);
-    return Math.min(testlet_size, remaining);
-  }
+  const nextBlockSize = makeBlockSizer(stopper, testlet_size);
 
   return {
     /**
@@ -324,8 +253,7 @@ function createStanAdoController({
      * @returns {Promise<Object>} Initial ADO state (null posteriors).
      */
     start: async function() {
-      ensureWorker();
-      await send({ type: "init", moduleUrl: model.moduleUrl, wasmUrl: model.wasmUrl });
+      await client.init(model.moduleUrl, model.wasmUrl);
 
       trials.length = 0;
       stopper.reset();

@@ -7,6 +7,7 @@
 
 import { enumerateDesigns } from "../ado/mi_engine.js";
 import { makeStoppingEvaluator } from "../ado/stopping.js";
+import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
 
 /**
  * Create a deterministic local controller for any registered model.
@@ -33,6 +34,7 @@ function createMockAdoController({ grid_design, params = [], n_trials = null, te
   // max_trials cap applies. should_stop/stop_reason are still emitted for contract
   // parity, so the timeline's stopping loop behaves identically.
   const stopper = makeStoppingEvaluator({ stopping, default_max_trials: n_trials });
+  const nextBlockSize = makeBlockSizer(stopper, testlet_size);
 
   let session_id = "mock-session";
   let trial_index = 0;
@@ -42,14 +44,6 @@ function createMockAdoController({ grid_design, params = [], n_trials = null, te
     return designs[(index * 7) % designs.length];
   }
 
-  function nextBlockSize(from_index) {
-    // Effective trial cap = stopping max_trials (falls back to n_trials), so the
-    // mock supplies designs for every node the timeline can run.
-    const cap = stopper.config.max_trials;
-    const remaining = cap == null ? testlet_size : Math.max(0, cap - from_index);
-    return Math.min(testlet_size, remaining);
-  }
-
   function mockDesigns(from_index) {
     const count = nextBlockSize(from_index);
     const next_designs = [];
@@ -57,14 +51,6 @@ function createMockAdoController({ grid_design, params = [], n_trials = null, te
       next_designs.push(mockDesign(from_index + i));
     }
     return next_designs;
-  }
-
-  function nullDesignMetrics(count) {
-    const metrics = [];
-    for (let i = 0; i < count; i++) {
-      metrics.push({ mutual_info: null });
-    }
-    return metrics;
   }
 
   // Deterministic per-parameter summaries that drift with the trial index, so the
