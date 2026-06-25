@@ -14,10 +14,10 @@ grid plus a stimulus renderer) and a _model_ (a Stan likelihood plus a matching
 JavaScript link function), then asks the façade for an adaptive timeline.
 
 ```js
-import { jsPsychADO } from "./jspsych-ado/index.js";
-import hyperbolicModel from "./jspsych-ado/models/hyperbolic/model.js";
-import delayDiscountingTask from "./jspsych-ado/tasks/delay_discounting/task.js";
-import { default_dd_config } from "./experiments/delay_discounting/dd_config.js";
+import { jsPsychADO } from "./src/index.js";
+import hyperbolicModel from "./src/models/hyperbolic/model.js";
+import delayDiscountingTask from "./src/tasks/delay_discounting/task.js";
+import { default_dd_config } from "./demos/delay_discounting/dd_config.js";
 
 const jsPsych = initJsPsych(); // jsPsych v8, initialised as usual
 

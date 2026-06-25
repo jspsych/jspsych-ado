@@ -31,16 +31,23 @@ arange(12.5, 800, 12.5); // HALF-OPEN [start, stop): 12.5 .. 787.5 (excludes 800
 linspace(4, 48, 12); // INCLUSIVE [start, stop]: 12 points, 4 .. 48
 ```
 
-For simple button tasks, `presentation` can provide `makeStimulus(design)` plus
-optional `button_html(design)`, `keymap`, `prompt`, and `describeDesign(design)`.
-For multi-frame tasks, provide `getChoiceTrials(ctx)` and use the timeline helper
-factories to mark the response-collecting trial: `htmlButtonChoice` and
+For simple button tasks, `presentation` provides `makeStimulus(design)` (plus optional
+`button_html(design)`, `keymap`, `prompt`, and `describeDesign(design)`) and the
+timeline builds the response-collecting button trial for you. This is the path an
+external package consumer uses — no internal imports needed.
+
+Richer tasks (multi-frame, canvas, slider) instead provide `getChoiceTrials(ctx)` and
+mark the response-collecting trial with a factory helper: `htmlButtonChoice` /
 `canvasResponse` collect a discrete choice, `canvasSliderChoice` collects a
-**continuous** slider value, and `canvasFrame` shows a timed no-response frame. Those
-factories need the jsPsych plugin classes; on a static page they come from the
-plugins' UMD `<script>` globals, and a bundler consumer injects them via
-`createTimeline(jsPsych, { ..., plugins })` (see the top-level README "Using with a
-bundler").
+**continuous** slider value, and `canvasFrame` shows a timed no-response frame. These
+factories live in `src/ado/response_trials.js` and back the **shipped** task packages,
+but they are **internal**: `jspsych-ado/ado/*` is not an exported package subpath, so
+they are reachable by in-repo tasks (under `src/tasks/`) via a relative import, not by
+external package consumers. A documented public task-authoring API for canvas/multi-frame
+tasks is a possible future extension. The factories take the jsPsych plugin classes from
+the plugins' UMD `<script>` globals on a static page, or injected via
+`createTimeline(jsPsych, { ..., plugins })` under a bundler (see the top-level README
+"Using with a bundler").
 
 ### Continuous-response tasks
 
