@@ -84,7 +84,7 @@
         import hyperbolicModel from "./src/models/hyperbolic/model.js";
         import delayDiscountingTask from "./src/tasks/delay_discounting/task.js";
         import { makeDebriefStimulus, removeAdoDebugPanels } from "./src/ado/debug/posterior_convergence_charts.js";
-        import { createSeededRng, simulateBinaryChoice } from "./src/ado/ado_simulation.js";
+        import { createSeededRng, simulateCategoricalChoice } from "./src/ado/ado_simulation.js";
         import {
             addAdoDataProperties,
             createExperimentAdoTimeline,
@@ -119,7 +119,7 @@
             model: hyperbolicModel,
             session_id: session_id,
             simulate_choice: function(design) {
-                return simulateBinaryChoice(design, simulation_config, simulation_rng, hyperbolicModel, {
+                return simulateCategoricalChoice(design, simulation_config, simulation_rng, hyperbolicModel, {
                     response_labels: { 0: "SS", 1: "LL" },
                 });
             },

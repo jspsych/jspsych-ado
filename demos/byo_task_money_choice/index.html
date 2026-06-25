@@ -55,7 +55,7 @@
         import hyperbolicModel from "./src/models/hyperbolic/model.js"; // packaged model, reused
 
         import { makeDebriefStimulus, removeAdoDebugPanels } from "./src/ado/debug/posterior_convergence_charts.js";
-        import { createSeededRng, simulateBinaryChoice } from "./src/ado/ado_simulation.js";
+        import { createSeededRng, simulateCategoricalChoice } from "./src/ado/ado_simulation.js";
         import {
             addAdoDataProperties,
             createExperimentAdoTimeline,
@@ -89,7 +89,7 @@
             model: model,
             session_id: session_id,
             simulate_choice: function(design) {
-                return simulateBinaryChoice(design, simulation_config, simulation_rng, model);
+                return simulateCategoricalChoice(design, simulation_config, simulation_rng, model);
             },
         });
 

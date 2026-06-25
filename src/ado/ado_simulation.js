@@ -61,14 +61,22 @@ function responseLabelSlug(label, index) {
 }
 
 /**
- * Generate jsPsych simulation data for one categorical choice trial.
+ * Generate jsPsych simulation data for one discrete (binary or categorical) choice trial.
+ *
+ * Binary is just the 2-category case, so this is the single discrete simulator. The
+ * response is drawn from the model's own likelihood (the exact one the MI engine and Stan
+ * use). Two optional model hooks contribute sim_* audit fields:
+ * simulationData(design, params, probs, response) for response-conditioned diagnostics,
+ * and subjectiveValues(design, params) for design-level diagnostics (e.g. a discounting
+ * model's subjective values).
  *
  * @param {Object} design - Current design shown on screen.
  * @param {Object} simulation_config - Simulation settings with params and rt.
  * @param {Function} rng - Seeded random number generator.
  * @param {ModelAdapter} model - Active model adapter.
  * @param {Object} [opts]
- * @param {Object} [opts.response_labels] - Response labels keyed by choice index.
+ * @param {Object} [opts.response_labels] - Response labels keyed by choice index, used to
+ *   name the sim_p_<label> audit fields (defaults to numeric indices).
  * @returns {Object} jsPsych response/RT plus sim_* audit fields.
  */
 function simulateCategoricalChoice(design, simulation_config, rng, model, opts = {}) {
@@ -92,6 +100,13 @@ function simulateCategoricalChoice(design, simulation_config, rng, model, opts =
   }
   if (typeof model.simulationData === "function") {
     Object.assign(data, model.simulationData(design, params, probs, response));
+  }
+  // Optional design-level diagnostics (e.g. a discounting model's subjective values),
+  // recorded as sim_<name>; runs for any discrete model that supplies the hook.
+  if (typeof model.subjectiveValues === "function") {
+    for (const [name, value] of Object.entries(model.subjectiveValues(design, params))) {
+      data["sim_" + name] = value;
+    }
   }
   return data;
 }
@@ -135,45 +150,4 @@ function simulateContinuousResponse(design, simulation_config, rng, model) {
   return data;
 }
 
-/**
- * Generate jsPsych simulation data for one BINARY choice trial under a model adapter.
- *
- * Model-agnostic: a thin wrapper over simulateCategoricalChoice (binary is the
- * 2-category case). The response is drawn from the model's own likelihood — the exact
- * one the MI engine and Stan use — and an optional `subjectiveValues` model hook adds
- * extra sim_* diagnostics. Callers pass their own `response_labels` (e.g.
- * {0:"SS",1:"LL"} for an intertemporal task) to name the sim_p_<label> audit fields.
- *
- * @param {Object} design - Current design shown on screen.
- * @param {Object} simulation_config - Simulation settings with params and rt.
- * @param {Object} simulation_config.params - Data-generating parameters (e.g. {k, tau}).
- * @param {Object} simulation_config.rt - Simulated response times.
- * @param {number} simulation_config.rt.choice - Simulated choice-trial RT.
- * @param {Function} rng - Seeded random number generator.
- * @param {ModelAdapter} model - Active model adapter.
- * @param {Object} [opts]
- * @param {Object} [opts.response_labels] - Response labels keyed by choice index, used to
- *   name the sim_p_<label> audit fields (defaults to numeric indices).
- * @returns {Object} jsPsych response/RT plus sim_* audit fields.
- */
-function simulateBinaryChoice(design, simulation_config, rng, model, opts = {}) {
-  const data = simulateCategoricalChoice(design, simulation_config, rng, model, opts);
-  const params = simulation_config.params;
-
-  // Optional model-specific diagnostics (e.g. a discounting model's subjective values),
-  // recorded generically as sim_<name> for whatever fields the model returns.
-  if (typeof model.subjectiveValues === "function") {
-    for (const [name, value] of Object.entries(model.subjectiveValues(design, params))) {
-      data["sim_" + name] = value;
-    }
-  }
-
-  return data;
-}
-
-export {
-  createSeededRng,
-  simulateCategoricalChoice,
-  simulateContinuousResponse,
-  simulateBinaryChoice,
-};
+export { createSeededRng, simulateCategoricalChoice, simulateContinuousResponse };

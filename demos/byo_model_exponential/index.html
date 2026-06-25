@@ -48,7 +48,7 @@
         // ↑↑↑                                                                  ↑↑↑
 
         import { makeDebriefStimulus, removeAdoDebugPanels } from "./src/ado/debug/posterior_convergence_charts.js";
-        import { createSeededRng, simulateBinaryChoice } from "./src/ado/ado_simulation.js";
+        import { createSeededRng, simulateCategoricalChoice } from "./src/ado/ado_simulation.js";
         import {
             addAdoDataProperties,
             createExperimentAdoTimeline,
@@ -76,7 +76,7 @@
             run_settings: run_settings,
             model: model,
             session_id: session_id,
-            simulate_choice: (design) => simulateBinaryChoice(design, simulation_config, simulation_rng, model),
+            simulate_choice: (design) => simulateCategoricalChoice(design, simulation_config, simulation_rng, model),
         });
 
         // ── THE ADO INTERFACE (1/2) — register the packaged task + your model. ──

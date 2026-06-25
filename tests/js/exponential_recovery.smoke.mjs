@@ -17,7 +17,8 @@ const exp = (await import("../../demos/byo_model_exponential/model.js")).default
 const ddTask = (await import("../../src/tasks/delay_discounting/task.js")).default;
 const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } =
   await import("../../src/ado/mi_engine.js");
-const { createSeededRng, simulateBinaryChoice } = await import("../../src/ado/ado_simulation.js");
+const { createSeededRng, simulateCategoricalChoice } =
+  await import("../../src/ado/ado_simulation.js");
 const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
 
 const buildData = makeStanDataBuilder({ stanData: exp.stanData, responseSpace: exp.responseSpace });
@@ -44,7 +45,7 @@ function runRecovery(trueParams, seed, nTrials) {
   let summary = { post_mean: null, post_sd: null };
 
   for (let t = 0; t < nTrials; t++) {
-    const sim = simulateBinaryChoice(design, sim_config, sim_rng, exp);
+    const sim = simulateCategoricalChoice(design, sim_config, sim_rng, exp);
     trials.push({ ...design, choice: sim.response });
 
     const fit = model.sample({ data: buildData(trials), ...sample_config });

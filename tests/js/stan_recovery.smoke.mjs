@@ -21,7 +21,8 @@ const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 const hyp = (await import("../../src/models/hyperbolic/model.js")).default;
 const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } =
   await import("../../src/ado/mi_engine.js");
-const { createSeededRng, simulateBinaryChoice } = await import("../../src/ado/ado_simulation.js");
+const { createSeededRng, simulateCategoricalChoice } =
+  await import("../../src/ado/ado_simulation.js");
 const { default_dd_config } = await import("../../demos/delay_discounting/dd_config.js");
 const delayDiscountingTask = (await import("../../src/tasks/delay_discounting/task.js")).default;
 
@@ -55,7 +56,7 @@ function runRecovery(trueParams, seed, nTrials) {
   let summary = { post_mean: null, post_sd: null };
 
   for (let t = 0; t < nTrials; t++) {
-    const sim = simulateBinaryChoice(design, sim_config, sim_rng, hyp);
+    const sim = simulateCategoricalChoice(design, sim_config, sim_rng, hyp);
     trials.push({ ...design, choice: sim.response });
 
     const fit = model.sample({ data: buildData(trials), ...sample_config });

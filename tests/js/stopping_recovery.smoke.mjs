@@ -18,7 +18,8 @@ const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 const hyp = (await import("../../src/models/hyperbolic/model.js")).default;
 const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } =
   await import("../../src/ado/mi_engine.js");
-const { createSeededRng, simulateBinaryChoice } = await import("../../src/ado/ado_simulation.js");
+const { createSeededRng, simulateCategoricalChoice } =
+  await import("../../src/ado/ado_simulation.js");
 const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
 const { normalizeStoppingConfig, evaluateStopping, maxPossibleEig } =
   await import("../../src/ado/stopping.js");
@@ -54,7 +55,7 @@ function runWithStopping(trueParams, seed, stopping_raw) {
   let last_eig = null;
 
   for (let t = 0; t < stopping.max_trials; t++) {
-    const sim = simulateBinaryChoice(design, sim_config, sim_rng, hyp);
+    const sim = simulateCategoricalChoice(design, sim_config, sim_rng, hyp);
     trials.push({ ...design, choice: sim.response });
 
     const fit = model.sample({ data: buildData(trials), ...sample_config });
