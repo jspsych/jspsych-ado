@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   getParamAxisDomain,
   makeParamConvergenceSvg,
-} from "../../src/ado/ado_timeline.js";
+} from "../../src/ado/debug/posterior_convergence_charts.js";
 
 function assertClose(actual, expected, tolerance = 1e-12) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `expected ${expected}, got ${actual}`);

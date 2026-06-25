@@ -1,7 +1,7 @@
 import {
   canvasFrame,
   canvasResponse,
-} from "../../ado/ado_timeline.js";
+} from "../../ado/response_trials.js";
 
 const CANVAS_W = 800;
 const CANVAS_H = 600;

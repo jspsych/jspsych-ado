@@ -1,4 +1,4 @@
-import { canvasSliderChoice } from "../../ado/ado_timeline.js";
+import { canvasSliderChoice } from "../../ado/response_trials.js";
 
 // Magnitude-estimation task: show a filled disk of a given AREA and ask the
 // participant to estimate its perceived size on a continuous slider. Paired with the
