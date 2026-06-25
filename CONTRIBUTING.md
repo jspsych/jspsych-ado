@@ -51,6 +51,21 @@ For task, model, or demo contributions, start with the relevant README:
 - [models README](jspsych-ado/models/README.md)
 - [demos README](demos/README.md)
 
+### Architecture at a glance
+
+The library is organized around a single coupling point — the **controller contract**:
+
+- `jspsych-ado/index.js` — the public **facade**: `registerTask`, `registerModel` / `registerModelPackage`, `prepareModels`, `createTimeline`.
+- `jspsych-ado/controllers/` — an adaptive **controller** exposing two async methods, `start(context)` and `update(trial_data)`. This `start`/`update` contract is the *only* coupling between the timeline and inference, so `stan_ado_controller.js` (live; Stan compiled to WASM, run in a Web Worker) and `mock_ado_controller.js` (no-WASM dev) are interchangeable behind it.
+- `jspsych-ado/ado/` — the model- and task-agnostic engine: mutual-information design selection (`mi_engine.js`), the Stan Web Worker (`stan_worker.js`), the generic timeline (`ado_timeline.js`), early stopping (`stopping.js`), and the simulated participant (`ado_simulation.js`).
+- `jspsych-ado/tasks/<name>/` and `jspsych-ado/models/<name>/` — pluggable **task** (presentation, design grid, response coding) and **model** (parameters, prior, likelihood, Stan data + compiled artifacts) packages.
+- `demos/` — runnable example pages (not part of the published library).
+
+### Two ways to build the timeline
+
+- **Library consumers** call `jsPsychADO.createTimeline(jsPsych, { task, model, ... })` — the documented public API.
+- **The demo pages** call `createExperimentAdoTimeline(...)` from `jspsych-ado/ado/experiment_shell.js`, which wraps `createTimeline` and adds URL-driven controller/strategy switching and simulation. That shell is demo scaffolding — your own experiment should call `createTimeline` directly.
+
 ---
 
 ## Coding Standards
@@ -63,4 +78,4 @@ To keep the codebase maintainable, please keep the following in mind:
 
 ## Code of Conduct
 
-By participating in this project, you agree to maintain a respectful, inclusive, and professional environment.
+This project adheres to the [Contributor Covenant](CODE_OF_CONDUCT.md). By participating, you are expected to uphold it, maintaining a respectful, inclusive, and professional environment.
