@@ -1,3 +1,12 @@
+// Halberda-style numerosity (dot-comparison) task — the canvas/keyboard presentation for
+// the Weber/ANS model (src/models/weber_dots/). Each trial flashes two interleaved dot
+// fields (blue + yellow) after a fixation; the participant reports which color was more
+// numerous (B/Y). The design grid crosses numerosity ratios x base counts x a perceptual
+// control mode: "size_control" jitters dot sizes, while "area_control" equalizes the total
+// colored area per field so cumulative area is not a numerosity cue. responseToOutcome
+// maps the raw color choice to the model outcome (0 = incorrect, 1 = correct). This task
+// owns presentation + response coding only; the likelihood/priors live in weber_dots.
+
 import { canvasFrame, canvasResponse } from "../../ado/response_trials.js";
 
 const CANVAS_W = 800;
@@ -20,6 +29,17 @@ const RATIOS = [
 const BASE_LARGE_COUNTS = [8, 12, 16, 20, 24, 30];
 const CONTROL_MODES = ["size_control", "area_control"];
 
+/**
+ * Build the candidate design grid: every ratio x base-large-count x control-mode, each
+ * presented both ways (blue-more and yellow-more). The small count is derived from the
+ * ratio and rounded; degenerate pairs (small >= large) are skipped.
+ *
+ * @param {Object} [opts]
+ * @param {Array<{small:number,large:number,label:string}>} [opts.ratios]
+ * @param {number[]} [opts.large_counts]
+ * @param {string[]} [opts.control_modes] - e.g. ["size_control","area_control"].
+ * @returns {Array<Object>} Design objects (see makeDesign for the per-design fields).
+ */
 function makeDotComparisonDesigns({
   ratios = RATIOS,
   large_counts = BASE_LARGE_COUNTS,
@@ -76,6 +96,9 @@ function distance(x1, y1, x2, y2) {
   return Math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2);
 }
 
+// Poisson-disk-style placement: keep sampling random non-overlapping dot positions until
+// `n` are placed, bounded by a 10000-attempt cap so a too-dense request can't loop forever
+// (it just returns fewer dots than asked).
 function generateDotPositions(n, existing_dots, min_dist = 22) {
   const dots = [];
   let attempts = 0;
@@ -100,6 +123,9 @@ function makeDots(n_blue, n_yellow, control_mode) {
   let yellow_dots = generateDotPositions(n_yellow, blue_dots);
 
   if (control_mode === "area_control") {
+    // Equalize total colored area across both fields: give each field the same
+    // target_total_area, so per-dot radius = sqrt(area / (pi * n)) (then jittered +/-15%).
+    // This removes cumulative area as a numerosity cue, leaving count as the signal.
     const target_total_area = 2800;
     const blue_r = Math.sqrt(target_total_area / (Math.PI * n_blue));
     const yellow_r = Math.sqrt(target_total_area / (Math.PI * n_yellow));
@@ -170,12 +196,25 @@ function drawResponsePrompt(canvas) {
   drawTextCentered(ctx, "Press B for BLUE     Press Y for YELLOW", 310, "26px Arial");
 }
 
+/**
+ * Map the raw key choice (0 = blue "b", 1 = yellow "y") to the model outcome the Weber
+ * likelihood is over: 1 if the chosen color was the more numerous one, else 0. This is the
+ * task→model boundary (the model scores correct/incorrect, not blue/yellow).
+ *
+ * @param {Object} design - Current design (uses n_blue, n_yellow).
+ * @param {number} choice_index - 0 = blue, 1 = yellow.
+ * @returns {number} 1 = correct, 0 = incorrect.
+ */
 function responseToOutcome(design, choice_index) {
   const chose_blue = Number(choice_index) === 0;
   const blue_is_correct = design.n_blue > design.n_yellow;
   return chose_blue === blue_is_correct ? 1 : 0;
 }
 
+/**
+ * The choice index (0 = blue, 1 = yellow) of the more-numerous color for a design — used
+ * by the simulated participant / debug to know the correct key.
+ */
 function correctChoiceIndex(design) {
   return design.n_blue > design.n_yellow ? 0 : 1;
 }

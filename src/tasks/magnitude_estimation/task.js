@@ -23,6 +23,7 @@ const SLIDER_MAX = 200;
 // Stevens exponent) is identifiable; ADO favors the ends of this range.
 const design_grid = { s: [10, 25, 50, 100, 250, 500, 1000] };
 
+/** On-screen radius (px) for a disk of physical area `area`: sqrt(area/pi) scaled to fit. */
 function radiusPx(area) {
   return Math.sqrt(area / Math.PI) * PIXELS_PER_UNIT;
 }
@@ -38,9 +39,16 @@ function drawDisk(canvas, design) {
   ctx.fill();
 }
 
-// The slider returns a raw estimate; the model is in log space, so map raw -> log.
-// (The smoke/simulator feed the modeled log-response directly; in the browser the
-// slider value is raw and gets logged here.) Guard against a non-positive estimate.
+/**
+ * Map the raw slider estimate to the modeled response y = log(estimate). The model works
+ * in log-log space (Stevens' power law), so the raw slider value is logged here — the
+ * task→model boundary. (The smoke/simulator feed the modeled log-response directly.)
+ * Guards against a non-positive estimate.
+ *
+ * @param {Object} design - Current design (the area `s`; unused — the response is the estimate).
+ * @param {number} estimate - Raw slider value.
+ * @returns {number} log(estimate).
+ */
 function responseToOutcome(design, estimate) {
   return Math.log(Math.max(Number(estimate), 1e-9));
 }
