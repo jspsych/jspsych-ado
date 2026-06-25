@@ -3,7 +3,7 @@
 An ADOpy-style delay discounting experiment whose adaptive inference runs entirely
 in the browser with a Stan model compiled to WebAssembly.
 
-This experiment is a thin consumer of the general [`src/`](../../jspsych-ado)
+This experiment is a thin consumer of the general [`src/`](../../src)
 package. `index.html` registers a delay-discounting task, registers the hyperbolic
 model, and uses the shared experiment shell to build the adaptive timeline:
 
