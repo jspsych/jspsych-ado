@@ -82,10 +82,10 @@
   },
   "devDependencies": {
     "husky": "^9.1.7",
-    "lint-staged": "^16.4.0",
+    "lint-staged": "^17.0.8",
     "prettier": "^3.8.4",
-    "puppeteer": "^24.15.0",
-    "typescript": "^5.7.2"
+    "puppeteer": "^25.2.1",
+    "typescript": "^6.0.3"
   },
   "prettier": {
     "printWidth": 100

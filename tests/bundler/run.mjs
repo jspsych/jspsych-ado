@@ -114,9 +114,9 @@ async function headlessRun(dist) {
   await new Promise((r) => server.listen(0, r));
   const port = server.address().port;
 
-  const { default: puppeteer } = await import(
-    join(ROOT, "node_modules/puppeteer/lib/esm/puppeteer/puppeteer.js")
-  );
+  // Import via the package specifier (not a deep path into puppeteer's internals),
+  // so this keeps resolving across puppeteer major versions.
+  const { default: puppeteer } = await import("puppeteer");
   const browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox"] });
   const page = await browser.newPage();
   const failedWasm = [];
