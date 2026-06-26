@@ -11,6 +11,11 @@ task/model/controller extension APIs.
 
 ### Added
 
+- TypeScript declarations for the public `jsPsychADO` façade (`src/index.d.ts`, surfaced
+  via the `types` field and the `.` export's `types` condition), so consumers get editor
+  IntelliSense and type-checking without the library taking on a TypeScript build. The
+  declarations are hand-written and type-checked in CI (`npm run typecheck`); deep imports
+  (`jspsych-ado/models/*`, `jspsych-ado/tasks/*`) remain untyped.
 - Continuous-response support: a model can declare `responseSpace: { type: "continuous" }`
   and supply a response density (plus moments/entropy/sampler); the engine scores designs by
   density-quadrature expected information gain. Ships the `magnitude_estimation` task + model

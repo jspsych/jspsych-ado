@@ -22,8 +22,12 @@
     "url": "https://github.com/kiante-fernandez/jspsych-ado/issues"
   },
   "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "exports": {
-    ".": "./src/index.js",
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
     "./models/*": "./src/models/*",
     "./tasks/*": "./src/tasks/*",
     "./package.json": "./package.json"
@@ -47,7 +51,8 @@
     "test:bundler": "node tests/bundler/run.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "npm test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm test && npm run typecheck",
     "prepare": "husky"
   },
   "author": "The jspsych-ado contributors",
@@ -79,12 +84,13 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.4",
-    "puppeteer": "^24.15.0"
+    "puppeteer": "^24.15.0",
+    "typescript": "^5.7.2"
   },
   "prettier": {
     "printWidth": 100
   },
   "lint-staged": {
-    "*.{js,mjs,cjs,json,md,css}": "prettier --write"
+    "*.{js,mjs,cjs,ts,json,md,css}": "prettier --write"
   }
 }
