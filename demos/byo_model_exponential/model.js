@@ -1,14 +1,13 @@
 // Exponential discounting model package (Samuelson, 1937).
 //
 // This is the "bring your own model" example (see demos/byo_model_exponential/):
-// it pairs with the SAME packaged delay-discounting task as the hyperbolic model,
-// and differs only in the subjective-value function — V = R * exp(-k*t) instead of
-// V = R / (1 + k*t). Like every model package, this adapter is the single source of
-// truth for the JS likelihood (used by the MI engine and the simulator) and must
-// match exponential.stan; the prior block must match the .stan priors.
+// it uses the same delay-choice design/trial shape as the hyperbolic model, but
+// swaps the subjective-value function to V = R * exp(-k*t). Like every ADO
+// model, this adapter is the single source of truth for the JS likelihood and
+// must match exponential.stan; the prior block must match the .stan priors.
 //
-// Keep the compiled artifacts named main.js + main.wasm (main.js hardcodes its
-// sibling main.wasm); see PROVENANCE.md to regenerate them.
+// Generated TinyStan artifacts live under compiled/ and keep their required
+// names, main.js + main.wasm; see compiled/PROVENANCE.md to regenerate them.
 
 /**
  * Numerically stable logistic (inverse-logit) transform.
@@ -70,8 +69,8 @@ function subjectiveValues(design, params) {
   };
 }
 
-// Stan `data` block mirror — identical to the hyperbolic model (same task/design
-// space); see ado/stan_data.js. "response" is the participant choice (binary 0/1).
+// Stan `data` block mirror, identical to the hyperbolic model because both read
+// the same delay-choice design fields. "response" is the binary participant choice.
 const stanData = {
   t_ss: "t_ss",
   t_ll: "t_ll",
@@ -94,10 +93,10 @@ const exponentialModel = {
     k: { label: "k", y_min: 0, y_max: 0.2, lower_bound: 0, min_y_span: 0.05, histogram_scale: "log10", histogram_label: "log10(k)" },
     tau: { label: "τ", y_min: 0, y_max: 5, lower_bound: 0, min_y_span: 0.5 },
   },
-  moduleUrl: new URL("./main.js", import.meta.url).href,
+  moduleUrl: new URL("./compiled/main.js", import.meta.url).href,
   // Statically referenced so bundlers emit the .wasm asset; the worker feeds this to
   // emscripten's locateFile so the wasm loads after bundling (see ado/stan_worker.js).
-  wasmUrl: new URL("./main.wasm", import.meta.url).href,
+  wasmUrl: new URL("./compiled/main.wasm", import.meta.url).href,
   stanData,
   responseProb,
   responseProbs,

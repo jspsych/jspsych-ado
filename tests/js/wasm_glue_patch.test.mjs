@@ -39,7 +39,7 @@ for (const { name, dir, file } of models) {
     );
     assert.ok(
       typeof model.wasmUrl === "string" && model.wasmUrl.endsWith("main.wasm"),
-      `${name}/model.js must expose \`wasmUrl: new URL("./main.wasm", import.meta.url).href\` so bundlers emit the wasm.`
+      `${name}/model.js must expose \`wasmUrl: new URL(..., import.meta.url).href\` so bundlers emit the wasm.`
     );
   });
 }

@@ -14,8 +14,7 @@
 // Run:  node tests/js/locate_file.smoke.mjs
 
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { listModelMains } from "../../scripts/patch-wasm-glue.mjs";
 
 globalThis.window = globalThis.window || {};
@@ -44,13 +43,12 @@ globalThis.fetch = async (url, opts) => {
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 
 let failures = 0;
-const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 for (const { name, dir } of await listModelMains()) {
   const model = (await import(join(dir, "model.js"))).default;
-  WASM_BYTES = await readFile(join(dir, "main.wasm"));
+  WASM_BYTES = await readFile(new URL(model.wasmUrl));
   // A plausibly bundler-hashed URL that is NOT the sibling main.wasm.
-  HASHED_URL = new URL(`./main.${name}.deadbeef.wasm`, `file://${dir}/`).href;
+  HASHED_URL = new URL(`./main.${name}.deadbeef.wasm`, model.wasmUrl).href;
 
   const createModule = (await import(model.moduleUrl)).default;
 

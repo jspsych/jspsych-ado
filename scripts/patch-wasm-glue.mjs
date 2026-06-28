@@ -10,8 +10,8 @@
 // emitted wasm, so the sibling lookup 404s.
 //
 // Fix: make `findWasmBinary()` actually call `Module["locateFile"]("main.wasm")`.
-// The model adapter supplies `wasmUrl` (a `new URL("./main.wasm", import.meta.url)`
-// the bundler emits + hashes) and the worker injects it via Module.locateFile, so
+// The model adapter supplies `wasmUrl` (a `new URL(..., import.meta.url)` the
+// bundler emits + hashes) and the worker injects it via Module.locateFile, so
 // after this patch the wasm resolves under any bundler AND when static-served.
 //
 // This is idempotent and verified by tests/js/wasm_glue_patch.test.mjs (CI fails
@@ -40,8 +40,10 @@ export function patchSource(source) {
 }
 
 /** Every committed model with a compiled `main.js` — packaged (jspsych-ado/models/)
- *  or authored in a demo folder (demos/): [{ name, dir, file }]. Shared with the
- *  guard test (tests/js/wasm_glue_patch.test.mjs) so both agree on what to check. */
+ *  or authored in a demo folder (demos/): [{ name, dir, file }]. Demo-authored
+ *  generated output may live under compiled/ so first-read demo files stay readable.
+ *  Shared with the guard test (tests/js/wasm_glue_patch.test.mjs) so both agree on
+ *  what to check. */
 export async function listModelMains() {
   const mains = [];
   for (const base of [MODELS_DIR, DEMOS_DIR]) {
@@ -50,8 +52,10 @@ export async function listModelMains() {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const dir = join(base, entry.name);
-      const file = join(dir, "main.js");
-      try { await access(file); mains.push({ name: entry.name, dir, file }); } catch { /* no compiled wasm here */ }
+      for (const file of [join(dir, "main.js"), join(dir, "compiled", "main.js")]) {
+        try { await access(file); mains.push({ name: entry.name, dir, file }); break; }
+        catch { /* no compiled wasm here */ }
+      }
     }
   }
   return mains;

@@ -19,13 +19,13 @@ test("each model.js emits its assets via new URL(..., import.meta.url), not hard
     const src = await readFile(join(dir, "model.js"), "utf8");
     assert.match(
       src,
-      /new URL\(\s*["']\.\/main\.js["']\s*,\s*import\.meta\.url\s*\)/,
-      `${name}/model.js must build moduleUrl with new URL("./main.js", import.meta.url) so bundlers emit main.js.`
+      /new URL\(\s*["']\.\/(?:compiled\/)?main\.js["']\s*,\s*import\.meta\.url\s*\)/,
+      `${name}/model.js must build moduleUrl with new URL("./main.js" or "./compiled/main.js", import.meta.url) so bundlers emit main.js.`
     );
     assert.match(
       src,
-      /new URL\(\s*["']\.\/main\.wasm["']\s*,\s*import\.meta\.url\s*\)/,
-      `${name}/model.js must build wasmUrl with new URL("./main.wasm", import.meta.url) so bundlers emit main.wasm.`
+      /new URL\(\s*["']\.\/(?:compiled\/)?main\.wasm["']\s*,\s*import\.meta\.url\s*\)/,
+      `${name}/model.js must build wasmUrl with new URL("./main.wasm" or "./compiled/main.wasm", import.meta.url) so bundlers emit main.wasm.`
     );
   }
 });
