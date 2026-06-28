@@ -1,119 +1,66 @@
 # Demos
 
-Runnable examples of `jspsych-ado`, each one showing a different way to use the
-package. Serve the repo with any static server (VS Code Live Server, etc.) and open
-a demo's `index.html`.
+Runnable examples of `jspsych-ado`. Serve the repo with any static server
+(VS Code Live Server, `python -m http.server`, etc.) and open a demo's
+`index.html`.
 
-## `tasks/` vs `demos/` — what's the difference?
+## Start Here
 
-This trips people up, so first:
+| Demo | Role |
+| --- | --- |
+| [`delay_discounting_tutorial/`](delay_discounting_tutorial/) | Minimal tutorial for the controller API. Start here if you are new. |
+| [`delay_discounting/`](delay_discounting/) | Polished full delay-discounting showcase with styled cards, keyboard shortcuts, and `?debug=1`. |
+| [`byo_model_exponential/`](byo_model_exponential/) | How-to example for authoring/swapping a model while keeping a delay-choice experiment. |
+| [`byo_task_money_choice/`](byo_task_money_choice/) | How-to example for writing custom design/trial code in ordinary jsPsych while reusing a model. |
+| [`line_length_discrimination/`](line_length_discrimination/) | Capability example for finite categorical responses. |
+| [`halberda_dot_comparison/`](halberda_dot_comparison/) | Capability example for multi-frame canvas trials and response mapping. |
 
-- **`jspsych-ado/tasks/<name>/`** and **`jspsych-ado/models/<name>/`** are **packaged,
-  reusable, shipped-on-npm** pieces. A **task** owns *how a design is shown and answered*
-  (presentation, the candidate **design grid**, response coding). A **model** owns *the
-  likelihood* (a Stan file + a small JS adapter: priors, `responseProb`, `stanData`).
-  They are deliberately separate so you can mix and match.
-- **`demos/<name>/`** are **example pages** that *consume* those packages (or *author*
-  new ones) and wire them into a runnable jsPsych experiment. Nothing in `demos/` is
-  part of the published library — they're how-to examples.
+## Package Code vs Demo Code
 
-So: the library gives you tasks + models; a demo is an experiment page that uses them.
+`jspsych-ado` now treats the participant-facing task as ordinary jsPsych
+experiment code. The package ships the ADO runtime and reusable model packages;
+demo folders contain their own design grids, rendering helpers, CSS, and response
+mapping where needed.
 
-## The four ways to use the package
+So:
 
-| Demo | Task | Model | What it teaches |
-|---|---|---|---|
-| [`delay_discounting/`](delay_discounting/) | packaged | packaged | **Drop-in** — the minimal interface; plain-jsPsych-vs-ADO |
-| [`halberda_dot_comparison/`](halberda_dot_comparison/) | packaged | packaged | Drop-in (binary correctness / ANS) |
-| [`line_length_discrimination/`](line_length_discrimination/) | packaged | packaged | Drop-in (3-way categorical) |
-| [`byo_task_*/`](.) | **authored here** | packaged | **Bring your own task** — `registerTask` a new presentation, reuse a model |
-| [`byo_model_exponential/`](.) | packaged | **authored here** | **Bring your own model** — a new `.stan` + adapter, reuse a task |
+- **`jspsych-ado/models/<name>/`** are reusable package assets: Stan/WASM,
+  priors, likelihood functions, response-space contracts, and Stan data mapping.
+- **`demos/<name>/`** are teaching and showcase materials. Their task details are
+  not package API; they are examples of normal jsPsych experiment code.
 
-The two "bring your own" demos are the heart of it: a **task** and a **model** are
-independent, so you can swap either one while keeping the other.
+## The Minimal Pattern
 
-## The interface, minimally
-
-Using a packaged task + model is three calls — everything else on a demo page is
-ordinary jsPsych (instructions, an end screen) or demo scaffolding (URL switches,
-simulation):
+The tutorial expands this skeleton into a complete runnable page:
 
 ```js
-import { initJsPsych } from "jspsych";
-import htmlButtonResponse from "@jspsych/plugin-html-button-response";
-import callFunction from "@jspsych/plugin-call-function";
+const ado = jsPsychADO.createController(jsPsych, { model, design_grid, stan });
 
-import { jsPsychADO } from "jspsych-ado";
-import hyperbolic from "jspsych-ado/models/hyperbolic/model.js";
-import delayDiscountingTask from "jspsych-ado/tasks/delay_discounting/task.js";
-import "jspsych-ado/tasks/delay_discounting/task.css";
+const trial = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: () =>
+    `${ado.evaluateDesignVariable("r_ss")} now or ${ado.evaluateDesignVariable("r_ll")} later?`,
+  choices: ["Sooner", "Later"],
+  on_finish: (data) => ado.recordResponse(data.response),
+};
 
-const jsPsych = initJsPsych();
+const adoTimeline = ado.createTimeline(trial);
 
-// (1) register the packaged task and (2) the packaged model
-jsPsychADO.registerTask(delayDiscountingTask.id, delayDiscountingTask);
-jsPsychADO.registerModelPackage(hyperbolic, { stan: { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 }, n_trials: 42 });
-
-// (3) build the adaptive timeline fragment and run it
-const ado = jsPsychADO.createTimeline(jsPsych, {
-  task: delayDiscountingTask.id,
-  model: hyperbolic.id,
-  plugins: { htmlButtonResponse, callFunction },
-});
-jsPsych.run([/* instructions, */ ...ado /*, end screen */]);
+jsPsych.run([instructions, ...adoTimeline, end]);
 ```
 
-(On a static page that loads jsPsych + plugins via `<script>` tags, the plugins are
-read from the globals and you can omit `plugins`. The in-repo demos do this.)
+The full demos use the same controller API, but add ordinary experiment code that
+real studies often need: richer stimulus rendering, CSS, keyboard handling,
+response mapping, or categorical/canvas trial structure.
 
-## Plain jsPsych vs ADO — what actually changes
+## Running Debug Mode
 
-A standard jsPsych experiment **pre-specifies every trial**:
-
-```js
-const timeline = [
-  instructions,
-  { type: htmlButtonResponse, stimulus: offerHTML(40, 80), choices: ["A", "B"] }, // fixed
-  { type: htmlButtonResponse, stimulus: offerHTML(20, 100), choices: ["A", "B"] }, // fixed
-  // ...you choose all the stimuli up front...
-  end,
-];
-jsPsych.run(timeline);
-```
-
-With ADO you **don't write the trials** — you hand over a task + model and let the
-loop choose each trial's stimulus to be the most informative one given the responses
-so far:
-
-```js
-jsPsychADO.registerTask(delayDiscountingTask.id, delayDiscountingTask);
-jsPsychADO.registerModelPackage(hyperbolic, { stan, n_trials: 42 });
-const ado = jsPsychADO.createTimeline(jsPsych, { task: delayDiscountingTask.id, model: hyperbolic.id });
-jsPsych.run([instructions, ...ado, end]);
-```
-
-What's different:
-- **The trial list isn't fixed.** After each response, a Stan model re-estimates the
-  posterior and the next design is the one that maximizes expected information gain.
-- **Extra data columns appear** on each row: `post_mean_<param>` / `post_sd_<param>`
-  (the running estimate), `ado_design`, `ado_max_mutual_info`, and (if adaptive
-  stopping is on) `ado_should_stop` / `ado_stop_reason`.
-- Everything else — instructions, end screen, `jsPsych.run`, data handling — is
-  ordinary jsPsych.
-
-## Running a demo
-
-Serve the repo statically and open, e.g.:
+Append `?debug=1` to any controller demo, for example:
 
 ```text
-demos/delay_discounting/index.html?controller=stan&strategy=ado&debug=1
+demos/delay_discounting/index.html?debug=1
 ```
 
-URL switches the demo pages understand (via the shared demo harness, not part of the
-library API):
-
-- `controller=stan` (default) — live in-browser Stan inference; `controller=mock` — a
-  deterministic, no-WASM controller for fast UI work.
-- `strategy=ado` (default) — MI-optimal designs; `strategy=random` — a random baseline.
-- `debug=1` — per-trial console summary + live posterior charts.
-- `simulate=data-only` | `simulate=visual` — run a simulated participant.
+Debug mode is handled by `ado.createTimeline(...)`: it adds console summaries,
+live posterior panels during the run, and a final posterior summary without
+demo-specific debug wiring.

@@ -8,8 +8,8 @@
 // hyperbolic.stan by the stan-playground compile server (see models/README.md).
 //
 // Adding a new model = copy this folder, write the new <model>.stan, compile it,
-// and edit params/prior/stanData/responseProb. Task presentation and design
-// grids live under jspsych-ado/tasks/.
+// and edit params/prior/stanData/responseProb. Trial presentation and design
+// grids live in ordinary experiment code.
 //
 // The compiled artifacts are kept under their downloaded names (main.js + main.wasm)
 // because the emscripten glue in main.js hardcodes its sibling "main.wasm"; the
@@ -86,14 +86,6 @@ const stanData = {
   r_ll: "r_ll",
   y: "response",
 };
-
-// ---------------------------------------------------------------------------
-// Presentation: how a delay-discounting design is shown and answered.
-//
-// The generic timeline consumes this through the single-button convenience path
-// (makeStimulus + button_html + keymap + prompt). The accompanying experiment
-// page supplies the .dd-option-card CSS used by the markup below.
-// ---------------------------------------------------------------------------
 
 const hyperbolicModel = {
   id: "hyperbolic",

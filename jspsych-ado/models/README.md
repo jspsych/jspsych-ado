@@ -2,8 +2,8 @@
 
 Each subfolder is a self-contained statistical model package the in-browser ADO
 controller can run. Models are task-agnostic: they define parameters, priors,
-likelihood, and Stan data, while task packages define design grids, presentation,
-choices, and response labels.
+likelihood, and Stan data. Ordinary experiment code defines design grids,
+rendering, choices, and optional response labels.
 
 A package contains:
 
@@ -62,8 +62,8 @@ derived/ragged columns, ship an explicit `buildData(trials)` (or the older
 debug-chart ranges, not hard parameter bounds. Use `lower_bound` or `upper_bound`
 only for true model constraints, and `min_y_span` to prevent over-zoomed axes.
 
-`designKeys` and `responseSpace` let `createTimeline({ task, model })` reject
-incompatible combinations before a participant sees the task.
+`designKeys` and `responseSpace` let `createController(jsPsych, { model, design_grid })`
+validate a model against candidate designs before a participant sees the task.
 
 ## Compiling a model (no local toolchain)
 
@@ -90,14 +90,12 @@ and point the URLs at `http://localhost:8083`.
 The compiled module is web/worker-only (`-sENVIRONMENT=web,worker`); it runs in the
 browser and Web Worker, not in plain Node.
 
-> **Committing the artifacts is the production path.** You can also register a model
-> from Stan source (`registerModel({ stanCode | stanUrl, ... })` + `prepareModels`),
-> which compiles on the stan-playground server at run time and points `moduleUrl` at
-> the server's `main.js`. That model's wasm is then fetched cross-origin from the
-> compile server, so the server must send `Access-Control-Allow-Origin` and the
-> correct `application/wasm` MIME — and the run depends on that server being up. For
-> a deployable study, prefer committing `main.js` + `main.wasm` and registering with
-> `registerModelPackage` (self-contained, bundler-safe via `wasmUrl`).
+> **Committing the artifacts is the production path.** The controller API expects a
+> model package with `moduleUrl` and, preferably, `wasmUrl` already pointing at
+> compiled artifacts. Runtime registration/compilation from Stan source is no longer
+> part of the public authoring API. For a deployable study, compile once, commit
+> `main.js` + `main.wasm`, and pass the model package directly to
+> `jsPsychADO.createController(...)` (self-contained, bundler-safe via `wasmUrl`).
 
 ### After (re)compiling: apply the bundler-safety patch (#57)
 
@@ -130,9 +128,9 @@ unpatched, so this can't be forgotten silently.
    `moduleUrl: new URL("./main.js", import.meta.url).href`, and
    `wasmUrl: new URL("./main.wasm", import.meta.url).href` (so bundlers emit the wasm).
 5. Add `tests/js/<name>.test.mjs`.
-6. Register it from an experiment page with `jsPsychADO.registerModelPackage(model)`.
+6. Use it from an experiment page with `jsPsychADO.createController(jsPsych, { model, design_grid })`.
 
 The engine, worker, controller, simulator, and timeline are parameter- and
 stimulus-agnostic. Posterior export/debug fields are derived from model parameter
 names (`post_mean_<param>`, `sim_<param>`), while the stimulus comes from the
-registered task.
+jsPsych trial or rendering helper you pair with the model.

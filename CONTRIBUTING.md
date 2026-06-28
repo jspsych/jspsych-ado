@@ -2,7 +2,7 @@
 
 First off, thank you for taking the time to contribute. Contributions from users and developers help make browser-based adaptive experiments easier to build, test, and reuse.
 
-All types of contributions are welcome: from reporting bugs and improving documentation to adding examples, tests, tasks, models, or improvements to the adaptive engine.
+All types of contributions are welcome: from reporting bugs and improving documentation to adding examples, tests, models, demos, or improvements to the adaptive engine.
 
 ## How Can I Contribute?
 
@@ -42,12 +42,11 @@ If you have an idea for a new feature, such as a new task, model, controller opt
 `jspsych-ado` accepts contributions in a few different areas:
 
 - **Core package** changes affect the adaptive engine, controllers, timeline construction, or public API.
-- **Tasks and models** are reusable packages under `jspsych-ado/tasks/` and `jspsych-ado/models/`.
-- **Demos** are example pages under `demos/` that show how to use or extend the package.
+- **Models** are reusable packages under `jspsych-ado/models/`.
+- **Demos** are example pages under `demos/` that show how to use or extend the package. Demo folders own their task/design/rendering code as ordinary jsPsych experiment code.
 
-For task, model, or demo contributions, start with the relevant README:
+For model or demo contributions, start with the relevant README:
 
-- [tasks README](jspsych-ado/tasks/README.md)
 - [models README](jspsych-ado/models/README.md)
 - [demos README](demos/README.md)
 
@@ -57,7 +56,7 @@ For task, model, or demo contributions, start with the relevant README:
 
 To keep the codebase maintainable, please keep the following in mind:
 
-- **Task/model boundaries**: Tasks define presentation, design grids, and response coding. Models define likelihoods, priors, Stan data, compiled Stan artifacts, and response probabilities.
+- **Experiment/model boundaries**: Experiment code defines presentation, design grids, and response coding. Models define likelihoods, priors, Stan data, compiled Stan artifacts, and response probabilities.
 - **Browser-first examples**: Keep demos and examples runnable as static browser pages unless there is a clear reason to require a bundler.
 - **Public behavior**: When changing public API behavior, update the relevant tests, documentation, or examples.
 

@@ -1,67 +1,40 @@
 # Bring your own model — exponential discounting
 
-**Pattern 3** (see [`../README.md`](../README.md)): reuse a **packaged task**, supply
-your **own model**. Unlike the other demos, the model here is **authored in this
-folder** — the Stan source, the adapter, and the compiled artifacts all live next to
-the page:
+This demo shows the model boundary. It keeps a simple delay-choice experiment
+but uses a model authored in this folder: exponential discounting instead of the
+packaged hyperbolic model.
 
-```
-demos/byo_model_exponential/
-  exponential.stan   ← the model you wrote (V = R·e^(−k·t))
-  model.js           ← the adapter: prior + responseProb + stanData
-  main.js, main.wasm ← exponential.stan compiled to WASM (committed)
-  index.html         ← the demo, importing ./model.js
-```
-
-It pairs with the **packaged** delay-discounting task unchanged — a task and a model
-are independent, so the only thing that differs from the
-[delay-discounting demo](../delay_discounting/) is the model.
-
-Run it (serve the repo statically):
+Run it:
 
 ```text
-demos/byo_model_exponential/index.html?controller=stan&strategy=ado&debug=1
+demos/byo_model_exponential/index.html
 ```
 
-## How the model was authored
+Append `?debug=1` for controller debug panels and the final posterior summary.
 
-1. **Write the Stan model** — [`exponential.stan`](exponential.stan). It mirrors the
-   packaged `hyperbolic.stan` except the value function:
+## Files
 
-   ```stan
-   v_ss = r_ss .* exp(-k * t_ss);   // exponential:  V = R * exp(-k*t)
-   v_ll = r_ll .* exp(-k * t_ll);   // (hyperbolic was r ./ (1 + k*t))
-   y ~ bernoulli_logit(tau * (v_ll - v_ss));
-   ```
+- `index.html` creates the controller and defines the jsPsych trial.
+- `task.js` / `task.css` contain local delay-choice design and rendering code.
+- `model.js` is the ADO model adapter: parameters, prior, `responseProb`, response space, and Stan data mapping.
+- `exponential.stan` is the Stan likelihood.
+- `compiled/` contains generated TinyStan output. Read `compiled/PROVENANCE.md` only when regenerating `main.js` and `main.wasm`.
 
-2. **Compile it to WASM, once, offline.** The exact commands are in
-   [`PROVENANCE.md`](PROVENANCE.md), then `npm run patch:wasm`, then commit
-   `main.js` + `main.wasm`. Compiling happens offline (curl / Node / CI) rather than
-   in the browser because the public compile server only accepts browser requests
-   from its own origin (CORS); committing the wasm also means the live page is pure
-   static assets with no runtime dependency on a compile server.
+## API Idea
 
-3. **Write the adapter** — [`model.js`](model.js): `params`, a `prior` matching the
-   `.stan` priors, a `responseProb` matching the `.stan` likelihood (this one JS
-   function is what the MI engine and the simulator use), and a `stanData` map
-   mirroring the `.stan` data block.
-
-4. **Sanity-check it** — a real-WASM recovery smoke
-   ([`../../tests/js/exponential_recovery.smoke.mjs`](../../tests/js/exponential_recovery.smoke.mjs))
-   confirms the compiled model recovers known parameters, and the likelihood-parity
-   smoke confirms the JS `responseProb` matches the compiled Stan likelihood
-   draw-for-draw. Both run in CI.
-
-## How it's used here
+The trial code stays ordinary jsPsych. The model is the swapped part:
 
 ```js
-import delayDiscountingTask from ".../tasks/delay_discounting/task.js"; // packaged task
-import exponentialModel from "./model.js";                              // your model, in this folder
+import exponentialModel from "./model.js";
+import { design_grid } from "./task.js";
 
-jsPsychADO.registerTask(delayDiscountingTask.id, delayDiscountingTask);
-jsPsychADO.registerModelPackage(exponentialModel, { stan, n_trials: 42 });
-const ado = jsPsychADO.createTimeline(jsPsych, { task: delayDiscountingTask.id, model: exponentialModel.id });
+const ado = jsPsychADO.createController(jsPsych, {
+  model: exponentialModel,
+  design_grid,
+  stan: { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 },
+  n_trials: 42,
+});
 ```
 
-(For runnability this page goes through the shared demo "experiment shell" — URL
-switches + simulation — like the other demos. The interface itself is the calls above.)
+The exponential model is checked by `tests/js/exponential_recovery.smoke.mjs`,
+which loads the compiled WASM and verifies parameter recovery.

@@ -10,7 +10,7 @@
 // controller (controllers/stan_ado_controller.js). It only produces the adapter
 // object; `moduleUrl` points at the compiled main.js that the existing worker
 // already dynamic-imports. So the result is a drop-in `model:` for
-// createStanAdoController(...).
+// jsPsychADO.createController(...).
 //
 // TRADE-OFF vs the committed-artifact workflow (see models/README.md):
 // this skips the curl/commit step, but the compiled module is fetched from the
@@ -29,7 +29,7 @@ const _moduleUrlCache = new Map(); // `${server}\n${stanSource}` -> moduleUrl
 
 /**
  * Compile a .stan source string and return a model adapter for
- * createStanAdoController. Resolves once the compile server has produced the
+ * jsPsychADO.createController(...). Resolves once the compile server has produced the
  * module; the adapter's responseProb or responseProbs / buildData / prior are
  * supplied by you and must match the .stan likelihood and priors (same rule as a hand-written
  * models/<name>/model.js).

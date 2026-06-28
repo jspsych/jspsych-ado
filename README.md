@@ -30,10 +30,10 @@ WebAssembly and run in a Web Worker via [tinystan](https://github.com/WardBrian/
 maximizing **mutual information** over a grid of candidate designs. There is **no server
 and no Python**: everything runs client-side, so an experiment deploys as static assets.
 
-You bring a **task** (design grid + presentation) and a **model** (Stan likelihood + a
-small JS adapter); `jsPsychADO` checks that they are compatible and turns them into an
-adaptive jsPsych timeline. Or start from one of the bundled task/model packages, ready
-to run out of the box.
+You bring a **design grid**, ordinary jsPsych trial code, and a **model** (Stan
+likelihood + a small JS adapter); `jsPsychADO` checks that they are compatible and
+turns them into an adaptive jsPsych timeline. The demos show that pattern from a
+minimal tutorial through fuller experiments.
 
 ## Status
 
@@ -43,7 +43,7 @@ and three bundled examples — binary delay discounting, 3IFC categorical line-l
 Halberda-style dot comparison — work and are covered by CI (unit tests + real headless
 Worker/WASM smokes + a bundler build smoke). The committed WASM is bundler-safe and the
 package builds under Vite and webpack 5 (see [Using with a bundler](#using-with-a-bundler)).
-Still pre-1.0: the task/model/controller extension APIs may change before 1.0.
+Still pre-1.0: the model/controller extension APIs may change before 1.0.
 
 ## Quick start
 
@@ -51,33 +51,22 @@ No build step — serve the repo with any static server (VS Code Live Server, et
 open the example:
 
 ```text
-demos/delay_discounting/index.html?controller=stan&strategy=ado&debug=1
-demos/line_length_discrimination/index.html?controller=stan&strategy=ado&debug=1
-demos/halberda_dot_comparison/index.html?controller=stan&strategy=ado&debug=1
+demos/delay_discounting_tutorial/index.html
+demos/delay_discounting/index.html
+demos/line_length_discrimination/index.html
+demos/halberda_dot_comparison/index.html
 ```
 
-See **[`demos/README.md`](demos/README.md)** for a guided tour: the three demos
-above are "drop-in" examples (packaged task + packaged model), and two more show how
-to **bring your own task** (`demos/byo_task_money_choice/`) or **bring your own model**
-(`demos/byo_model_exponential/`). It also explains the **`tasks/` (packaged, shipped)
-vs `demos/` (example pages)** distinction and contrasts a plain jsPsych timeline with
-an ADO one.
-
-- `controller=stan` (default) — live in-browser Stan inference; `controller=mock` — a
-  deterministic, no-WASM controller for fast UI work.
-- `strategy=ado` (default) — MI-optimal designs; `strategy=random` — a random baseline
-  drawn from the same grid.
-- `debug=1` — per-trial console summary, selection diagnostics when available,
-  and live posterior-convergence charts.
-- `simulate=data-only` | `simulate=visual` — run a simulated participant.
-  Data-only simulation stays fast for validation; visual simulation uses slower
-  shared timing defaults so the stimulus, response, and debug updates are
-  watchable.
+Start with **[`demos/delay_discounting_tutorial/`](demos/delay_discounting_tutorial/)**
+for the minimal controller API. See **[`demos/README.md`](demos/README.md)** for
+the full demo map: a polished delay-discounting showcase, model-swap and custom-task
+examples, and capability demos for categorical and canvas-style tasks.
 
 ## Usage
 
-An experiment is a thin consumer: register a task package and a model package, then
-ask the façade for the timeline. The example below is for a **bundler** project
+An experiment is a thin consumer: create an ADO controller from a model package and
+a design grid, write an ordinary jsPsych trial, then ask the controller for the
+adaptive timeline fragment. The example below is for a **bundler** project
 (`npm install jspsych-ado`); see [Using with a bundler](#using-with-a-bundler) for
 the required setup, and [Quick start](#quick-start) above for running the in-repo
 examples by serving the repo statically.
@@ -85,30 +74,37 @@ examples by serving the repo statically.
 ```js
 import { initJsPsych } from "jspsych";
 import htmlButtonResponse from "@jspsych/plugin-html-button-response";
-import callFunction from "@jspsych/plugin-call-function";
 
 import { jsPsychADO } from "jspsych-ado";
 import hyperbolic from "jspsych-ado/models/hyperbolic/model.js";
-import delayDiscountingTask from "jspsych-ado/tasks/delay_discounting/task.js";
-import "jspsych-ado/tasks/delay_discounting/task.css"; // task styles (see Tasks)
 
 const jsPsych = initJsPsych();
 
-jsPsychADO.registerTask(delayDiscountingTask.id, delayDiscountingTask);
-jsPsychADO.registerModelPackage(hyperbolic, {
-  stan:     { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 },
-  n_trials: 42,
+const design_grid = {
+  t_ss: [0],
+  t_ll: [1, 4, 12, 52],
+  r_ss: [100, 200, 400, 600],
+  r_ll: [800],
+};
+
+const ado = jsPsychADO.createController(jsPsych, {
+  model: hyperbolic,
+  design_grid,
+  stan: { num_chains: 1, num_warmup: 100, num_samples: 200, seed: 123 },
+  n_trials: 6,
 });
 
-const ado = jsPsychADO.createTimeline(jsPsych, {
-  task:  delayDiscountingTask.id,
-  model: hyperbolic.id,
-  // Inject the jsPsych plugin classes the timeline builds trials from. A static
-  // page that loads the plugins' UMD <script> builds can omit this — the timeline
-  // falls back to the globals those scripts define.
-  plugins: { htmlButtonResponse, callFunction },
-});
-jsPsych.run([ /* instructions, */ ...ado /*, end screen */ ]);
+const trial = {
+  type: htmlButtonResponse,
+  stimulus: () =>
+    `${ado.evaluateDesignVariable("r_ss")} now or ${ado.evaluateDesignVariable("r_ll")} later?`,
+  choices: ["Sooner", "Later"],
+  on_finish: (data) => ado.recordResponse(data.response),
+};
+
+const adoTimeline = ado.createTimeline(trial);
+
+jsPsych.run([ /* instructions, */ ...adoTimeline /*, end screen */ ]);
 ```
 
 ### Using with a bundler
@@ -116,15 +112,10 @@ jsPsych.run([ /* instructions, */ ...ado /*, end screen */ ]);
 The package is ESM and runs **client-side only** (it spawns a Web Worker that loads
 the Stan WASM). It is tested against Vite and webpack 5.
 
-- **jsPsych plugins.** Install the plugins your task uses and pass them via
-  `createTimeline(..., { plugins })`: `@jspsych/plugin-html-button-response` and
-  `@jspsych/plugin-call-function` for button tasks (delay discounting, line length),
-  plus `@jspsych/plugin-canvas-keyboard-response` for canvas tasks (dots). They are
-  declared as optional `peerDependencies`. (On a static page that loads their UMD
-  `<script>` builds instead, the timeline reads them from `globalThis` and you can
-  omit `plugins`.)
-- **Task styles.** Import the task's stylesheet, e.g.
-  `import "jspsych-ado/tasks/delay_discounting/task.css"`.
+- **jsPsych plugins.** Install the response plugins your trials use and put them
+  directly on trials, e.g. `type: htmlButtonResponse`. Controller timelines handle
+  their internal async update steps with jsPsych 8's awaited `on_finish`, so no
+  ADO-specific plugin plumbing is required.
 - **Vite.** The worker and WASM are emitted from `new URL(..., import.meta.url)`
   inside the installed dependency. If Vite's dep pre-bundling interferes with that
   emission, exclude the package: `optimizeDeps: { exclude: ["jspsych-ado"] }`.
@@ -136,10 +127,15 @@ the Stan WASM). It is tested against Vite and webpack 5.
 
 ### API
 
-- `registerTask(name, spec)` — register task presentation, design grid, and response labels.
-- `registerModel(name, spec)` / `registerModelPackage(model, overrides)` — register a statistical model.
-- `prepareModels({ compileServer })` — compile any models registered from Stan source.
-- `createTimeline(jsPsych, { task, model, ... }, run_context)` — validate and build the adaptive timeline fragment.
+- `jsPsychADO.createController(jsPsych, { model, design_grid, stan, ... })` — create the ADO controller.
+- `ado.evaluateDesignVariable(key)` / `ado.designVariable(key)` / `ado.getDesign()` — read the current selected design while a trial is rendering.
+- `ado.recordResponse(response)` — record the response from the user-authored adaptive trial.
+- `ado.createTimeline(trialOrTrials, options)` — build the adaptive timeline fragment and schedule async model updates between trials.
+
+Append `?debug=1` to a controller page to enable package-owned debug logging,
+live posterior panels, and a final posterior summary. Pass `debug: false` to
+`createController(...)` or `ado.createTimeline(...)` to disable URL-triggered debug
+for a production deployment.
 
 ### Adaptive stopping
 
@@ -151,7 +147,7 @@ design). It stops once the **best available next design's EIG** falls below a
 i.e. no remaining stimulus is expected to teach much more. Using a fraction keeps one
 threshold meaningful across binary and categorical tasks.
 
-Pass a `stopping` config to `createTimeline` (or as a `registerModelPackage` override):
+Pass a `stopping` config to `createController` or `ado.createTimeline`:
 
 ```js
 stopping: {
@@ -168,33 +164,18 @@ the EIG that drove the decision is the grid-max MI in `ado_max_mutual_info`. A
 complementary precision-target rule is tracked in
 [#101](https://github.com/githubpsyche/jspsych-ado/issues/101).
 
-### Debug traces
-
-`debug=1` prints a readable console summary after each adaptive update — the design
-presented, the response, posterior mean/sd for the active model parameters, the next
-selected design, and the local sampling time. In DevTools each summary also has a
-collapsed details group with tables.
-
-With `controller=stan`, debug output also includes posterior draw histograms and an
-on-page information-gain panel. The panel plots the mutual information of the design
-that was actually selected on each trial plus realized information gain after the
-response. Under `strategy=ado`, the selected-design MI is the max-MI design by
-construction; under `strategy=random`, it is the MI of the randomly sampled design,
-so it should not be read as an optimality claim. The fast `controller=mock` path does
-not fabricate these quantitative validation metrics; it remains for timeline/UI smoke
-testing without WASM.
-
 ## How it works
 
-The timeline talks to an **adaptive controller** with two async methods —
-`start(context)` and `update(trial_data)` — each returning the next design plus the
-current posterior. Swapping the deterministic mock controller for the in-browser Stan
-controller is the entire abstraction; the timeline never sees Stan or WASM.
+The timeline talks to an **adaptive controller** through synchronous `start(context)`
+and awaited `update(trial_data)` calls. `ado.createTimeline(...)` wraps the
+user-authored trial's `on_finish`, records the response, waits for the model update,
+and only then lets the next adaptive trial render. Swapping the deterministic mock
+controller for the in-browser Stan controller is the core runtime abstraction; the
+user-authored jsPsych trial never sees Stan or WASM.
 
 - **`jspsych-ado/ado/mi_engine.js`** — model-agnostic mutual-information design selection.
 - **`jspsych-ado/ado/stan_worker.js`** — one generic Web Worker that runs NUTS off the main thread.
 - **`jspsych-ado/ado/ado_timeline.js`** — the generic, stimulus-agnostic timeline.
-- **`jspsych-ado/ado/experiment_shell.js`** — shared experiment-page run-mode and simulation wiring.
 - **`jspsych-ado/controllers/`** — the in-browser Stan controller and the mock controller.
 - **`jspsych-ado/index.js`** — the `jsPsychADO` façade.
 
@@ -202,25 +183,23 @@ controller is the entire abstraction; the timeline never sees Stan or WASM.
 
 - **`jspsych-ado/`** — the general, model- and stimulus-agnostic library (engine,
   worker, controllers, generic timeline, façade). It knows nothing about any task.
-- **`jspsych-ado/tasks/<name>/`** — a pluggable task package: design grid,
-  presentation, choices, response labels, and response mapping.
 - **`jspsych-ado/models/<name>/`** — a pluggable model package: a `model.js` adapter
   (`params`, `prior`, `responseProb` or `responseProbs`, `stanData`, …) plus its
   compiled `.stan` artifacts. Shipped models: `hyperbolic` (delay discounting),
   `weber_dots` (ANS acuity), `line_length_discrimination_3ifc` (3-way categorical).
-- **`demos/<name>/`** — example pages that consume (or author) those packages; see
-  [`demos/README.md`](demos/README.md). The `demos/byo_model_exponential/` demo even
-  authors its own model (exponential discounting) in-folder. These are how-to
-  examples, not part of the published library.
+- **`demos/<name>/`** — runnable examples. Demo folders contain their own
+  task/design/rendering code because, under the controller API, tasks are ordinary
+  jsPsych experiment code. See [`demos/README.md`](demos/README.md).
 
-## Adding tasks and models
+## Adding experiments and models
 
-Drop task packages under `jspsych-ado/tasks/<name>/` and model packages under
-`jspsych-ado/models/<name>/`. The engine, controller, and timeline stay generic.
-Model compilation steps are in [jspsych-ado/models/README.md](jspsych-ado/models/README.md);
-the task package contract is in [jspsych-ado/tasks/README.md](jspsych-ado/tasks/README.md).
-For runnable end-to-end walkthroughs, see the **bring-your-own-task** and
-**bring-your-own-model** demos in [`demos/README.md`](demos/README.md).
+Write task/design/rendering code in ordinary jsPsych experiment files, then pass a
+compatible design grid and model package to `jsPsychADO.createController(...)`.
+Drop reusable model packages under `jspsych-ado/models/<name>/`. The engine,
+controller, and timeline stay generic.
+Model compilation steps are in [jspsych-ado/models/README.md](jspsych-ado/models/README.md).
+For runnable end-to-end walkthroughs, see the custom money-choice and BYO-model
+demos in [`demos/README.md`](demos/README.md).
 Binary models expose `responseProb(design, params) -> P(response = 1)`.
 Finite categorical models expose `responseProbs(design, params) -> [p0, p1, ...]`.
 Continuous responses are not supported yet.
@@ -271,8 +250,8 @@ fully self-contained / offline build, install jsPsych from npm and bundle it (se
 ## Compatibility
 
 Browser/Web-Worker only — the WASM is built with emscripten `-sENVIRONMENT=web,worker`.
-Targets the jsPsych 7-era plugin API (`jspsych` is a `peerDependency`, `>=7`); the
-in-repo demos pin jsPsych 7.3.4 + plugins from a CDN.
+Targets jsPsych 8+ (`jspsych` is a `peerDependency`, `>=8`); the in-repo demos pin
+jsPsych 8.2.3 and v2 jsPsych plugins from a CDN.
 
 ## Citation
 

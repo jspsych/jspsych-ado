@@ -5,9 +5,30 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the package is pre-1.0, minor versions may include breaking changes to the
-task/model/controller extension APIs.
+helper/model/controller extension APIs.
 
 ## [Unreleased]
+
+### Added
+- Primary controller-style authoring API: `jsPsychADO.createController(jsPsych, { model, design_grid, ... })`
+  returns `ado.evaluateDesignVariable(...)`, `ado.getDesign()`, `ado.recordResponse(...)`,
+  and `ado.createTimeline(...)` for ordinary jsPsych trials.
+
+### Changed
+- Demos, docs, and the bundler smoke now use the controller API as the only public
+  adaptive timeline authoring path.
+- The package now targets jsPsych 8+ and relies on awaited trial `on_finish` for
+  async model updates. Response plugins stay in normal jsPsych trial definitions.
+- Controller timelines now handle URL-triggered debug mode (`?debug=1`) and final
+  debug summaries without per-demo end-screen wiring.
+
+### Removed
+- Removed the registry authoring API: `registerTask`, `registerModel`,
+  `registerModelPackage`, and legacy `jsPsychADO.createTimeline(jsPsych, ...)`.
+- Removed user-facing `@jspsych/plugin-call-function` setup.
+- Removed `jspsych-ado/tasks/*` from the public package surface. Demo task/design/
+  rendering code now lives inside the relevant `demos/<name>/` folder.
+- Removed demo URL/simulation shell helpers from the teaching demos.
 
 ## [0.2.0] - 2026-06-18
 
