@@ -9,6 +9,51 @@ task/model/controller extension APIs.
 
 ## [Unreleased]
 
+### Changed — controller-first authoring API (#135)
+
+**Breaking.** The registry API is replaced by a controller API that makes the
+participant-facing task ordinary jsPsych code (proposed in #135, prototyped in #136):
+
+```js
+const ado = jsPsychADO.createController(jsPsych, { model, design_grid, stan });
+const trial = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: () => `${ado.evaluateDesignVariable("r_ss")} now or ...?`,
+  choices: ["Sooner", "Later"],
+  on_finish: (data) => ado.recordResponse(data.response),
+};
+jsPsych.run([intro, ...ado.createTimeline(trial), end]);
+```
+
+- **Removed:** `registerTask`, `registerModel`, `registerModelPackage`, `validateTask`,
+  `prepareModels`, the task/model registries, the `createTimeline(jsPsych, { task, model })`
+  form, the packaged `src/tasks/*` (task code now lives with each demo), the
+  `demos/_shared/experiment_shell.js` URL runner (`controller=`/`strategy=` become
+  `createController` options), and the response-trial factories
+  (`htmlButtonChoice`/`canvasFrame`/`canvasResponse`/`canvasSliderChoice` — user code
+  authors its own trials).
+- **Added:** `createController` (design accessors `evaluateDesignVariable` /
+  `designVariable` / `getDesign`, live `getState`, validated `recordResponse`,
+  and `ado.createTimeline(trialOrTrials, options)` accepting one trial, a
+  fixation→stimulus→response array, or a trial factory); `prepareModel(spec,
+{ compileServer })` replaces `prepareModels` for the compile-from-source
+  prototyping path; a `simulate` option re-homes the old `?simulate=` synthetic
+  participant (drawing from the model likelihood, incl. continuous
+  `responseSampler`); library-owned `?debug=1` handling with an end-of-run
+  posterior debrief overlay.
+- **Scheduling:** no more injected `call-function` trials — the controller update is
+  composed into the response trial's async `on_finish`, which jsPsych 8 awaits, so the
+  next trial cannot render before the next design is ready. The design queue advances
+  at the end of each adaptive step (jsPsych 8 resolves dynamic parameters before
+  `on_start`, so testlet batches stay consistent between what is rendered and what is
+  recorded). Controller `start()` is now synchronous: the Stan worker loads in the
+  background and the first `update()` awaits it.
+- **Requires jsPsych ≥ 8** (peer dependency was `>=7`); the response-plugin peer
+  dependencies are dropped entirely. Data rows keep the same `post_mean_*` /
+  `ado_*` schema, except that each choice row now carries the posterior that
+  resulted from it and the separate `ado_event: "start"`/`"update"` rows are gone
+  (update fields land on the choice rows).
+
 ### Added
 
 - TypeScript declarations for the public `jsPsychADO` façade (`src/index.d.ts`, surfaced

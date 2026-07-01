@@ -5,9 +5,12 @@ is shown and the participant estimates its perceived size on a continuous slider
 adaptive loop fits Stevens' power law and recovers the perceptual exponent.
 
 The task uses the stock `canvas-slider-response` plugin (no custom plugin or asset),
-loaded from a pinned CDN (see the page `<head>`), and the same shared experiment shell
-as the other demos. Presentation and the design grid live in the task package; the
-likelihood lives in the model package.
+loaded from a pinned CDN (see the page `<head>`). The trial is ordinary jsPsych code:
+the design's area drives the canvas drawing, and `on_finish` records the modeled
+response `y = log(estimate)` via `ado.recordResponse(...)`. The drawing helpers and
+design grid live in this folder's `task.js`; the likelihood lives in the model
+package. Append `?simulate=data-only` to run a synthetic participant drawn from the
+model's `responseSampler` (wired through `createTimeline`'s `simulate` option).
 
 ## Model contract
 
@@ -34,7 +37,8 @@ log space the density lives in:
 responseToOutcome(design, estimate) => Math.log(estimate)
 ```
 
-so the row's `choice` is `log(estimate)` and `choice_raw` is the raw slider value.
+so the row's `choice` is `log(estimate)` and the raw slider value stays on the
+plugin's own `response` field.
 `buildData` logs the design magnitude `s` into `log_s` and passes the (already-log)
 response through as `log_y`, guarding against non-finite values.
 
@@ -44,12 +48,6 @@ Normal prototype:
 
 ```text
 demos/magnitude_estimation/index.html
-```
-
-Fast mock-controller visual check (no WASM):
-
-```text
-demos/magnitude_estimation/index.html?controller=mock&simulate=visual&debug=1
 ```
 
 Data-only simulation (fast; what the browser smoke runs):

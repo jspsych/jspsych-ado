@@ -1,18 +1,18 @@
-// Browser smoke for the 3IFC line-length teaching demo.
+// Browser smoke for the Halberda-style dot-comparison canvas demo.
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import puppeteer from "puppeteer";
 import { startStaticServer } from "./static_server.mjs";
 import {
-  answerAdaptiveButtonTrials,
+  answerAdaptiveKeyTrials,
   attachDiagnostics,
   clickInstructionPages,
   collectDemoResult,
 } from "./demo_helpers.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const PAGE = "/demos/line_length_discrimination/index.html?debug=1";
-const TRIALS = 18;
+const PAGE = "/demos/halberda_dot_comparison/index.html?debug=1";
+const TRIALS = 40;
 
 let failures = 0;
 const note = (ok, msg) => {
@@ -31,22 +31,20 @@ try {
   const page = await browser.newPage();
   const diagnostics = attachDiagnostics(page);
 
-  console.log(`\n[line-length demo] ${server.url}${PAGE}`);
+  console.log(`\n[halberda dot demo] ${server.url}${PAGE}`);
   await page.goto(`${server.url}${PAGE}`, { waitUntil: "domcontentloaded", timeout: 30000 });
   await clickInstructionPages(page);
-  await page.waitForSelector(".ll-line-list", { timeout: 60000 });
-  const styleCheck = await page.evaluate(() => ({
-    display: getComputedStyle(document.querySelector(".ll-line-list")).display,
-    hasCssLink: Array.from(document.querySelectorAll("link[rel='stylesheet']")).some((link) =>
-      link.href.includes("/demos/line_length_discrimination/task.css"),
-    ),
-  }));
-  note(styleCheck.hasCssLink, "line-length task stylesheet is loaded");
+  await page.waitForSelector("canvas", { timeout: 60000 });
+  const canvas = await page.evaluate(() => {
+    const el = document.querySelector("canvas");
+    return el ? { width: el.width, height: el.height } : null;
+  });
   note(
-    styleCheck.display === "grid",
-    `line-length stimulus grid is styled (display=${styleCheck.display})`,
+    canvas && canvas.width === 800 && canvas.height === 600,
+    `canvas uses the demo coordinate system (got ${JSON.stringify(canvas)})`,
   );
-  await answerAdaptiveButtonTrials(page, TRIALS, (i) => i % 3);
+
+  await answerAdaptiveKeyTrials(page, TRIALS, (i) => (i % 2 === 0 ? "b" : "y"));
   const r = await collectDemoResult(page, TRIALS);
 
   note(
@@ -56,27 +54,26 @@ try {
   if (!r.errored) {
     note(r.choiceRows === TRIALS, `${TRIALS} choice trials recorded (got ${r.choiceRows})`);
     note(r.updateRows === TRIALS, `${TRIALS} update rows recorded (got ${r.updateRows})`);
-    note(
-      r.modelId === "line_length_discrimination_3ifc",
-      `model_id is line_length_discrimination_3ifc (got ${r.modelId})`,
-    );
+    note(r.modelId === "weber_dots", `model_id is weber_dots (got ${r.modelId})`);
     note(r.controllerMode === "stan", `controller_mode is stan (got ${r.controllerMode})`);
     note(r.hasAdoDesign, "last row carries ado_design");
-    note([0, 1, 2].includes(r.choice), `choice is 0/1/2 (got ${r.choice})`);
-    note(["A", "B", "C"].includes(r.choiceLabel), `choice label is A/B/C (got ${r.choiceLabel})`);
+    note(
+      r.choice === 0 || r.choice === 1,
+      `choice is correct/incorrect code 0/1 (got ${r.choice})`,
+    );
+    note(
+      ["incorrect", "correct"].includes(r.choiceLabel),
+      `choice label is correct/incorrect (got ${r.choiceLabel})`,
+    );
     note(r.hasChoiceMi, "choice row carries ado_mutual_info");
     note(r.hasChoiceSelectionTime, "choice row carries ado_selection_time_ms");
     note(r.updateRowsWithMetrics === TRIALS, "update rows carry ado_next_design_metrics");
     note(
-      typeof r.postMeanSensitivity === "number" &&
-        typeof r.postSdSensitivity === "number" &&
-        typeof r.postMeanBiasB === "number" &&
-        typeof r.postSdBiasB === "number" &&
-        typeof r.postMeanBiasC === "number" &&
-        typeof r.postSdBiasC === "number",
-      `posterior populated (sensitivity mean=${r.postMeanSensitivity})`,
+      typeof r.postMeanW === "number" && typeof r.postSdW === "number",
+      `posterior populated (w mean=${r.postMeanW})`,
     );
   }
+
   const debugUi = await page.evaluate(() => ({
     text: document.body.innerText,
     hasDebugDebrief: Boolean(document.getElementById("ado-debug-debrief-panel")),
@@ -116,6 +113,6 @@ try {
 }
 
 console.log(
-  failures === 0 ? "\nLINE-LENGTH DEMO BROWSER SMOKE PASSED" : `\n${failures} CHECK(S) FAILED`,
+  failures === 0 ? "\nHALBERDA DOT DEMO BROWSER SMOKE PASSED" : `\n${failures} CHECK(S) FAILED`,
 );
 process.exit(failures === 0 ? 0 : 1);

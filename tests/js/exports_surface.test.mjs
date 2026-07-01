@@ -13,7 +13,7 @@ const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 test("package exports are exactly the curated public surface", async () => {
   const pkg = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
   const keys = Object.keys(pkg.exports).sort();
-  assert.deepEqual(keys, [".", "./models/*", "./package.json", "./tasks/*"]);
+  assert.deepEqual(keys, [".", "./models/*", "./package.json"]);
 });
 
 test("internal subpaths are NOT re-exposed as public exports", async () => {

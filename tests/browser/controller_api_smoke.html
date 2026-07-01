@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Controller API Smoke</title>
+    <script src="https://unpkg.com/jspsych@8.2.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <link href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" rel="stylesheet" type="text/css">
+  </head>
+  <body></body>
+    <script type="module">
+    import { jsPsychADO } from "/src/index.js";
+    import hyperbolic from "/src/models/hyperbolic/model.js";
+
+    const design_grid = {
+      t_ss: [0],
+      t_ll: [1, 4],
+      r_ss: [100, 200],
+      r_ll: [200],
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    const controller = params.get("controller") || "stan";
+    const design_strategy = params.get("strategy") || "ado";
+    const smoke_id = `controller_api_smoke_${controller}_${design_strategy}`;
+
+    window.__controllerApiSmoke = { done: false, error: null };
+
+    try {
+      const jsPsych = initJsPsych({
+        on_finish: () => {
+          const rows = jsPsych.data.get().filter({ smoke_id }).values();
+          const last = rows[rows.length - 1] || {};
+          window.__controllerApiSmoke = {
+            done: true,
+            error: null,
+            rows: rows.length,
+            choice: last.choice,
+            choice_label: last.choice_label,
+            has_design: Boolean(last.ado_design && typeof last.ado_design === "object"),
+            model_id: last.model_id ?? null,
+            controller_mode: last.controller_mode ?? null,
+            design_strategy: last.design_strategy ?? null,
+            post_mean_k: last.post_mean_k ?? null,
+            selection_time_ms: last.ado_selection_time_ms ?? null,
+          };
+        },
+      });
+
+      const ado = jsPsychADO.createController(jsPsych, {
+        model: hyperbolic,
+        design_grid,
+        n_trials: 2,
+        controller,
+        design_strategy,
+        stan: { num_chains: 1, num_warmup: 100, num_samples: 200, seed: 11 },
+      });
+
+      const trial = {
+        type: jsPsychHtmlButtonResponse,
+        stimulus: () =>
+          `${ado.evaluateDesignVariable("r_ss")} now or ${ado.evaluateDesignVariable("r_ll")} later?`,
+        choices: ["Sooner", "Later"],
+        data: { smoke_id },
+        on_finish: (data) => ado.recordResponse(data.response),
+        simulation_options: {
+          data: { response: 1 },
+        },
+      };
+
+      const timeline = ado.createTimeline(trial, { n_trials: 2 });
+
+      jsPsych.simulate(timeline, "data-only");
+    } catch (error) {
+      window.__controllerApiSmoke = {
+        done: false,
+        error: String((error && error.stack) || error),
+      };
+    }
+  </script>
+</html>
