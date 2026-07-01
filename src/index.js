@@ -1,401 +1,491 @@
 // src/index.js — the jsPsychADO façade (package entry point).
 //
-// Researchers register two composable pieces:
-//   - a task:  design grid, presentation, choices, and response labels
-//   - a model: parameters, priors, likelihood, Stan data builder, and WASM module
+// The public authoring path is controller-based (#135):
 //
-// Then createTimeline validates the task/model pair and builds the standard ADO
-// timeline around the in-browser Stan controller. The task/model validators live in
-// validation.js and the Stan-source helpers (prior parsing + remote compile) in
-// models/stan_source.js; this file owns the registries and the public surface.
+//   const ado = jsPsychADO.createController(jsPsych, { model, design_grid, stan });
+//
+//   const trial = {
+//     type: jsPsychHtmlButtonResponse,
+//     stimulus: () => `${ado.evaluateDesignVariable("r_ss")} now or ...`,
+//     choices: ["Sooner", "Later"],
+//     on_finish: (data) => ado.recordResponse(data.response),
+//   };
+//
+//   jsPsych.run([intro, ...ado.createTimeline(trial), end]);
+//
+// The task layer is ordinary user-authored jsPsych trials; ADO owns the adaptive
+// controller/runtime. ado.createTimeline(...) owns the scheduling guarantee:
+// response -> model update -> next design -> next trial render (jsPsych 8 awaits
+// the composed async on_finish). Model validation lives in validation.js and the
+// Stan-source helpers (prior parsing + remote compile) in models/stan_source.js.
 
 import { createStanAdoController } from "./controllers/stan_ado_controller.js";
+import { createMockAdoController } from "./controllers/mock_ado_controller.js";
 import { createAdoTimeline } from "./ado/ado_timeline.js";
 import { arange, linspace } from "./ado/grid.js";
-import { makeStanDataBuilder, validateStanDataSpec } from "./ado/stan_data.js";
+import { makeStanDataBuilder } from "./ado/stan_data.js";
 import {
-  TASK_ONLY_FIELDS,
-  validateTask,
+  createSeededRng,
+  simulateCategoricalChoice,
+  simulateContinuousResponse,
+} from "./ado/ado_simulation.js";
+import { makeChoiceSimulationOptions } from "./ado/simulation_hooks.js";
+import {
   validateModel,
-  validateTaskModelPair,
-  validateResponseSpace,
+  validateDesignGridForModel,
+  getResponseCount,
   isContinuous,
-  continuousModelProblems,
 } from "./validation.js";
 import { parseStanPriors, compileToModuleUrl } from "./models/stan_source.js";
 
 const DEFAULT_STAN = { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 };
 const DEFAULT_N_TRIALS = 42;
 const DEFAULT_TOKEN = "1234";
-
-const MODEL_REGISTRY = new Map(); // name -> entry
-const TASK_REGISTRY = new Map(); // name -> task spec
+const CONTROLLER_MODES = new Set(["stan", "mock"]);
 const _compileCache = new Map(); // `${server}\n${stanCode}` -> moduleUrl (per page session)
 
 // ---------------------------------------------------------------------------
-// registerTask
+// createController
 // ---------------------------------------------------------------------------
 
 /**
- * Register a task. A task owns presentation and response coding; models only
- * own the statistical likelihood and Stan data boundary.
+ * Create an ADO controller handle for one model + design grid.
  *
- * @param {string} name
- * @param {Object} spec
- * @param {Object|Array<Object>} spec.design_grid - Candidate designs.
- * @param {string[]} spec.designKeys - Design keys the task provides.
- * @param {Object} spec.responseSpace - {type:"binary"}, {type:"categorical", n_categories}, or {type:"continuous"}.
- * @param {Object} spec.presentation - getChoiceTrials(ctx) OR makeStimulus(design).
- * @param {string[]} [spec.choices] - Button/key labels in index order.
- * @param {string[]|Object} spec.response_labels - ["SS","LL"] or {0:"SS",1:"LL"}.
- * @param {Function} [spec.responseToOutcome] - (design, rawResponse) => outcome.
- *   Discrete: maps a choice index to an outcome index (default identity). Continuous:
- *   defaults to identity, passing the raw real-valued response through as the outcome.
+ * The handle exposes design accessors for ordinary jsPsych trials
+ * (evaluateDesignVariable / designVariable / getDesign), the response boundary
+ * (recordResponse, called from the adaptive trial's on_finish), the live
+ * posterior (getState), and createTimeline(trialOrTrials, opts) which wraps the
+ * user's trials into the adaptive loop.
+ *
+ * @param {Object} jsPsych - jsPsych instance returned by initJsPsych().
+ * @param {Object} config
+ * @param {Object} config.model - A model package (see models/README.md).
+ * @param {Object|Array<Object>} config.design_grid - Candidate designs: an object of
+ *   value arrays (cartesian product) or an explicit array of design objects.
+ * @param {Object} [config.stan] - Sampler overrides { num_chains, num_warmup, num_samples, seed }.
+ * @param {number} [config.n_trials=42] - Adaptive trial count.
+ * @param {number} [config.testlet_size=1] - Choice trials shown between Stan refits.
+ * @param {Object} [config.stopping] - EIG-based early stopping (#21); omit for fixed length.
+ * @param {string} [config.controller="stan"] - "stan" (live inference) or "mock" (no-WASM dev).
+ * @param {string} [config.design_strategy="ado"] - "ado" (MI-optimal) or "random" (recovery baseline).
+ * @param {?number} [config.design_seed] - Optional seed for prior/random design selection.
+ * @param {string} [config.session_id] - Session id saved into the data.
+ * @param {boolean|string} [config.debug="url"] - true/false, or "url" to honor ?debug=1.
+ * @param {string[]|Object} [config.response_labels] - Outcome labels; inferred from the
+ *   response trial's static choices when omitted (discrete responses only).
+ * @param {Object} [config.simulate] - Synthetic-participant config for jsPsych.simulate():
+ *   { participant: {param: value, ...}, rt_ms?, seed?, respond?(design, sim) }.
+ * @returns {Object} The ado controller handle.
  */
-function registerTask(name, spec) {
-  if (!name || typeof name !== "string") {
-    throw new Error("registerTask: a string name is required.");
+function createController(jsPsych, config = {}) {
+  if (!config || typeof config !== "object") {
+    throw new Error("createController: config must be an object.");
   }
-  const task_spec = { ...(spec || {}), id: spec && spec.id ? spec.id : name };
-  const { valid, problems } = validateTask(task_spec);
-  const errors = problems.filter((p) => p.level === "error");
-  if (errors.length) {
-    throw new Error(
-      `registerTask("${name}"): invalid task:\n  - ` + errors.map((e) => e.message).join("\n  - "),
-    );
+  if (!config.model || typeof config.model !== "object") {
+    throw new Error("createController: provide a model package as `model`.");
   }
-  for (const w of problems.filter((p) => p.level === "warn")) {
-    console.warn(`registerTask("${name}"): ${w.message}`);
+  if (config.design_grid == null) {
+    throw new Error("createController: `design_grid` is required.");
   }
-  if (!valid) {
-    throw new Error(`registerTask("${name}"): invalid task.`);
+
+  const adapter = buildModelAdapter(config.model, "createController");
+  validateDesignGridForModel(config.design_grid, adapter, adapter.id);
+
+  // The facade state below belongs to the ACTIVE run (one createTimeline call).
+  // Sequential reuse (a practice run then a main run from the same handle) works
+  // because each timeline re-activates itself via on_timeline_start before any of
+  // its trials evaluate parameters; concurrent runs are not supported (jsPsych
+  // runs one timeline at a time).
+  let active_run = null;
+
+  function requireActiveRun(context) {
+    if (!active_run) {
+      throw new Error(`${context}: no adaptive run is active. Call ado.createTimeline(...) first.`);
+    }
+    return active_run;
   }
-  if (TASK_REGISTRY.has(name)) {
-    console.warn(`registerTask: overwriting already-registered task "${name}".`);
+
+  function currentDesignOrThrow(context) {
+    const design = requireActiveRun(context).getDesign();
+    if (!design) {
+      throw new Error(`${context}: no current ADO design is available yet.`);
+    }
+    return design;
   }
-  TASK_REGISTRY.set(name, task_spec);
+
+  const ado = {
+    /** A copy of the current design object. */
+    getDesign() {
+      return { ...currentDesignOrThrow("getDesign") };
+    },
+
+    /** The current value of one design variable (use inside dynamic trial parameters). */
+    evaluateDesignVariable(key) {
+      const design = currentDesignOrThrow("evaluateDesignVariable");
+      if (!Object.prototype.hasOwnProperty.call(design, key)) {
+        throw new Error(`evaluateDesignVariable: current design has no field "${key}".`);
+      }
+      return design[key];
+    },
+
+    /** A function-valued trial parameter that resolves the design variable at run time. */
+    designVariable(key) {
+      return () => ado.evaluateDesignVariable(key);
+    },
+
+    /** The latest controller state (posterior summaries, next-design diagnostics). */
+    getState() {
+      const run = requireActiveRun("getState");
+      const state = run.getState();
+      return state ? { ...state } : null;
+    },
+
+    /**
+     * Record the model outcome for the current adaptive trial. Call exactly once
+     * from the adaptive trial's on_finish, after mapping the plugin's raw response
+     * to the model's outcome coding (binary: 0/1; categorical: 0..K-1;
+     * continuous: a finite number).
+     */
+    recordResponse(response) {
+      const run = requireActiveRun("recordResponse");
+      run.recordResponse(response);
+    },
+
+    /**
+     * Wrap user-authored jsPsych trials into the adaptive ADO loop.
+     *
+     * @param {Object|Array<Object>|Function} trial_or_trials - One jsPsych trial, an
+     *   array of trials shown per adaptive step (fixation, stimulus, response, ...),
+     *   or a factory (ctx) => trial(s) for fully dynamic steps.
+     * @param {Object} [timeline_config] - Per-timeline overrides of the controller
+     *   config (n_trials, stopping, testlet_size, controller, design_strategy, debug,
+     *   response_labels, response_trial_index, describeDesign, simulate, ...).
+     * @returns {Array} jsPsych timeline fragment to spread into jsPsych.run([...]).
+     */
+    createTimeline(trial_or_trials, timeline_config = {}) {
+      const uses_trial_factory = typeof trial_or_trials === "function";
+      const static_trial_info = uses_trial_factory
+        ? null
+        : normalizeControllerTrials(trial_or_trials, timeline_config.response_trial_index);
+      const response_trial = static_trial_info
+        ? static_trial_info.trials[static_trial_info.response_trial_index]
+        : null;
+
+      const n_trials =
+        timeline_config.n_trials ?? config.n_trials ?? config.model.n_trials ?? DEFAULT_N_TRIALS;
+      const testlet_size = normalizeTestletSize(
+        timeline_config.testlet_size ?? config.testlet_size ?? config.model.testlet_size,
+      );
+      const stopping = timeline_config.stopping ?? config.stopping ?? config.model.stopping ?? null;
+      const controller_mode = normalizeControllerMode(
+        timeline_config.controller ?? config.controller,
+      );
+      const design_strategy = timeline_config.design_strategy ?? config.design_strategy ?? "ado";
+      const effective_design_strategy = controller_mode === "mock" ? null : design_strategy;
+      const debug = resolveDebug(timeline_config.debug ?? config.debug ?? "url");
+      const response_labels = inferResponseLabels(
+        response_trial,
+        adapter.responseSpace,
+        timeline_config.response_labels ?? config.response_labels,
+      );
+      validateResponseLabels(response_labels, adapter.responseSpace);
+      const stan = {
+        ...DEFAULT_STAN,
+        ...config.model.stan,
+        ...config.stan,
+        ...timeline_config.stan,
+      };
+      const simulate = timeline_config.simulate ?? config.simulate ?? null;
+
+      const adaptive_controller =
+        controller_mode === "mock"
+          ? createMockAdoController({
+              grid_design: config.design_grid,
+              params: adapter.params,
+              n_trials,
+              testlet_size,
+              stopping,
+            })
+          : createStanAdoController({
+              model: adapter,
+              grid_design: config.design_grid,
+              stan,
+              n_trials,
+              testlet_size,
+              stopping,
+              session_id: timeline_config.session_id ?? config.session_id,
+              design_strategy: effective_design_strategy,
+              design_seed: timeline_config.design_seed ?? config.design_seed ?? null,
+            });
+
+      const run_context = {
+        debug,
+        ado_mode:
+          controller_mode === "mock"
+            ? "mock"
+            : effective_design_strategy === "random"
+              ? "random"
+              : "stan",
+        controller_mode,
+        design_strategy: effective_design_strategy,
+        model_id: adapter.id,
+        posterior_display: config.model.posterior_display,
+      };
+      if (simulate) {
+        run_context.simulation_mode = simulate.mode ?? "data-only";
+        run_context.simulate_choice = makeSimulatedParticipant(adapter, simulate);
+      }
+
+      // Per-run response-recording state. recording_open gates recordResponse to
+      // the composed on_finish; a validated response lands on data.__ado_response
+      // for the timeline's finalize step.
+      let recording_open = false;
+      let response_recorded = false;
+      let recorded_response;
+      let get_live_design = null;
+      let get_live_state = null;
+
+      const run = {
+        getDesign: () => (get_live_design ? get_live_design() : null),
+        getState: () => (get_live_state ? get_live_state() : null),
+        recordResponse(response) {
+          if (!recording_open) {
+            throw new Error(
+              "recordResponse: call this from the adaptive trial's on_finish callback.",
+            );
+          }
+          if (response_recorded) {
+            throw new Error(
+              "recordResponse: only one response can be recorded per adaptive trial.",
+            );
+          }
+          validateRecordedResponse(response, adapter.responseSpace);
+          recorded_response = response;
+          response_recorded = true;
+        },
+      };
+      // Make the handle usable for the run being built (design reads in dynamic
+      // parameters resolve against the most recently created timeline until another
+      // run activates itself at timeline start).
+      active_run = run;
+
+      const timeline = createAdoTimeline(
+        jsPsych,
+        adaptive_controller,
+        {
+          n_trials,
+          testlet_size,
+          stopping,
+          response_labels,
+          choices: response_trial ? response_trial.choices : undefined,
+          describeDesign: timeline_config.describeDesign ?? config.describeDesign,
+          getChoiceTrials(ctx) {
+            get_live_design = ctx.getDesign;
+            get_live_state = ctx.getState;
+            const materialized = uses_trial_factory
+              ? trial_or_trials({ ...ctx, ado })
+              : static_trial_info.trials;
+            const { trials, response_trial_index } = normalizeControllerTrials(
+              materialized,
+              timeline_config.response_trial_index,
+            );
+            return trials.map((trial, index) => {
+              const cloned = { ...trial };
+              delete cloned.__ado_is_response;
+              if (index !== response_trial_index) {
+                return cloned;
+              }
+
+              const inner_on_finish = cloned.on_finish;
+              cloned.on_finish = async function (data) {
+                recording_open = true;
+                response_recorded = false;
+                recorded_response = undefined;
+                try {
+                  if (inner_on_finish) {
+                    await Promise.resolve(inner_on_finish.call(this, data));
+                  }
+                } finally {
+                  recording_open = false;
+                }
+                if (!response_recorded) {
+                  throw new Error(
+                    "ADO trial finished without calling ado.recordResponse(...). " +
+                      "Record the model outcome from the trial's on_finish.",
+                  );
+                }
+                data.__ado_response = recorded_response;
+              };
+              // Simulation hook (#135 follow-up to the old ?simulate= contract): when a
+              // synthetic participant is configured, supply plugin simulation data drawn
+              // from the model likelihood at the live design. User-authored
+              // simulation_options win.
+              if (run_context.simulate_choice && cloned.simulation_options === undefined) {
+                cloned.simulation_options = () =>
+                  makeChoiceSimulationOptions(run_context, ctx.getDesign());
+              }
+              cloned.__ado_is_response = true;
+              return cloned;
+            });
+          },
+        },
+        run_context,
+        {
+          onTimelineStart: () => {
+            active_run = run;
+          },
+        },
+      );
+
+      return timeline;
+    },
+  };
+
+  return ado;
 }
 
 // ---------------------------------------------------------------------------
-// registerModel
+// prepareModel (compile-from-source prototyping path)
 // ---------------------------------------------------------------------------
 
 /**
- * Register a statistical model. Provide exactly one source: a Stan source string
- * (`stanCode`), a URL to a .stan file (`stanUrl`), or a precompiled module URL
- * (`moduleUrl`).
+ * Turn a source model spec ({ stanCode | stanUrl, params, designKeys, responseSpace,
+ * likelihood, stanData, ... }) into a model package usable with createController, by
+ * compiling the Stan source to WASM on a compile server and (when needed) deriving
+ * the JS prior from the source. Models that already carry a moduleUrl pass through.
  *
- * @param {string} name
- * @param {Object} spec
- * @param {string}   [spec.stanCode]      - Full .stan source as a string.
- * @param {string}   [spec.stanUrl]       - URL to a .stan file.
- * @param {string}   [spec.moduleUrl]     - Precompiled main.js URL.
- * @param {Array}    spec.params          - ["k","tau"] or [{name,lower}, ...].
- * @param {Object}   [spec.prior]         - Optional explicit JS prior.
- * @param {string[]} spec.designKeys      - Design fields consumed by the model.
- * @param {Object}   spec.responseSpace   - {type:"binary"}, {type:"categorical", n_categories}, or {type:"continuous"}.
- * @param {Function} [spec.responseProb]  - Binary likelihood: (design, draw) => P(outcome = 1).
- * @param {Function} [spec.responseProbs] - Categorical likelihood: (design, draw) => [p0, p1, ...].
- * @param {Function} [spec.responseDensity] - Continuous likelihood: (design, draw, y) => p(y | theta, d) >= 0.
- * @param {Function} [spec.responseMoments] - Continuous: (design, draw) => {mean, sd}; auto-derives the integration support.
- * @param {Array|Function} [spec.responseSupport] - Continuous: [lo, hi] or (design, draws) => [lo, hi] (alternative to responseMoments).
- * @param {Function} [spec.conditionalEntropy] - Continuous: (design, draw) => H(y | theta, d), closed form (optional).
- * @param {Function} [spec.responseDensityFactory] - Continuous: (design, draw) => ((y) => density), hot-loop fast path (optional).
- * @param {Function} [spec.responseSampler] - Continuous: (design, params, rng) => y, used by the simulator (optional).
- * @param {Function} [spec.toStanData]    - (trials:[{design,response}]) => Stan data.
- * @param {Function} [spec.buildData]     - (trials:[{...design,choice}]) => Stan data.
- * @param {Object}   [spec.posterior_display] - Per-parameter chart labels/ranges.
- * @param {Object}   [spec.stan]          - Default sampler settings.
- * @param {number}   [spec.n_trials]      - Default trial count.
- * @param {number}   [spec.testlet_size]  - Default choice trials between refits.
+ * Run once at study setup (not per participant). Compiled module URLs are cached
+ * by server + source within the page session.
+ *
+ * @param {Object} spec - Model spec with exactly one of stanCode | stanUrl | moduleUrl.
+ * @param {Object} opts
+ * @param {string} opts.compileServer - Base URL of a Stan-to-WASM compile server.
+ * @param {string} [opts.authToken] - Bearer token for the compile endpoint.
+ * @returns {Promise<Object>} A model package with moduleUrl and prior filled in.
  */
-function registerModel(name, spec) {
-  if (!name || typeof name !== "string") {
-    throw new Error("registerModel: a string name is required.");
-  }
+async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } = {}) {
   if (!spec || typeof spec !== "object") {
-    throw new Error(`registerModel("${name}"): spec must be an object.`);
-  }
-  for (const k of TASK_ONLY_FIELDS) {
-    if (spec[k] != null) {
-      throw new Error(
-        `registerModel("${name}"): ${k} belongs on a task; register it with registerTask(...).`,
-      );
-    }
-  }
-  if (spec.linkProb != null) {
-    throw new Error(`registerModel("${name}"): linkProb has been renamed to responseProb.`);
+    throw new Error("prepareModel: spec must be an object.");
   }
   const sources = ["stanCode", "stanUrl", "moduleUrl"].filter((k) => spec[k] != null);
   if (sources.length !== 1) {
     throw new Error(
-      `registerModel("${name}"): provide exactly one of stanCode | stanUrl | moduleUrl (got ${sources.length}).`,
+      `prepareModel: provide exactly one of stanCode | stanUrl | moduleUrl (got ${sources.length}).`,
     );
   }
-  for (const k of ["params", "designKeys", "responseSpace"]) {
-    if (spec[k] == null)
-      throw new Error(`registerModel("${name}"): missing required field "${k}".`);
+  if (spec.moduleUrl) {
+    return spec;
   }
-  if (spec.stanData == null && spec.toStanData == null && spec.buildData == null) {
+  if (!compileServer) {
     throw new Error(
-      `registerModel("${name}"): provide a stanData map, or buildData([{...design,choice}]), or toStanData([{design,response}]).`,
-    );
-  }
-  if (spec.stanData != null) {
-    const stan_data_problems = validateStanDataSpec(spec.stanData);
-    if (stan_data_problems.length) {
-      throw new Error(
-        `registerModel("${name}"): invalid stanData:\n  - ` + stan_data_problems.join("\n  - "),
-      );
-    }
-  }
-  if (!Array.isArray(spec.params) || spec.params.length === 0) {
-    throw new Error(`registerModel("${name}"): params must be a non-empty array.`);
-  }
-  if (!spec.params.every((p) => typeof p === "string" || (p && typeof p.name === "string"))) {
-    throw new Error(
-      `registerModel("${name}"): params entries must be strings or objects with a name.`,
-    );
-  }
-  if (!Array.isArray(spec.designKeys) || spec.designKeys.length === 0) {
-    throw new Error(`registerModel("${name}"): designKeys must be a non-empty array.`);
-  }
-  const response_space_error = validateResponseSpace(
-    spec.responseSpace,
-    `registerModel("${name}")`,
-  );
-  if (response_space_error) {
-    throw new Error(response_space_error);
-  }
-  if (isContinuous(spec.responseSpace)) {
-    const cont_problems = continuousModelProblems(spec);
-    if (cont_problems.length) {
-      throw new Error(`registerModel("${name}"): ${cont_problems[0]}`);
-    }
-  } else {
-    if (spec.responseSpace.type === "categorical" && typeof spec.responseProbs !== "function") {
-      throw new Error(
-        `registerModel("${name}"): categorical models must provide responseProbs(design, draw).`,
-      );
-    }
-    if (typeof spec.responseProb !== "function" && typeof spec.responseProbs !== "function") {
-      throw new Error(
-        `registerModel("${name}"): provide responseProb(design, draw) or responseProbs(design, draw).`,
-      );
-    }
-  }
-  if (MODEL_REGISTRY.has(name)) {
-    console.warn(`registerModel: overwriting already-registered model "${name}".`);
-  }
-
-  const paramNames = spec.params.map((p) => (typeof p === "string" ? p : p.name));
-
-  // The engine samples the prior (JS-side) to choose the first design. Prefer an
-  // explicit prior; otherwise derive it from the Stan source. stanUrl entries
-  // defer derivation until prepareModels() has fetched the source.
-  const prior = spec.prior ?? (spec.stanCode ? parseStanPriors(spec.stanCode, spec.params) : null);
-  if (!prior && spec.moduleUrl) {
-    throw new Error(
-      `registerModel("${name}"): no prior available. Pass an explicit \`prior\` when ` +
-        `registering with \`moduleUrl\`, because no Stan source is available to parse.`,
-    );
-  }
-  if (prior) {
-    requirePriorCoverage(prior, paramNames, `registerModel("${name}")`);
-  }
-
-  MODEL_REGISTRY.set(name, {
-    name,
-    spec,
-    paramNames,
-    prior,
-    moduleUrl: spec.moduleUrl ?? null, // filled by prepareModels when compiling from source
-    // Bundler-emitted .wasm URL (#57). Present for committed model packages; null
-    // for source-compiled models, whose remote main.js fetches its own sibling wasm.
-    wasmUrl: spec.wasmUrl ?? null,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// prepareModels
-// ---------------------------------------------------------------------------
-
-/**
- * Compile any registered models that came from a Stan source. Run once at study
- * setup (not per participant). Models registered with a precompiled `moduleUrl`
- * are skipped. Compiled module URLs are cached by source within the page session.
- *
- * @param {Object} opts
- * @param {string} opts.compileServer - Base URL of a Stan-to-WASM compile server.
- * @param {string} [opts.authToken]   - Bearer token for the compile endpoint.
- */
-async function prepareModels({ compileServer, authToken = DEFAULT_TOKEN } = {}) {
-  for (const entry of MODEL_REGISTRY.values()) {
-    if (entry.moduleUrl) continue; // precompiled or already prepared
-
-    const { spec } = entry;
-    if (!compileServer) {
-      throw new Error(
-        `prepareModels: model "${entry.name}" needs compilation, but no compileServer was provided.`,
-      );
-    }
-
-    let stanCode = spec.stanCode;
-    if (!stanCode && spec.stanUrl) {
-      const res = await fetch(spec.stanUrl);
-      if (!res.ok) {
-        throw new Error(
-          `prepareModels: could not fetch stanUrl for "${entry.name}" (${res.status}).`,
-        );
-      }
-      stanCode = await res.text();
-    }
-
-    if (!entry.prior) {
-      entry.prior = parseStanPriors(stanCode, spec.params);
-    }
-    requirePriorCoverage(entry.prior, entry.paramNames, `prepareModels("${entry.name}")`);
-
-    // Key the cache by server AND source so the same .stan compiled against a
-    // different server doesn't return the first server's stale module URL. (#10)
-    const cacheKey = `${(compileServer || "").replace(/\/+$/, "")}\n${stanCode}`;
-    let moduleUrl = _compileCache.get(cacheKey);
-    if (!moduleUrl) {
-      moduleUrl = await compileToModuleUrl(stanCode, compileServer, authToken);
-      _compileCache.set(cacheKey, moduleUrl);
-    }
-    entry.moduleUrl = moduleUrl;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// createTimeline
-// ---------------------------------------------------------------------------
-
-/**
- * Build the adaptive timeline fragment for a registered task/model pair.
- *
- * @param {Object} jsPsych
- * @param {Object} config
- * @param {string} config.task        - A registered task name.
- * @param {string} config.model       - A registered model name.
- * @param {Object} [config.stan]      - Sampler overrides.
- * @param {number} [config.n_trials]  - Trial count override.
- * @param {number} [config.testlet_size] - Choice trials shown between Stan refits.
- * @param {string} [config.session_id] - Session id saved into the data.
- * @param {string} [config.design_strategy="ado"] - "ado" or "random".
- * @param {?number} [config.design_seed] - Optional design-selection seed.
- * @param {Object} [run_context]      - Passed through to the timeline.
- * @returns {Array} jsPsych timeline fragment.
- */
-function createTimeline(jsPsych, config = {}, run_context = {}) {
-  const task = TASK_REGISTRY.get(config.task);
-  if (!task) {
-    const known = [...TASK_REGISTRY.keys()].map((n) => `"${n}"`).join(", ") || "none";
-    throw new Error(`createTimeline: unknown task "${config.task}". Registered: ${known}.`);
-  }
-
-  const entry = MODEL_REGISTRY.get(config.model);
-  if (!entry) {
-    const known = [...MODEL_REGISTRY.keys()].map((n) => `"${n}"`).join(", ") || "none";
-    throw new Error(`createTimeline: unknown model "${config.model}". Registered: ${known}.`);
-  }
-  if (!entry.moduleUrl) {
-    throw new Error(
-      `createTimeline: model "${config.model}" isn't compiled yet. ` +
-        `Call \`await jsPsychADO.prepareModels({ compileServer })\` first, ` +
-        `or register it with a precompiled \`moduleUrl\`.`,
+      "prepareModel: the model needs compilation, but no compileServer was provided.",
     );
   }
 
-  const adapter = buildAdapter(entry);
-  validateTaskModelPair(task, adapter, config.task, config.model);
+  let stanCode = spec.stanCode;
+  if (!stanCode && spec.stanUrl) {
+    const res = await fetch(spec.stanUrl);
+    if (!res.ok) {
+      throw new Error(`prepareModel: could not fetch stanUrl (${res.status}).`);
+    }
+    stanCode = await res.text();
+  }
 
-  const spec = entry.spec;
-  const grid_design = task.design_grid;
-  const stan = { ...DEFAULT_STAN, ...spec.stan, ...config.stan };
-  const n_trials = config.n_trials ?? spec.n_trials ?? DEFAULT_N_TRIALS;
-  const testlet_size = normalizeTestletSize(config.testlet_size ?? spec.testlet_size);
-  const response_labels = labelsToConfig(task.response_labels);
-  // Adaptive-stopping config (#21): EIG-fraction early stopping + min/max bounds.
-  // Omitted => fixed-length run of n_trials (max_trials defaults to n_trials).
-  const stopping = config.stopping ?? spec.stopping ?? null;
+  const prior = spec.prior ?? parseStanPriors(stanCode, spec.params);
 
-  const controller = createStanAdoController({
-    model: adapter,
-    grid_design,
-    stan,
-    n_trials,
-    testlet_size,
-    stopping,
-    session_id: config.session_id,
-    design_strategy: config.design_strategy ?? "ado",
-    design_seed: config.design_seed ?? null,
-  });
+  // Key the cache by server AND source so the same .stan compiled against a
+  // different server doesn't return the first server's stale module URL. (#10)
+  const cacheKey = `${(compileServer || "").replace(/\/+$/, "")}\n${stanCode}`;
+  let moduleUrl = _compileCache.get(cacheKey);
+  if (!moduleUrl) {
+    moduleUrl = await compileToModuleUrl(stanCode, compileServer, authToken);
+    _compileCache.set(cacheKey, moduleUrl);
+  }
 
-  const timeline_config = {
-    n_trials,
-    testlet_size,
-    stopping,
-    response_labels,
-    presentation: task.presentation,
-    choices: task.choices,
-    responseToOutcome: task.responseToOutcome,
-    task: task.id ?? config.task,
-    // Injected jsPsych plugin classes for bundler consumers (falls back to UMD
-    // globals when omitted). See response_trials.js PLUGIN_GLOBALS. (#57)
-    plugins: config.plugins,
-  };
-
-  return createAdoTimeline(jsPsych, controller, timeline_config, {
-    ado_mode: "stan",
-    controller_mode: "stan",
-    design_strategy: config.design_strategy ?? "ado",
-    model_id: adapter.id,
-    posterior_display: spec.posterior_display,
-    ...run_context,
-  });
+  const { stanCode: _code, stanUrl: _url, ...rest } = spec;
+  return { ...rest, prior, moduleUrl };
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+function normalizeControllerMode(value) {
+  if (value == null) {
+    return "stan";
+  }
+  if (!CONTROLLER_MODES.has(value)) {
+    throw new Error(`createController: controller must be "stan" or "mock", got "${value}".`);
+  }
+  return value;
+}
+
 function normalizeTestletSize(value) {
   if (value == null) {
     return 1;
   }
   if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`createTimeline: testlet_size must be a positive integer, got ${value}`);
+    throw new Error(`ado.createTimeline: testlet_size must be a positive integer, got ${value}`);
   }
   return value;
 }
 
-// Turn a registry entry into the engine's model adapter shape, bridging the
-// trial-shape mismatch between inline source models and the engine.
-function buildAdapter(entry) {
-  const { spec, name, paramNames, prior, moduleUrl, wasmUrl } = entry;
-  const { responseProb, responseProbs, toStanData, buildData, stanData } = spec;
+function resolveDebug(value) {
+  if (value === "url") {
+    return isDebugUrlEnabled();
+  }
+  return Boolean(value);
+}
 
-  // The engine pushes flat rows {...design, choice} (any design keys). Resolve the
-  // Stan data builder by precedence: an explicit buildData wins; else the friendly
-  // toStanData path (which wants {design, response}); else generate one from the
-  // declarative stanData map (the common case — no hand-written reshape).
+function isDebugUrlEnabled() {
+  if (typeof globalThis === "undefined" || !globalThis.location) {
+    return false;
+  }
+  const params = new URLSearchParams(globalThis.location.search || "");
+  if (!params.has("debug")) {
+    return false;
+  }
+  const value = params.get("debug");
+  if (value == null || value === "") {
+    return true;
+  }
+  return !/^(0|false|off|no)$/i.test(value);
+}
+
+// Validate the model package and adapt it to the engine's controller shape
+// (mirrors the old registry's buildAdapter, but from a model object directly).
+function buildModelAdapter(model, context) {
+  const { valid, problems } = validateModel(model);
+  const errors = problems.filter((p) => p.level === "error");
+  if (errors.length) {
+    throw new Error(
+      `${context}("${model && model.id ? model.id : "<model>"}"): invalid model package:\n  - ` +
+        errors.map((e) => e.message).join("\n  - "),
+    );
+  }
+  for (const w of problems.filter((p) => p.level === "warn")) {
+    console.warn(`${context}("${model.id}"): ${w.message}`);
+  }
+  if (!valid) {
+    throw new Error(`${context}("${model.id}"): invalid model package.`);
+  }
+
+  const { responseProb, responseProbs, toStanData, buildData, stanData } = model;
   const adaptedBuildData = buildData
     ? buildData
     : toStanData
       ? (trials) =>
           toStanData(trials.map(({ choice, ...design }) => ({ design, response: choice })))
-      : makeStanDataBuilder({ stanData, responseSpace: spec.responseSpace });
+      : makeStanDataBuilder({ stanData, responseSpace: model.responseSpace });
 
   return {
-    id: name,
-    params: paramNames,
-    prior,
-    moduleUrl,
-    wasmUrl, // forwarded to the worker's locateFile so the wasm resolves under a bundler (#57)
-    designKeys: spec.designKeys,
-    responseSpace: spec.responseSpace,
+    id: model.id,
+    params: model.params,
+    prior: model.prior,
+    moduleUrl: model.moduleUrl,
+    wasmUrl: model.wasmUrl ?? null, // forwarded to the worker's locateFile (#57)
+    designKeys: model.designKeys,
+    responseSpace: model.responseSpace,
     buildData: adaptedBuildData,
     responseProb,
     responseProbs:
@@ -408,13 +498,90 @@ function buildAdapter(entry) {
         : null),
     // Continuous-response adapter fields (undefined for discrete models). The
     // engine's createDesignScorer reads these when responseSpace.type === "continuous".
-    responseDensity: spec.responseDensity,
-    responseDensityFactory: spec.responseDensityFactory,
-    conditionalEntropy: spec.conditionalEntropy,
-    responseMoments: spec.responseMoments,
-    responseSupport: spec.responseSupport,
-    responseSampler: spec.responseSampler,
+    responseDensity: model.responseDensity,
+    responseDensityFactory: model.responseDensityFactory,
+    conditionalEntropy: model.conditionalEntropy,
+    responseMoments: model.responseMoments,
+    responseSupport: model.responseSupport,
+    responseSampler: model.responseSampler,
   };
+}
+
+function validateRecordedResponse(response, responseSpace) {
+  if (isContinuous(responseSpace)) {
+    if (typeof response !== "number" || !Number.isFinite(response)) {
+      throw new Error(
+        `recordResponse: continuous models need a finite numeric response; got ${JSON.stringify(response)}. ` +
+          "Map the plugin's raw response before recording (e.g. Number(data.response)).",
+      );
+    }
+    return;
+  }
+  const count = getResponseCount(responseSpace);
+  if (!Number.isInteger(response) || response < 0 || (count != null && response >= count)) {
+    throw new Error(
+      `recordResponse: expected an integer outcome in 0..${count != null ? count - 1 : "K-1"}; ` +
+        `got ${JSON.stringify(response)}. Map the plugin's raw response (button index, key) to the ` +
+        "model's outcome coding in on_finish before calling recordResponse.",
+    );
+  }
+}
+
+function normalizeControllerTrials(trial_or_trials, response_trial_index) {
+  const trials = Array.isArray(trial_or_trials) ? trial_or_trials : [trial_or_trials];
+  if (trials.length === 0) {
+    throw new Error("ado.createTimeline: provide at least one jsPsych trial.");
+  }
+  for (const trial of trials) {
+    if (!trial || typeof trial !== "object") {
+      throw new Error("ado.createTimeline: trials must be jsPsych trial objects.");
+    }
+  }
+
+  // The response trial defaults to the LAST trial of the step (fixation ->
+  // stimulus -> response is the common shape); response_trial_index overrides.
+  let index = response_trial_index;
+  if (index == null) {
+    index = trials.length - 1;
+  }
+  if (!Number.isInteger(index) || index < 0 || index >= trials.length) {
+    throw new Error(
+      `ado.createTimeline: response_trial_index must be between 0 and ${trials.length - 1}.`,
+    );
+  }
+  return { trials, response_trial_index: index };
+}
+
+function inferResponseLabels(response_trial, responseSpace, explicit_labels) {
+  if (isContinuous(responseSpace)) {
+    return explicit_labels != null ? labelsToConfig(explicit_labels) : null;
+  }
+  if (explicit_labels != null) {
+    return labelsToConfig(explicit_labels);
+  }
+  if (response_trial && Array.isArray(response_trial.choices)) {
+    return labelsToConfig(response_trial.choices);
+  }
+  const response_count = getResponseCount(responseSpace);
+  if (response_count != null) {
+    return Object.fromEntries(
+      Array.from({ length: response_count }, (_value, index) => [index, String(index)]),
+    );
+  }
+  return {};
+}
+
+function validateResponseLabels(response_labels, responseSpace) {
+  const response_count = getResponseCount(responseSpace);
+  if (response_count == null) {
+    return;
+  }
+  const label_count = countLabels(response_labels);
+  if (label_count !== response_count) {
+    throw new Error(
+      `ado.createTimeline: response_labels has ${label_count} entries; expected ${response_count}.`,
+    );
+  }
 }
 
 // Convert ["SS","LL"] -> {0:"SS",1:"LL"}; pass an object through unchanged.
@@ -425,92 +592,47 @@ function labelsToConfig(labels) {
   return labels;
 }
 
-function requirePriorCoverage(prior, paramNames, context) {
-  if (!prior || typeof prior !== "object") {
-    throw new Error(
-      `${context}: prior must be an object mapping each parameter to a {dist, ...} spec.`,
-    );
+function countLabels(labels) {
+  if (Array.isArray(labels)) {
+    return labels.length;
   }
-  for (const param of paramNames) {
-    if (!prior[param] || typeof prior[param] !== "object") {
-      throw new Error(`${context}: prior for "${param}" is missing.`);
-    }
+  if (labels && typeof labels === "object") {
+    return Object.keys(labels).length;
   }
+  return null;
 }
 
-// ---------------------------------------------------------------------------
-// registerModelPackage (one-call registration for committed packages)
-// ---------------------------------------------------------------------------
-
-/**
- * Register a committed model package in one call.
- *
- * @param {Object} model - The model package default export.
- * @param {Object} [overrides]
- * @param {string} [overrides.name]      - Registry name; defaults to model.id.
- * @param {Object} [overrides.stan]      - Sampler settings; falls back to model.stan.
- * @param {number} [overrides.n_trials]  - Trial count; falls back to model.n_trials.
- * @param {number} [overrides.testlet_size] - Testlet size; falls back to model.testlet_size.
- * @returns {string} The registered model name.
- */
-function registerModelPackage(model, overrides = {}) {
-  const name = overrides.name ?? (model && model.id);
-  if (Object.prototype.hasOwnProperty.call(overrides, "design_grid")) {
+// Build the simulate_choice hook for a synthetic participant: draw a response from
+// the model likelihood at the live design (same seam the recovery tooling uses).
+function makeSimulatedParticipant(adapter, simulate) {
+  const participant = simulate.participant;
+  if (!participant || typeof participant !== "object") {
     throw new Error(
-      `registerModelPackage("${name ?? "<model>"}"): design_grid belongs on a task; ` +
-        `register it with registerTask(...).`,
+      "createTimeline: simulate.participant must map each model parameter to a value.",
     );
   }
-  const { valid, problems } = validateModel(model);
-  const errors = problems.filter((p) => p.level === "error");
-  if (errors.length) {
-    throw new Error(
-      `registerModelPackage("${name ?? "<model>"}"): invalid model package:\n  - ` +
-        errors.map((e) => e.message).join("\n  - "),
-    );
+  for (const param of adapter.params) {
+    if (typeof participant[param] !== "number") {
+      throw new Error(`createTimeline: simulate.participant is missing parameter "${param}".`);
+    }
   }
-  for (const w of problems.filter((p) => p.level === "warn")) {
-    console.warn(`registerModelPackage("${name}"): ${w.message}`);
-  }
-  if (!valid) {
-    throw new Error(`registerModelPackage("${name ?? "<model>"}"): invalid model package.`);
-  }
-
-  registerModel(name, {
-    moduleUrl: model.moduleUrl,
-    wasmUrl: model.wasmUrl,
-    prior: model.prior,
-    params: model.params,
-    designKeys: model.designKeys,
-    responseSpace: model.responseSpace,
-    responseProb: model.responseProb,
-    responseProbs: model.responseProbs,
-    responseDensity: model.responseDensity,
-    responseDensityFactory: model.responseDensityFactory,
-    conditionalEntropy: model.conditionalEntropy,
-    responseMoments: model.responseMoments,
-    responseSupport: model.responseSupport,
-    responseSampler: model.responseSampler,
-    buildData: model.buildData,
-    toStanData: model.toStanData,
-    stanData: model.stanData,
-    posterior_display: model.posterior_display,
-    stan: overrides.stan ?? model.stan,
-    n_trials: overrides.n_trials ?? model.n_trials,
-    testlet_size: overrides.testlet_size ?? model.testlet_size,
-    stopping: overrides.stopping ?? model.stopping,
-  });
-  return name;
+  const rng = createSeededRng(simulate.seed ?? 8675309);
+  const simulation_config = {
+    params: participant,
+    rt: { choice: simulate.rt_ms ?? (simulate.rt && simulate.rt.choice) ?? 500 },
+  };
+  return (design) => {
+    const sim = isContinuous(adapter.responseSpace)
+      ? simulateContinuousResponse(design, simulation_config, rng, adapter)
+      : simulateCategoricalChoice(design, simulation_config, rng, adapter);
+    return typeof simulate.respond === "function" ? simulate.respond(design, sim) : sim;
+  };
 }
 
 const jsPsychADO = {
-  registerTask,
-  registerModel,
-  registerModelPackage,
-  validateTask,
+  createController,
+  prepareModel,
   validateModel,
-  prepareModels,
-  createTimeline,
   // Design-grid axis helpers (see ado/grid.js).
   arange,
   linspace,
@@ -520,21 +642,15 @@ const jsPsychADO = {
 
 export {
   jsPsychADO,
-  registerTask,
-  registerModel,
-  registerModelPackage,
-  validateTask,
+  createController,
+  prepareModel,
   validateModel,
-  prepareModels,
-  createTimeline,
   arange,
   linspace,
   makeStanDataBuilder,
   // Advanced / internal — exported for power users and the test suite, NOT part of the
   // stable jsPsychADO façade; may change without a major version bump while pre-1.0.
-  validateTaskModelPair,
   parseStanPriors,
-  buildAdapter,
   labelsToConfig,
 };
 export default jsPsychADO;
