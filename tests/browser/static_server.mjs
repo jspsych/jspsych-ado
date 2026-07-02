@@ -15,6 +15,7 @@ const TYPES = {
   ".map": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".stan": "text/plain; charset=utf-8",
 };
 
 /**
@@ -22,11 +23,17 @@ const TYPES = {
  *
  * @param {string} root - Absolute directory to serve.
  * @param {number} [port=0] - Port (0 = ephemeral, recommended for tests).
+ * @param {Function} [handleRoute] - Optional async (req, res) => boolean pre-route
+ *   hook; return true when the request was handled (lets a smoke add API endpoints
+ *   — e.g. a mock compile server — without re-implementing the file serving).
  * @returns {Promise<{url: string, port: number, close: () => Promise<void>}>}
  */
-export function startStaticServer(root, port = 0) {
+export function startStaticServer(root, port = 0, handleRoute = null) {
   const server = createServer(async (req, res) => {
     try {
+      if (handleRoute && (await handleRoute(req, res))) {
+        return;
+      }
       let urlPath = decodeURIComponent(new URL(req.url, "http://x").pathname);
       if (urlPath.endsWith("/")) urlPath += "index.html";
       const filePath = normalize(join(root, urlPath));

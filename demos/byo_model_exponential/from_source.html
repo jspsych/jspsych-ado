@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>BYO model — compiled from Stan source at preload (#137)</title>
+    <base href="../../" />
+    <script src="https://unpkg.com/jspsych@8.2.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-instructions@2.1.0"></script>
+    <link href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" rel="stylesheet" type="text/css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "jspsych-ado": "./src/index.js",
+          "jspsych-ado/": "./src/"
+        }
+      }
+    </script>
+  </head>
+  <body></body>
+  <script type="module">
+    // The DEV/TEACHING variant of the bring-your-own-model demo: the model is
+    // supplied as STAN SOURCE and compiled to WASM during ado.preload() — no
+    // offline compile step, no committed artifacts, no hand-written prior.
+    //
+    // Compile-server note: the default public server only allows browser requests
+    // from CORS-allowed origins — serve this page at http://127.0.0.1:3000 (an
+    // allowed dev origin), or run a local server
+    // (docker run -p 8083:8080 ghcr.io/flatironinstitute/stan-wasm-server:latest)
+    // and pass compile: { server: "http://localhost:8083" }. For a DEPLOYED study,
+    // prefer the committed-artifacts path in index.html (see README).
+    import { jsPsychADO } from "jspsych-ado";
+    import { design_grid, describeDesign, makeChoices, response_labels } from "./demos/byo_model_exponential/task.js";
+    // ONE likelihood, one Stan-data map — shared with the committed-artifacts
+    // variant (index.html) so the two pages can never fit different models.
+    import { responseProb, stanData } from "./demos/byo_model_exponential/model.js";
+
+    const jsPsych = initJsPsych({
+      on_finish: () => jsPsych.data.displayData(),
+    });
+    window.jsPsych = jsPsych;
+
+    const stanCode = await fetch("./demos/byo_model_exponential/exponential.stan").then((r) =>
+      r.text(),
+    );
+
+    // Same statistical model as index.html, minus moduleUrl/wasmUrl/prior: the
+    // artifacts come from the compile server and the prior is parsed from the source.
+    const model = {
+      id: "exponential",
+      stanCode,
+      params: ["k", "tau"],
+      designKeys: ["t_ss", "t_ll", "r_ss", "r_ll"],
+      responseSpace: { type: "binary" },
+      stanData,
+      responseProb,
+    };
+
+    const ado = jsPsychADO.createController(jsPsych, {
+      model,
+      design_grid,
+      stan: { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 },
+      n_trials: 20,
+      // compile: { server: "http://localhost:8083" }, // ← local docker alternative
+    });
+
+    const instructions = {
+      type: jsPsychInstructions,
+      pages: [
+        "<p>This demo compiles its Stan model in the browser while you read this.</p>",
+        "<p>Choose between a smaller-sooner and a larger-later reward on each trial.</p>",
+      ],
+      show_clickable_nav: true,
+    };
+
+    const trial = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: "<p>Which would you prefer?</p>",
+      choices: () => makeChoices(ado.getDesign()),
+      on_finish: (data) => ado.recordResponse(data.response),
+    };
+
+    const end_screen = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: "<h2>Finished</h2><p>The run is complete. Click SUBMIT to finish.</p>",
+      choices: ["SUBMIT"],
+    };
+
+    // The compile started at createController, so it runs WHILE the participant
+    // reads the instructions; the preload gate after them is usually instant.
+    jsPsych.run([
+      instructions,
+      ado.preload({ message: "<p>Compiling the model&hellip;</p>" }),
+      ...ado.createTimeline(trial, { describeDesign, response_labels }),
+      end_screen,
+    ]);
+  </script>
+</html>

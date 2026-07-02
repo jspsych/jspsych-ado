@@ -57,15 +57,22 @@ export interface PosteriorDisplay {
   };
 }
 
-/** A model package: parameters, prior, likelihood, Stan data boundary, and compiled artifacts. */
+/**
+ * A model package: parameters, prior, likelihood, Stan data boundary, and its
+ * compiled artifacts (`moduleUrl`, the production path) OR its Stan source
+ * (`stanCode`, compiled at preload time via a compile server) — exactly one.
+ */
 export interface ModelPackage {
   id: string;
   params: string[];
   designKeys: string[];
   responseSpace: ResponseSpace;
+  /** Required with `moduleUrl`; derived from the source for `stanCode` models. */
   prior?: Record<string, Prior>;
   /** Compiled module URL, e.g. `new URL("./main.js", import.meta.url).href`. */
-  moduleUrl: string;
+  moduleUrl?: string;
+  /** Stan source; compiled via the `compile` server during ado.preload()/ready(). */
+  stanCode?: string;
   /** Compiled wasm URL (so bundlers emit/hash it); `new URL("./main.wasm", import.meta.url).href`. */
   wasmUrl?: string;
   /** Declarative Stan `data` map (preferred over a hand-written builder). */
@@ -127,12 +134,22 @@ export interface AdoRunOptions {
   simulate?: SimulateConfig | null;
 }
 
+/** Compile-server settings for `stanCode` models. */
+export interface CompileConfig {
+  /** Stan-to-WASM compile server base URL (defaults to the public stan-playground server). */
+  server?: string;
+  /** Bearer token for the compile endpoint. */
+  authToken?: string;
+}
+
 /** Config for {@link createController}. */
 export interface CreateControllerConfig extends AdoRunOptions {
   /** A model package (committed under `jspsych-ado/models/*` or authored locally). */
   model: ModelPackage;
   /** Candidate designs: an object of value arrays (cartesian product) or an array of designs. */
   design_grid: Record<string, unknown[]> | Design[];
+  /** Compile-server settings, used only for `stanCode` models. */
+  compile?: CompileConfig;
 }
 
 /** Per-timeline overrides for {@link AdoController.createTimeline}. */
@@ -183,6 +200,22 @@ export interface AdoController {
       JsPsychTrial | JsPsychTrial[] | ((ctx: AdoTrialContext) => JsPsychTrial | JsPsychTrial[]),
     options?: CreateTimelineOptions,
   ): any[];
+  /**
+   * Resolves when the model is usable: immediately for committed models, after
+   * compile + artifact download for `stanCode` models.
+   */
+  ready(): Promise<void>;
+  /**
+   * A jsPsychPreload-style gate trial: shows a message while ready() resolves,
+   * renders the compiler's error and aborts if it rejects. Optional — without it
+   * the first posterior update awaits readiness.
+   */
+  preload(opts?: {
+    message?: string;
+    error_message?: string;
+    /** Like jsPsychPreload's max_load_time: ms before the gate fails (default: wait indefinitely). */
+    max_load_time?: number;
+  }): JsPsychTrial;
 }
 
 /**
@@ -196,10 +229,9 @@ export function createController(jsPsych: unknown, config: CreateControllerConfi
  * A model authored from Stan source. Provide exactly one of `stanCode`, `stanUrl`, or
  * `moduleUrl`; the prior is parsed from the Stan source unless given explicitly.
  */
-export interface ModelSpec extends Partial<Omit<ModelPackage, "moduleUrl">> {
-  stanCode?: string;
+export interface ModelSpec extends Partial<ModelPackage> {
+  /** URL of a .stan file to fetch (alternative to inline stanCode). */
   stanUrl?: string;
-  moduleUrl?: string;
 }
 
 /**

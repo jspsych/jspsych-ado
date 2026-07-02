@@ -66,6 +66,17 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
 
 ### Added
 
+- Compile-from-source models as a preload step (#137): a model may supply
+  `stanCode` instead of committed `moduleUrl`/`wasmUrl` artifacts. The prior is
+  derived from the Stan source, compilation kicks off eagerly at
+  `createController` against a compile server (`compile: { server, authToken }`,
+  defaulting to the public stan-playground server), and `ado.preload()` — a
+  jsPsychPreload-style gate trial — shows a message until `ado.ready()` resolves,
+  rendering the compiler's error message and aborting if compilation fails. The
+  preload trial is optional: without it the first posterior update awaits
+  readiness. Committed artifacts remain the production/reproducibility path; see
+  `demos/byo_model_exponential/from_source.html` and the compile-server CORS
+  notes in #137.
 - TypeScript declarations for the public `jsPsychADO` façade (`src/index.d.ts`, surfaced
   via the `types` field and the `.` export's `types` condition), so consumers get editor
   IntelliSense and type-checking without the library taking on a TypeScript build. The

@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>compile-preload smoke fixture</title>
+    <script src="https://unpkg.com/jspsych@8.2.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <link href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" rel="stylesheet" type="text/css" />
+  </head>
+  <body></body>
+  <script type="module">
+    // Drives a SOURCE model (stanCode) end-to-end against the test's local mock
+    // compile server (same origin, so no CORS): eager compile at createController,
+    // ado.preload() gating the timeline, real Worker + WASM inference after.
+    import { jsPsychADO } from "/src/index.js";
+
+    const jsPsych = initJsPsych();
+    window.jsPsych = jsPsych;
+
+    const stanCode = await fetch("/demos/byo_model_exponential/exponential.stan").then((r) =>
+      r.text(),
+    );
+
+    const model = {
+      id: "exponential_from_source",
+      stanCode,
+      params: ["k", "tau"],
+      designKeys: ["t_ss", "t_ll", "r_ss", "r_ll"],
+      responseSpace: { type: "binary" },
+      stanData: { t_ss: "t_ss", t_ll: "t_ll", r_ss: "r_ss", r_ll: "r_ll", y: "choice" },
+      responseProb: (design, theta) => {
+        const v_ss = design.r_ss * Math.exp(-theta.k * design.t_ss);
+        const v_ll = design.r_ll * Math.exp(-theta.k * design.t_ll);
+        return 1 / (1 + Math.exp(-theta.tau * (v_ll - v_ss)));
+      },
+      // prior omitted on purpose: derived from the Stan source
+    };
+
+    const ado = jsPsychADO.createController(jsPsych, {
+      model,
+      design_grid: { t_ss: [0], t_ll: [1, 4, 12], r_ss: [100, 200, 400], r_ll: [800] },
+      stan: { num_chains: 1, num_warmup: 100, num_samples: 200, seed: 1 },
+      n_trials: 2,
+      compile: { server: window.location.origin },
+    });
+
+    const trial = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: () =>
+        `${ado.evaluateDesignVariable("r_ss")} now or ${ado.evaluateDesignVariable("r_ll")} later?`,
+      choices: ["Sooner", "Later"],
+      simulation_options: { data: { response: 1 } },
+      on_finish: (data) => ado.recordResponse(data.response),
+    };
+
+    const timeline = [ado.preload(), ...ado.createTimeline(trial, { debug: false })];
+    jsPsych.simulate(timeline, "data-only");
+  </script>
+</html>

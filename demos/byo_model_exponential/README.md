@@ -12,9 +12,18 @@ demos/byo_model_exponential/index.html
 
 Append `?debug=1` for controller debug panels and the final posterior summary.
 
+`from_source.html` is the same experiment with **no committed artifacts**: it
+supplies the model as `stanCode` and compiles it in the browser during
+`ado.preload()` (#137). It shares `responseProb`/`stanData` with `index.html`, so
+the two pages fit the same model. This is the dev/teaching path; the compile
+server only allows browser requests from allowlisted origins (works from
+`http://127.0.0.1:3000`) or a self-hosted server — committed artifacts
+(`index.html`) remain the production path. See #137 for the CORS details.
+
 ## Files
 
-- `index.html` creates the controller and defines the jsPsych trial.
+- `index.html` creates the controller from the **committed artifacts** and defines the jsPsych trial.
+- `from_source.html` creates the controller from **Stan source**, compiled at preload time (#137).
 - `task.js` / `task.css` contain local delay-choice design and rendering code.
 - `model.js` is the ADO model adapter: parameters, prior, `responseProb`, response space, and Stan data mapping.
 - `exponential.stan` is the Stan likelihood.

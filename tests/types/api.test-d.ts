@@ -52,6 +52,26 @@ adoHandle.createTimeline((ctx) => ({ ...trial, stimulus: () => ctx.getDesign() }
 const sim: SimulateConfig = { participant: { k: 0.02, tau: 1.5 }, rt_ms: 250, seed: 7 };
 adoHandle.createTimeline(trial, { simulate: sim });
 
+// Compile-from-source models: stanCode instead of moduleUrl, compile config,
+// and the preload/ready gate.
+declare const sourceCode: string;
+const sourceModel: ModelPackage = {
+  id: "from_source",
+  stanCode: sourceCode,
+  params: ["k"],
+  designKeys: ["x"],
+  responseSpace: { type: "binary" },
+};
+const sourceAdo = createController(jsPsych, {
+  model: sourceModel,
+  design_grid: { x: [1, 2] },
+  compile: { server: "http://localhost:8083" },
+});
+const gate = sourceAdo.preload({ message: "<p>compiling…</p>" });
+void gate;
+const whenReady: Promise<void> = sourceAdo.ready();
+void whenReady;
+
 // Compile-from-source prototyping path.
 declare const stanCode: string;
 const prepared: Promise<ModelPackage> = prepareModel(
