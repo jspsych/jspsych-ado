@@ -1,4 +1,4 @@
-// Browser smoke for the 3IFC line-length teaching demo.
+// Browser smoke for the minimal delay-discounting controller tutorial.
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import puppeteer from "puppeteer";
@@ -11,8 +11,8 @@ import {
 } from "./demo_helpers.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const PAGE = "/demos/line_length_discrimination/index.html?debug=1";
-const TRIALS = 18;
+const PAGE = "/demos/delay_discounting_tutorial/index.html?debug=1";
+const TRIALS = 6;
 
 let failures = 0;
 const note = (ok, msg) => {
@@ -31,22 +31,21 @@ try {
   const page = await browser.newPage();
   const diagnostics = attachDiagnostics(page);
 
-  console.log(`\n[line-length demo] ${server.url}${PAGE}`);
+  console.log(`\n[delay-discounting tutorial] ${server.url}${PAGE}`);
   await page.goto(`${server.url}${PAGE}`, { waitUntil: "domcontentloaded", timeout: 30000 });
-  await clickInstructionPages(page);
-  await page.waitForSelector(".ll-line-list", { timeout: 60000 });
-  const styleCheck = await page.evaluate(() => ({
-    display: getComputedStyle(document.querySelector(".ll-line-list")).display,
-    hasCssLink: Array.from(document.querySelectorAll("link[rel='stylesheet']")).some((link) =>
-      link.href.includes("/demos/line_length_discrimination/task.css"),
-    ),
+  await clickInstructionPages(page, 2);
+  await page.waitForSelector("#jspsych-html-button-response-btngroup button", { timeout: 60000 });
+  const ui = await page.evaluate(() => ({
+    text: document.body.textContent,
+    styledCards: document.querySelectorAll(".dd-option-card").length,
   }));
-  note(styleCheck.hasCssLink, "line-length task stylesheet is loaded");
   note(
-    styleCheck.display === "grid",
-    `line-length stimulus grid is styled (display=${styleCheck.display})`,
+    ui.text.includes("now or") && ui.text.includes("later?"),
+    "renders the inline tutorial stimulus",
   );
-  await answerAdaptiveButtonTrials(page, TRIALS, (i) => i % 3);
+  note(ui.styledCards === 0, "tutorial does not use showcase option-card helpers");
+
+  await answerAdaptiveButtonTrials(page, TRIALS, () => 1);
   const r = await collectDemoResult(page, TRIALS);
 
   note(
@@ -56,25 +55,17 @@ try {
   if (!r.errored) {
     note(r.choiceRows === TRIALS, `${TRIALS} choice trials recorded (got ${r.choiceRows})`);
     note(r.updateRows === TRIALS, `${TRIALS} update rows recorded (got ${r.updateRows})`);
-    note(
-      r.modelId === "line_length_discrimination_3ifc",
-      `model_id is line_length_discrimination_3ifc (got ${r.modelId})`,
-    );
+    note(r.modelId === "hyperbolic", `model_id is hyperbolic (got ${r.modelId})`);
     note(r.controllerMode === "stan", `controller_mode is stan (got ${r.controllerMode})`);
+    note(r.choice === 1, `records larger-later response (got ${r.choice})`);
+    note(r.choiceLabel === "Later", `infers labels from tutorial choices (got ${r.choiceLabel})`);
     note(r.hasAdoDesign, "last row carries ado_design");
-    note([0, 1, 2].includes(r.choice), `choice is 0/1/2 (got ${r.choice})`);
-    note(["A", "B", "C"].includes(r.choiceLabel), `choice label is A/B/C (got ${r.choiceLabel})`);
-    note(r.hasChoiceMi, "choice row carries ado_mutual_info");
-    note(r.hasChoiceSelectionTime, "choice row carries ado_selection_time_ms");
-    note(r.updateRowsWithMetrics === TRIALS, "update rows carry ado_next_design_metrics");
     note(
-      typeof r.postMeanSensitivity === "number" &&
-        typeof r.postSdSensitivity === "number" &&
-        typeof r.postMeanBiasB === "number" &&
-        typeof r.postSdBiasB === "number" &&
-        typeof r.postMeanBiasC === "number" &&
-        typeof r.postSdBiasC === "number",
-      `posterior populated (sensitivity mean=${r.postMeanSensitivity})`,
+      typeof r.postMeanK === "number" &&
+        typeof r.postSdK === "number" &&
+        typeof r.postMeanTau === "number" &&
+        typeof r.postSdTau === "number",
+      `posterior populated (k mean=${r.postMeanK})`,
     );
   }
   const debugUi = await page.evaluate(() => ({
@@ -83,8 +74,11 @@ try {
     hasLivePosterior: Boolean(document.getElementById("ado-live-posterior-chart")),
     hasInfoGainPanel: Boolean(document.getElementById("ado-info-gain-debug-panel")),
   }));
-  note(debugUi.hasDebugDebrief, "debug debrief panel is rendered by the ADO timeline");
-  note(debugUi.text.includes("Estimated parameters"), "debug debrief shows posterior summary");
+  note(debugUi.hasDebugDebrief, "tutorial debug debrief is available from ?debug=1");
+  note(
+    debugUi.text.includes("Estimated parameters"),
+    "tutorial debug debrief shows posterior summary",
+  );
   note(!debugUi.hasLivePosterior, "live posterior panel is removed on the end screen");
   note(!debugUi.hasInfoGainPanel, "information-gain debug panel is removed on the end screen");
   note(
@@ -116,6 +110,8 @@ try {
 }
 
 console.log(
-  failures === 0 ? "\nLINE-LENGTH DEMO BROWSER SMOKE PASSED" : `\n${failures} CHECK(S) FAILED`,
+  failures === 0
+    ? "\nDELAY-DISCOUNTING TUTORIAL BROWSER SMOKE PASSED"
+    : `\n${failures} CHECK(S) FAILED`,
 );
 process.exit(failures === 0 ? 0 : 1);

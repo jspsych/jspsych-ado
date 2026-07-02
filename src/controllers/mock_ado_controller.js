@@ -19,7 +19,7 @@ import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
  *   (e.g. ["k", "tau"]); defaults to none.
  * @param {number} [options.n_trials] - Total number of choice trials.
  * @param {number} [options.testlet_size=1] - Choice trials shown between updates.
- * @returns {Object} Controller with async start(context) and update(trial_data).
+ * @returns {Object} Controller with sync start(context) and async update(trial_data).
  */
 function createMockAdoController({
   grid_design,
@@ -74,11 +74,12 @@ function createMockAdoController({
   return {
     /**
      * Start a mock ADO session and return the first deterministic design.
+     * Synchronous by the controller contract (the timeline builds on it directly).
      *
      * @param {Object} context - Run context; session_id is used if present.
-     * @returns {Promise<Object>} ADO state with next_design and null posteriors.
+     * @returns {Object} ADO state with next_design and null posteriors.
      */
-    start: async function (context) {
+    start: function (context) {
       session_id = (context && context.session_id) || "mock-session";
       trial_index = 0;
       const next_designs = mockDesigns(trial_index);

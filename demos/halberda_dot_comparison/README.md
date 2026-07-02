@@ -1,74 +1,35 @@
-# Halberda-Style Dot Comparison ADO Task
+# Halberda dot-comparison demo
 
-This experiment is a jsPsych reproduction of the core non-verbal number acuity
-task from:
+This demo shows a canvas-style adaptive task. Participants briefly see blue and
+yellow dot arrays and press a key to report which color has more dots.
 
-Halberda, J., Mazzocco, M. M. M., & Feigenson, L. (2008). Individual differences
-in non-verbal number acuity correlate with maths achievement. _Nature, 455_,
-665-668.
-
-Participants briefly see intermixed blue and yellow dots and answer which color
-has more dots.
-
-## Adaptive Structure
-
-The runnable experiment now follows the same thin-consumer structure as
-`demos/delay_discounting`:
+Run it:
 
 ```text
 demos/halberda_dot_comparison/index.html
-demos/halberda_dot_comparison/halberda_config.js
-src/tasks/halberda_dot_comparison/task.js
-src/models/weber_dots/model.js
-src/models/weber_dots/weber_dots.stan
 ```
 
-The task package owns:
+Append `?debug=1` for controller debug panels and the final posterior summary.
 
-- the candidate numerosity pairs
-- the blue/yellow canvas presentation
-- the `B`/`Y` key mapping
-- the mapping from raw color response to model outcome `0 = incorrect`,
-  `1 = correct`
+## Files
 
-The model package owns:
+- `index.html` creates the controller, instructions, adaptive timeline, and end screen.
+- `task.js` defines the dot-comparison design list, canvas trial sequence, key mapping, and response-to-outcome mapping.
+- `jspsych-ado/models/weber_dots/` provides the Weber-fraction model and compiled Stan/WASM.
 
-- the Weber fraction parameter `w`
-- the Stan data boundary for TinyStan
-- the JS likelihood used by adaptive design selection
-- the compiled `main.js`/`main.wasm` Stan artifacts
+## API Idea
 
-## How ADO Works Here
+`ado.createTimeline(...)` can wrap an array of jsPsych trials, not only one
+response trial. This demo uses that for a fixation/canvas/response sequence per
+adaptive design.
 
-The task provides a list of possible stimuli, each with `n_blue` and `n_yellow`.
-After each response, the Stan controller fits the Weber model to the completed
-trial history, draws a posterior over `w`, scores the candidate stimulus list by
-expected information gain, and selects the next dot comparison trial.
-
-## Run Settings
-
-Experiment-level settings live in `halberda_config.js`:
+The raw key response is mapped to the model outcome before recording:
 
 ```js
-const default_halberda_config = {
-  n_trials: 40,
-  testlet_size: 1,
-  stan: {
-    num_chains: 2,
-    num_warmup: 500,
-    num_samples: 500,
-    seed: 123,
-  },
+on_finish: (data) => {
+  ado.recordResponse(responseToOutcome(ado.getDesign(), data.response));
 };
 ```
 
-Useful URL parameters:
-
-```text
-?controller=stan&strategy=ado
-?controller=stan&strategy=random
-?controller=mock
-?simulate=data-only
-?simulate=visual
-?debug=1
-```
+The model sees `0 = incorrect` and `1 = correct`; the UI still uses ordinary
+jsPsych canvas and keyboard-response trials.

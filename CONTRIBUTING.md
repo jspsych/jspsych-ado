@@ -42,12 +42,12 @@ If you have an idea for a new feature, such as a new task, model, controller opt
 `jspsych-ado` accepts contributions in a few different areas:
 
 - **Core package** changes affect the adaptive engine, controllers, timeline construction, or public API.
-- **Tasks and models** are reusable packages under `src/tasks/` and `src/models/`.
-- **Demos** are example pages under `demos/` that show how to use or extend the package.
+- **Models** are reusable packages under `src/models/`.
+- **Demos** are example pages under `demos/` that show how to use or extend the package;
+  task code (design grids + jsPsych trials) lives with the demo that uses it.
 
-For task, model, or demo contributions, start with the relevant README:
+For model or demo contributions, start with the relevant README:
 
-- [tasks README](src/tasks/README.md)
 - [models README](src/models/README.md)
 - [demos README](demos/README.md)
 
@@ -55,16 +55,22 @@ For task, model, or demo contributions, start with the relevant README:
 
 The library is organized around a single coupling point — the **controller contract**:
 
-- `src/index.js` — the public **facade**: `registerTask`, `registerModel` / `registerModelPackage`, `prepareModels`, `createTimeline`.
-- `src/controllers/` — an adaptive **controller** exposing two async methods, `start(context)` and `update(trial_data)`. This `start`/`update` contract is the _only_ coupling between the timeline and inference, so `stan_ado_controller.js` (live; Stan compiled to WASM, run in a Web Worker) and `mock_ado_controller.js` (no-WASM dev) are interchangeable behind it.
-- `src/ado/` — the model- and task-agnostic engine: mutual-information design selection (`mi_engine.js`), the Stan Web Worker (`stan_worker.js`), the generic timeline (`ado_timeline.js`), early stopping (`stopping.js`), and the simulated participant (`ado_simulation.js`).
-- `src/tasks/<name>/` and `src/models/<name>/` — pluggable **task** (presentation, design grid, response coding) and **model** (parameters, prior, likelihood, Stan data + compiled artifacts) packages.
+- `src/index.js` — the public **facade**: `createController(jsPsych, { model, design_grid, ... })`
+  returns the `ado` handle (`evaluateDesignVariable`, `recordResponse`, `createTimeline`, …);
+  `prepareModel` covers the compile-from-source prototyping path.
+- `src/controllers/` — an adaptive **controller** exposing a synchronous `start(context)` and an
+  async `update(trial_data)`. This `start`/`update` contract is the _only_ coupling between the
+  timeline and inference, so `stan_ado_controller.js` (live; Stan compiled to WASM, run in a Web
+  Worker) and `mock_ado_controller.js` (no-WASM dev) are interchangeable behind it.
+- `src/ado/` — the model- and task-agnostic engine: mutual-information design selection
+  (`mi_engine.js`), the Stan Web Worker (`stan_worker.js`), the generic timeline
+  (`ado_timeline.js`, which composes the controller update into the response trial's awaited
+  `on_finish` — jsPsych ≥ 8), early stopping (`stopping.js`), and the simulated participant
+  (`ado_simulation.js`).
+- `src/models/<name>/` — pluggable **model** packages (parameters, prior, likelihood, Stan data +
+  compiled artifacts). Task code — design grids, presentation, response mapping — is ordinary
+  experiment code living with each demo.
 - `demos/` — runnable example pages (not part of the published library).
-
-### Two ways to build the timeline
-
-- **Library consumers** call `jsPsychADO.createTimeline(jsPsych, { task, model, ... })` — the documented public API.
-- **The demo pages** call `createExperimentAdoTimeline(...)` from `demos/_shared/experiment_shell.js`, which wraps `createTimeline` and adds URL-driven controller/strategy switching and simulation. That shell is demo scaffolding — your own experiment should call `createTimeline` directly.
 
 ---
 
@@ -117,8 +123,8 @@ Changes should pass the relevant layer(s):
 
 The one surface not covered by automated tests is the in-browser Web Worker path under
 a live Stan run; after touching the worker, controller, or model glue, sanity-check a
-demo manually with `?controller=stan&debug=1` (per-trial console summaries + live
-posterior/EIG charts).
+demo manually with `?debug=1` (per-trial console summaries + live posterior/EIG
+charts + the end-of-run debrief overlay).
 
 ## Code of Conduct
 

@@ -40,7 +40,7 @@ const PRIOR_DRAWS = 2000;
  * @param {?number} [options.design_seed] - Optional seed for prior/random design
  *   selection. Defaults to stan.seed so existing runs stay reproducible.
  * @param {number} [options.testlet_size=1] - Choice trials shown between Stan refits.
- * @returns {Object} Controller with async start(context) and update(trial_data).
+ * @returns {Object} Controller with sync start(context) and async update(trial_data).
  *   Results include next_designs plus aligned next_design_metrics, where
  *   mutual_info is available for MI-selected ADO designs and null for random.
  */
@@ -262,14 +262,22 @@ function createStanAdoController({
 
   const nextBlockSize = makeBlockSizer(stopper, testlet_size);
 
+  // start() is synchronous: it kicks off the WASM load in the background and the
+  // first update() awaits it. The first design only needs JS prior draws, so the
+  // adaptive timeline can be built (and the first trial rendered) without waiting
+  // on the worker. A load failure surfaces on the first update(), which the
+  // timeline turns into a visible experiment abort.
+  let model_ready = null;
+
   return {
     /**
-     * Load the WASM model and choose the first design from prior draws.
+     * Start loading the WASM model and choose the first design from prior draws.
      *
-     * @returns {Promise<Object>} Initial ADO state (null posteriors).
+     * @returns {Object} Initial ADO state (null posteriors).
      */
-    start: async function () {
-      await client.init(model.moduleUrl, model.wasmUrl);
+    start: function () {
+      model_ready = client.init(model.moduleUrl, model.wasmUrl);
+      model_ready.catch(() => {}); // surfaced by the first update() await
 
       trials.length = 0;
       stopper.reset();
@@ -320,6 +328,7 @@ function createStanAdoController({
      */
     update: async function (trial_data) {
       const started_at = now();
+      await model_ready;
 
       const rows = Array.isArray(trial_data) ? trial_data : [trial_data];
       const realized_information_gains = computeRealizedInformationGains(rows);

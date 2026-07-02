@@ -8,20 +8,18 @@ import {
 } from "./ado/mi_engine.js";
 import { validateStanDataSpec } from "./ado/stan_data.js";
 
-// Task / model validation for the jsPsychADO façade.
+// Model / design-grid validation for the jsPsychADO façade.
 //
-// Three entry points, plus the response-space predicates they share:
-//   - validateTask(task)                       — a task package's shape
-//   - validateModel(model, opts)               — a model package's shape (+ optional probe)
-//   - validateTaskModelPair(task, model, ...)  — that a registered task+model fit
-//     (matching designKeys, matching responseSpace, a likelihood probe, a buildData probe)
-// before createTimeline builds anything. The functions are pure and synchronous; the
-// façade owns the registries and throws/warns based on the problems they return.
+// Two entry points, plus the response-space predicates they share:
+//   - validateModel(model, opts)                    — a model package's shape (+ optional probe)
+//   - validateDesignGridForModel(grid, model, name) — that a design grid and model fit
+//     (grid enumerates, every model design key present, a likelihood probe, a buildData probe)
+// before createController builds anything. The functions are pure and synchronous; the
+// façade throws/warns based on the problems they return.
 
 const SAMPLEABLE_PRIOR_DISTS = new Set(["lognormal", "normal", "halfnormal"]);
 
-// Fields that belong on a TASK, never on a model. Both registerModel (façade) and
-// validateModel reject these, so the list lives here once and is shared.
+// Fields that belong in experiment/trial code (the old task layer), never on a model.
 const TASK_ONLY_FIELDS = [
   "design_grid",
   "presentation",
@@ -55,7 +53,7 @@ function isContinuous(responseSpace) {
 }
 
 // One source of truth for what a CONTINUOUS model must provide. Returns problem
-// messages (empty if OK); registerModel throws the first, validateModel collects all.
+// messages (empty if OK); validateModel collects all.
 function continuousModelProblems(model) {
   const problems = [];
   if (typeof model.responseDensity !== "function") {
@@ -71,7 +69,7 @@ function continuousModelProblems(model) {
 
 // Probe a continuous model's density at a representative response value. Returns an
 // error message, or null when the density is a finite nonnegative number. Shared by
-// validateTaskModelPair and validateModel.
+// validateDesignGridForModel and validateModel.
 function probeContinuousDensity(model, design, draw) {
   const support = makeContinuousSupportResolver(model)(design, [draw]);
   const probe_y = (support[0] + support[1]) / 2;
@@ -120,16 +118,6 @@ function validateResponseSpace(responseSpace, context) {
   return `${context}: responseSpace type "${responseSpace.type}" is not supported.`;
 }
 
-function countLabels(labels) {
-  if (Array.isArray(labels)) {
-    return labels.length;
-  }
-  if (labels && typeof labels === "object") {
-    return Object.keys(labels).length;
-  }
-  return null;
-}
-
 function findUndefined(value, path = "data") {
   if (value === undefined) {
     return path;
@@ -153,65 +141,43 @@ function findUndefined(value, path = "data") {
 }
 
 /**
- * Validate that a registered task and model are compatible, THROWING if not (this is the
- * gate createTimeline calls before building). Checks: the model's designKeys are all present
- * in the task; the responseSpaces match (type + category count for discrete); a prior-draw
+ * Validate that a design grid and a model adapter are compatible, THROWING if not (this
+ * is the gate createController calls before building). Checks: the grid enumerates and is
+ * non-empty; every model design key is present on every candidate design; a prior-draw
  * likelihood probe returns the right number of probabilities (or a finite density for
  * continuous); and a buildData probe returns a Stan data object with no undefined fields.
  *
- * @param {Object} task - Registered task spec.
+ * @param {Object|Array} grid_design - Candidate design grid.
  * @param {Object} model - Built model adapter.
- * @param {string} taskName - Task name (for the error message).
  * @param {string} modelName - Model name (for the error message).
  * @throws {Error} If the pair is incompatible (message lists every problem found).
  */
-function validateTaskModelPair(task, model, taskName, modelName) {
+function validateDesignGridForModel(grid_design, model, modelName) {
   const problems = [];
-  const task_keys = new Set(task.designKeys || []);
-  for (const key of model.designKeys || []) {
-    if (!task_keys.has(key)) {
-      problems.push(`missing design key "${key}"`);
-    }
-  }
-
-  const task_type = task.responseSpace && task.responseSpace.type;
-  const model_type = model.responseSpace && model.responseSpace.type;
-  if (task_type !== model_type) {
-    problems.push(`responseSpace mismatch: task has "${task_type}", model has "${model_type}"`);
-  } else if (
-    !isContinuous(model.responseSpace) &&
-    getResponseCount(task.responseSpace) !== getResponseCount(model.responseSpace)
-  ) {
-    // Category-count matching only applies to discrete responses; continuous has none.
-    problems.push(
-      `responseSpace category count mismatch: task has ${getResponseCount(task.responseSpace)}, model has ${getResponseCount(model.responseSpace)}`,
-    );
-  }
-
-  let sample_design = null;
+  let designs = [];
   try {
-    const designs = enumerateDesigns(task.design_grid);
-    sample_design = designs[0] || null;
-    if (!sample_design) {
-      problems.push("task design_grid produced no candidate designs");
-    } else {
-      const required_keys = new Set([...(task.designKeys || []), ...(model.designKeys || [])]);
-      const seen_missing = new Set();
-      designs.forEach((design, index) => {
-        for (const key of required_keys) {
-          if (!(key in design) && !seen_missing.has(key)) {
-            problems.push(`task design_grid row ${index} is missing design key "${key}"`);
-            seen_missing.add(key);
-          }
-        }
-      });
+    designs = enumerateDesigns(grid_design);
+    if (designs.length === 0) {
+      problems.push("design_grid produced no candidate designs");
     }
   } catch (e) {
-    problems.push(`task design_grid could not be enumerated: ${String((e && e.message) || e)}`);
+    problems.push(`design_grid could not be enumerated: ${String((e && e.message) || e)}`);
   }
 
-  let sample_draw = null;
+  const required_keys = new Set(model.designKeys || []);
+  const seen_missing = new Set();
+  designs.forEach((design, index) => {
+    for (const key of required_keys) {
+      if (!(key in design) && !seen_missing.has(key)) {
+        problems.push(`design_grid row ${index} is missing model design key "${key}"`);
+        seen_missing.add(key);
+      }
+    }
+  });
+
+  const sample_design = designs[0] || null;
   if (sample_design) {
+    let sample_draw = null;
     try {
       sample_draw = samplePriorDraws(model.prior, 1, createSeededRng(8675309))[0];
       if (isContinuous(model.responseSpace)) {
@@ -253,82 +219,9 @@ function validateTaskModelPair(task, model, taskName, modelName) {
 
   if (problems.length) {
     throw new Error(
-      `model "${modelName}" is incompatible with task "${taskName}": ` + problems.join("; "),
+      `model "${modelName}" is incompatible with design_grid: ` + problems.join("; "),
     );
   }
-}
-
-/**
- * Validate a task package before registration.
- *
- * @param {Object} task - Task package default export.
- * @returns {{valid: boolean, problems: Array<{level: "error"|"warn", message: string}>}}
- */
-function validateTask(task) {
-  const problems = [];
-  const err = (message) => problems.push({ level: "error", message });
-  const warn = (message) => problems.push({ level: "warn", message });
-
-  if (!task || typeof task !== "object") {
-    return {
-      valid: false,
-      problems: [{ level: "error", message: "validateTask: task must be an object." }],
-    };
-  }
-  if (typeof task.id !== "string" || !task.id) err("`id` must be a non-empty string.");
-  if (task.design_grid == null) err("`design_grid` is required.");
-  if (!Array.isArray(task.designKeys) || task.designKeys.length === 0) {
-    err("`designKeys` must be a non-empty array.");
-  }
-  if (!task.responseSpace || typeof task.responseSpace.type !== "string") {
-    err("`responseSpace.type` must be a string.");
-  } else {
-    const response_space_error = validateResponseSpace(task.responseSpace, "validateTask");
-    if (response_space_error) {
-      err(response_space_error);
-    }
-  }
-
-  const presentation = task.presentation;
-  if (
-    !presentation ||
-    (typeof presentation.getChoiceTrials !== "function" &&
-      typeof presentation.makeStimulus !== "function")
-  ) {
-    err("`presentation` must provide getChoiceTrials(ctx) or makeStimulus(design).");
-  }
-  // Continuous responses have no discrete labels; response_labels only applies to
-  // binary/categorical tasks.
-  if (task.response_labels == null && !isContinuous(task.responseSpace)) {
-    err("`response_labels` is required.");
-  }
-  if (task.choices == null && presentation && typeof presentation.makeStimulus === "function") {
-    warn("`choices` is missing; the single-button presentation path needs choices in index order.");
-  }
-  const response_count = getResponseCount(task.responseSpace);
-  if (response_count != null) {
-    const label_count = countLabels(task.response_labels);
-    if (label_count != null && label_count !== response_count) {
-      err(`response_labels has ${label_count} entries; expected ${response_count}.`);
-    }
-    if (Array.isArray(task.choices) && task.choices.length !== response_count) {
-      err(`choices has ${task.choices.length} entries; expected ${response_count}.`);
-    }
-  }
-
-  if (task.design_grid != null) {
-    try {
-      const designs = enumerateDesigns(task.design_grid);
-      if (designs.length === 0) {
-        err("`design_grid` produced no candidate designs.");
-      }
-    } catch (e) {
-      err(`design_grid could not be enumerated: ${String((e && e.message) || e)}.`);
-    }
-  }
-
-  const valid = !problems.some((pr) => pr.level === "error");
-  return { valid, problems };
 }
 
 /**
@@ -414,7 +307,7 @@ function validateModel(model, opts = {}) {
   }
   for (const k of TASK_ONLY_FIELDS) {
     if (model[k] != null) {
-      err(`\`${k}\` belongs on a task package, not a model package.`);
+      err(`\`${k}\` belongs in experiment/trial code, not in a model package.`);
     }
   }
 
@@ -483,7 +376,7 @@ export {
   isContinuous,
   continuousModelProblems,
   validateResponseSpace,
-  validateTask,
+  getResponseCount,
   validateModel,
-  validateTaskModelPair,
+  validateDesignGridForModel,
 };
