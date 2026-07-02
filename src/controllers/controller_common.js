@@ -36,4 +36,9 @@ function makeBlockSizer(stopper, testlet_size) {
   };
 }
 
-export { nullDesignMetrics, makeBlockSizer };
+/** Monotonic-ish timestamp in ms (performance.now when available, else Date.now). */
+function now() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+export { nullDesignMetrics, makeBlockSizer, now };

@@ -31,17 +31,26 @@ import {
   simulateContinuousResponse,
 } from "./ado/ado_simulation.js";
 import { makeChoiceSimulationOptions, copySimulationAuditFields } from "./ado/simulation_hooks.js";
+import { makeModelPreloadPlugin } from "./ado/model_preload.js";
 import {
   validateModel,
   validateDesignGridForModel,
   getResponseCount,
   isContinuous,
+  isSourceModel,
 } from "./validation.js";
 import { parseStanPriors, compileToModuleUrl } from "./models/stan_source.js";
 
 const DEFAULT_STAN = { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 };
 const DEFAULT_N_TRIALS = 42;
 const DEFAULT_TOKEN = "1234";
+// The free public stan-playground compile server (Ward, Soules & Magland 2026,
+// 10.21105/joss.09531). Content-addressed caching: the first request for a given
+// model source pays the compile; every identical request (all participants) is a
+// cache hit + ~1MB artifact download. Browser calls require the page's origin to
+// be CORS-allowed by the server (see #137); compileToModuleUrl's error message
+// explains the self-hosted docker fallback.
+const DEFAULT_COMPILE_SERVER = "https://stan-wasm.flatironinstitute.org";
 const CONTROLLER_MODES = new Set(["stan", "mock"]);
 const _compileCache = new Map(); // `${server}\n${stanCode}` -> moduleUrl (per page session)
 
@@ -104,7 +113,61 @@ function createController(jsPsych, config = {}) {
     }
   }
 
-  const adapter = buildModelAdapter(config.model, "createController");
+  // Source models (#137): a model supplied as Stan source instead of committed
+  // artifacts. The prior is derived from the source synchronously (so validation
+  // and first-design selection work unchanged), and compilation kicks off EAGERLY
+  // here — it overlaps welcome/instruction screens, and by the time an
+  // ado.preload() trial runs it has often already resolved. The chain feeds the
+  // Stan controller's model_ready, which the first posterior update awaits.
+  const is_source_model = isSourceModel(config.model);
+  const enriched_model =
+    is_source_model && config.model.prior == null
+      ? { ...config.model, prior: parseStanPriors(config.model.stanCode, config.model.params) }
+      : config.model;
+
+  const adapter = buildModelAdapter(enriched_model, "createController");
+
+  let module_ready = null;
+  function ensureModuleReady() {
+    if (!is_source_model) {
+      return null;
+    }
+    if (!module_ready) {
+      module_ready = prepareModel(enriched_model, {
+        compileServer: (config.compile && config.compile.server) || DEFAULT_COMPILE_SERVER,
+        authToken: (config.compile && config.compile.authToken) || DEFAULT_TOKEN,
+      }).then(async (prepared) => {
+        // ready()/preload promise the model is USABLE, so verify the compiled
+        // glue actually downloads. The body is consumed so the browser can cache/
+        // revalidate it for the worker's import (an unread body may never be
+        // cache-committed; a bodyless HEAD probe trips Chrome's aborted-request
+        // diagnostics). wasmUrl stays null: the server-hosted main.js fetches its
+        // sibling wasm.
+        const res = await fetch(prepared.moduleUrl);
+        if (!res.ok) {
+          throw new Error(
+            `prepareModel: the compiled model could not be downloaded from ` +
+              `${prepared.moduleUrl} (${res.status}).`,
+          );
+        }
+        await res.arrayBuffer(); // consume so the response is cacheable
+        return { moduleUrl: prepared.moduleUrl, wasmUrl: null };
+      });
+      // Failures surface through ado.ready() / the preload trial / the first
+      // update — not as an unhandled rejection at page load.
+      module_ready.catch(() => {});
+    }
+    return module_ready;
+  }
+  // Kick the compile off EAGERLY in the common case so it overlaps welcome/
+  // instruction screens. Mock-mode handles stay network-free: the mock controller
+  // never consumes the WASM, so a dev loop (or an offline machine) must not die
+  // on a compile-server call it doesn't need. (A per-timeline controller:"stan"
+  // override still triggers the compile lazily below.)
+  if (config.controller !== "mock") {
+    ensureModuleReady();
+  }
+
   // Enumerate the candidate designs ONCE per handle; validation, and every
   // controller built by createTimeline, reuse the enumerated array (enumerating
   // an already-enumerated array is a pass-through).
@@ -158,6 +221,27 @@ function createController(jsPsych, config = {}) {
       const run = requireActiveRun("getState");
       const state = run.getState();
       return state ? { ...state } : null;
+    },
+
+    /**
+     * Resolves when the model is usable: immediately for committed models, after
+     * compile + artifact download for source (stanCode) models. For custom
+     * loading UI; ado.preload() consumes it for you.
+     */
+    ready() {
+      return module_ready ? module_ready.then(() => undefined) : Promise.resolve();
+    },
+
+    /**
+     * A jsPsychPreload-style gate trial: shows a message while ado.ready()
+     * resolves, renders the compiler's error message and aborts if it rejects.
+     * Optional — without it the first posterior update simply awaits readiness.
+     *
+     * @param {Object} [opts] - { message?, error_message? } (HTML strings).
+     * @returns {Object} An ordinary jsPsych trial to place before the adaptive timeline.
+     */
+    preload(opts = {}) {
+      return { type: makeModelPreloadPlugin(() => ado.ready(), opts) };
     },
 
     /**
@@ -221,6 +305,9 @@ function createController(jsPsych, config = {}) {
             })
           : createStanAdoController({
               model: adapter,
+              // Starts the compile lazily when the handle-level default was mock
+              // but this timeline overrides to stan; null for committed models.
+              module_ready: ensureModuleReady(),
               grid_design: candidate_designs,
               stan,
               n_trials,

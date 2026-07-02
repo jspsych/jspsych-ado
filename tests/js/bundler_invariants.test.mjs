@@ -73,9 +73,18 @@ test("the worker client spawns the worker via new URL(..., import.meta.url) so t
 
 test("the controller forwards model.wasmUrl to the worker client init", async () => {
   const src = await read("src/controllers/stan_ado_controller.js");
+  // Committed models resolve { moduleUrl: model.moduleUrl, wasmUrl: model.wasmUrl }
+  // (source models substitute the compiled URLs), and the chain hands the pair to
+  // client.init — the #57 guarantee that the bundler-emitted wasm URL reaches the
+  // worker. Behaviorally asserted in tests/js/compile_preload.test.mjs.
   assert.match(
     src,
-    /client\.init\(\s*model\.moduleUrl,\s*model\.wasmUrl\s*\)/,
-    "stan_ado_controller.js must forward model.moduleUrl/model.wasmUrl to client.init().",
+    /\{\s*moduleUrl:\s*model\.moduleUrl,\s*wasmUrl:\s*model\.wasmUrl\s*\}/,
+    "stan_ado_controller.js must source moduleUrl/wasmUrl from the model package.",
+  );
+  assert.match(
+    src,
+    /client\.init\(\s*moduleUrl,\s*wasmUrl\s*\)/,
+    "stan_ado_controller.js must forward the resolved moduleUrl/wasmUrl to client.init().",
   );
 });

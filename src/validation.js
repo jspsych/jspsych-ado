@@ -59,6 +59,15 @@ function isContinuous(responseSpace) {
   return Boolean(responseSpace) && responseSpace.type === "continuous";
 }
 
+// A source model ships Stan source instead of committed artifacts; its prior may be
+// derived and its WASM is compiled at preload time. ONE definition, shared by the
+// facade and validation so the predicate can't drift.
+function isSourceModel(model) {
+  return (
+    Boolean(model) && typeof model.stanCode === "string" && !!model.stanCode && !model.moduleUrl
+  );
+}
+
 // One source of truth for what a CONTINUOUS model must provide. Returns problem
 // messages (empty if OK); validateModel collects all.
 function continuousModelProblems(model) {
@@ -263,15 +272,31 @@ function validateModel(model, opts = {}) {
   if (!params || params.length === 0 || !params.every((p) => typeof p === "string")) {
     err("`params` must be a non-empty array of parameter-name strings.");
   }
-  if (typeof model.moduleUrl !== "string" || !model.moduleUrl) {
+  // A model supplies EITHER committed artifacts (moduleUrl, the production path)
+  // OR Stan source (stanCode, compiled at preload time via a compile server).
+  const has_moduleUrl = typeof model.moduleUrl === "string" && model.moduleUrl;
+  const has_stanCode = typeof model.stanCode === "string" && model.stanCode;
+  if (!has_moduleUrl && !has_stanCode) {
     err(
-      '`moduleUrl` must be the compiled module URL (e.g. new URL("./main.js", import.meta.url).href).',
+      "provide `moduleUrl` (committed compiled artifacts, e.g. " +
+        'new URL("./main.js", import.meta.url).href) or `stanCode` (Stan source, ' +
+        "compiled at preload time).",
+    );
+  } else if (has_moduleUrl && has_stanCode) {
+    err("provide `moduleUrl` OR `stanCode`, not both (ambiguous compilation source).");
+  }
+  if (has_stanCode && !has_moduleUrl && model.wasmUrl != null) {
+    err(
+      "`wasmUrl` must not be set on a `stanCode` model — the compile server's main.js " +
+        "fetches its own sibling wasm, and a leftover local wasmUrl would pair the " +
+        "server-compiled glue with a stale local binary. Remove wasmUrl.",
     );
   }
   // Not required (static-served deployments work without it), but a bundler
   // (Vite/webpack) hashes main.wasm, so without wasmUrl the model 404s its wasm
-  // at runtime in a bundled build (#57).
-  if (typeof model.wasmUrl !== "string" || !model.wasmUrl) {
+  // at runtime in a bundled build (#57). Source models skip this: the
+  // server-hosted main.js fetches its own sibling main.wasm.
+  if (has_moduleUrl && (typeof model.wasmUrl !== "string" || !model.wasmUrl)) {
     warn(
       '`wasmUrl` is not set (e.g. new URL("./main.wasm", import.meta.url).href). ' +
         "Static-served deployments still work, but bundlers (Vite/webpack) hash main.wasm, so the model would 404 its wasm at runtime (#57).",
@@ -327,6 +352,8 @@ function validateModel(model, opts = {}) {
   }
 
   // Prior must cover every parameter, with a family the first-design sampler can draw.
+  // Source models (stanCode) may omit it — the facade derives it from the Stan source
+  // via parseStanPriors before anything samples.
   if (params && model.prior && typeof model.prior === "object") {
     for (const p of params) {
       const spec = model.prior[p];
@@ -341,7 +368,9 @@ function validateModel(model, opts = {}) {
         );
       }
     }
-  } else if (params) {
+  } else if (params && (model.prior != null || !has_stanCode)) {
+    // A present-but-non-object prior is always an error; an ABSENT prior is fine
+    // only for stanCode models (derived from the source by the facade).
     err(
       "`prior` must be an object mapping each parameter to a {dist, ...} spec matching the .stan priors.",
     );
@@ -389,6 +418,7 @@ function validateModel(model, opts = {}) {
 export {
   TASK_ONLY_FIELDS,
   isContinuous,
+  isSourceModel,
   continuousModelProblems,
   validateResponseSpace,
   getResponseCount,

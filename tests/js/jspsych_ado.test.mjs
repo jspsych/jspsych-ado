@@ -48,48 +48,7 @@ function makeModel(overrides = {}) {
   };
 }
 
-function makeJsPsych() {
-  return {
-    aborted: null,
-    abortExperiment(html, data) {
-      this.aborted = { html, data };
-    },
-  };
-}
-
-import { runFragment } from "./_timeline_harness.mjs";
-
-// A fake Worker servicing the stan controller's protocol: init -> ack; sample ->
-// posterior draw columns. `gate` (when provided) delays sample responses until
-// released, so tests can assert that on_finish truly awaits the model update.
-function installFakeWorker({ gate = null, capture = null, draws = null } = {}) {
-  const originalWorker = globalThis.Worker;
-  globalThis.Worker = class FakeWorker {
-    postMessage(message) {
-      if (capture) capture.push(message);
-      const respond = () => {
-        if (message.type === "init") {
-          this.onmessage({ data: { type: "inited" } });
-        } else {
-          this.onmessage({
-            data: {
-              type: "draws",
-              draws: draws ?? { k: [0.01, 0.02, 0.03, 0.04], tau: [1, 1.1, 0.9, 1.2] },
-            },
-          });
-        }
-      };
-      if (gate && message.type === "sample") {
-        gate.push(respond);
-      } else {
-        queueMicrotask(respond);
-      }
-    }
-  };
-  return () => {
-    globalThis.Worker = originalWorker;
-  };
-}
+import { runFragment, makeJsPsych, installFakeWorker } from "./_timeline_harness.mjs";
 
 // ---------------------------------------------------------------------------
 // parseStanPriors (kept regressions: #6 comments, #7 half-normal bounds)

@@ -13,7 +13,7 @@ import {
 import { createSeededRng } from "../ado/ado_simulation.js";
 import { maxPossibleEig, makeStoppingEvaluator } from "../ado/stopping.js";
 import { createStanWorkerClient } from "./stan_worker_client.js";
-import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
+import { nullDesignMetrics, makeBlockSizer, now } from "./controller_common.js";
 
 // Number of prior draws used to pick the first design (before any data exist).
 const PRIOR_DRAWS = 2000;
@@ -46,6 +46,7 @@ const PRIOR_DRAWS = 2000;
  */
 function createStanAdoController({
   model,
+  module_ready: module_source_promise = null,
   grid_design,
   stan = {},
   session_id = "stan-session",
@@ -131,10 +132,6 @@ function createStanAdoController({
   // stan_worker_client.js; this controller only awaits init()/sample().
   const client = createStanWorkerClient();
   let current_design_draws = null;
-
-  function now() {
-    return typeof performance !== "undefined" ? performance.now() : Date.now();
-  }
 
   /**
    * Sample the posterior given the accumulated trials and return draws as an
@@ -276,7 +273,14 @@ function createStanAdoController({
      * @returns {Object} Initial ADO state (null posteriors).
      */
     start: function () {
-      model_ready = client.init(model.moduleUrl, model.wasmUrl);
+      // Source models (#137) deliver their compiled artifact URLs through the
+      // module_ready option (an in-flight promise; compile kicked off at
+      // createController); committed models resolve immediately from the model
+      // package. Either way the first update() awaits the chain.
+      const module_source =
+        module_source_promise ??
+        Promise.resolve({ moduleUrl: model.moduleUrl, wasmUrl: model.wasmUrl });
+      model_ready = module_source.then(({ moduleUrl, wasmUrl }) => client.init(moduleUrl, wasmUrl));
       model_ready.catch(() => {}); // surfaced by the first update() await
 
       trials.length = 0;

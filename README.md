@@ -159,8 +159,12 @@ the Stan WASM). It is tested against Vite and webpack 5.
   loop; options override `n_trials`, `stopping`, `testlet_size`, `controller: "mock"`,
   `design_strategy: "random"`, `debug`, `response_labels`, `simulate`, ….
 - `ado.getState()` — the live posterior summaries and selection diagnostics.
+- `ado.preload(opts)` / `ado.ready()` — for models supplied as `stanCode`, a
+  jsPsychPreload-style gate trial (and the underlying promise) that waits for the
+  in-browser compile of the model via a compile server; committed-artifact models
+  resolve immediately. See `demos/byo_model_exponential/from_source.html`.
 - `prepareModel(spec, { compileServer })` — compile a Stan-source model spec into a
-  model package (prototyping path; committed models skip this).
+  model package yourself (the lower-level path `stanCode` models use internally).
 
 ### Adaptive stopping
 
