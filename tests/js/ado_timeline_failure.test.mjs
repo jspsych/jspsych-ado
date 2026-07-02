@@ -45,15 +45,49 @@ function quietConsoleError(run) {
     });
 }
 
-test("an async controller.start() is rejected synchronously (sync-start contract)", () => {
-  const controller = {
-    start: async () => START_RESULT,
-    update: async () => START_RESULT,
-  };
-  assert.throws(
-    () => createAdoTimeline({}, controller, TIMELINE_CONFIG, { debug: false }),
-    /must return the initial design state synchronously/,
-  );
+test("an async controller.start() is rejected at timeline start (sync-start contract)", async () => {
+  await quietConsoleError(() => {
+    let aborted = null;
+    const jsPsych = {
+      abortExperiment: (html, data) => {
+        aborted = { html, data };
+      },
+    };
+    const controller = {
+      start: async () => START_RESULT,
+      update: async () => START_RESULT,
+    };
+    // Building the timeline is cheap and must not run start() (page load stays
+    // unblocked); the contract is enforced when the adaptive timeline starts.
+    const fragment = createAdoTimeline(jsPsych, controller, TIMELINE_CONFIG, { debug: false });
+    assert.throws(
+      () => fragment[0].on_timeline_start(),
+      /must return the initial design state synchronously/,
+    );
+    assert.ok(aborted, "abortExperiment was called");
+    assert.match(aborted.data.ado_error, /synchronously/);
+  });
+});
+
+test("a throwing controller.start() aborts visibly instead of crashing page setup", async () => {
+  await quietConsoleError(() => {
+    let aborted = null;
+    const jsPsych = {
+      abortExperiment: (html, data) => {
+        aborted = { html, data };
+      },
+    };
+    const controller = {
+      start: () => {
+        throw new Error("likelihood returned NaN");
+      },
+      update: async () => START_RESULT,
+    };
+    const fragment = createAdoTimeline(jsPsych, controller, TIMELINE_CONFIG, { debug: false });
+    assert.throws(() => fragment[0].on_timeline_start(), /likelihood returned NaN/);
+    assert.ok(aborted, "abortExperiment was called");
+    assert.match(aborted.html, /cannot continue/);
+  });
 });
 
 test("a rejecting controller.update() aborts the experiment with an error row, not a hang", async () => {
@@ -71,6 +105,7 @@ test("a rejecting controller.update() aborts the experiment with an error row, n
       },
     };
     const fragment = createAdoTimeline(jsPsych, controller, TIMELINE_CONFIG, { debug: false });
+    fragment[0].on_timeline_start();
     const trial = fragment[0].timeline[0].timeline[0];
     if (trial.on_start) trial.on_start(trial);
 
@@ -99,6 +134,7 @@ test("falls back to endExperiment when abortExperiment is unavailable", async ()
       },
     };
     const fragment = createAdoTimeline(jsPsych, controller, TIMELINE_CONFIG, { debug: false });
+    fragment[0].on_timeline_start();
     const trial = fragment[0].timeline[0].timeline[0];
     await assert.rejects(() => trial.on_finish({}), /boom/);
     assert.ok(ended, "endExperiment was called as the fallback");
@@ -119,6 +155,7 @@ test("a design-queue underflow at trial start aborts instead of rendering a null
       update: async () => ({ ...START_RESULT, next_design: null, next_designs: [] }),
     };
     const fragment = createAdoTimeline(jsPsych, controller, TIMELINE_CONFIG, { debug: false });
+    fragment[0].on_timeline_start();
     const first = fragment[0].timeline[0].timeline[0];
     await first.on_finish({});
 

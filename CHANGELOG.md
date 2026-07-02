@@ -48,11 +48,16 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
   `on_start`, so testlet batches stay consistent between what is rendered and what is
   recorded). Controller `start()` is now synchronous: the Stan worker loads in the
   background and the first `update()` awaits it.
-- **Requires jsPsych ≥ 8** (peer dependency was `>=7`); the response-plugin peer
-  dependencies are dropped entirely. Data rows keep the same `post_mean_*` /
-  `ado_*` schema, except that each choice row now carries the posterior that
-  resulted from it and the separate `ado_event: "start"`/`"update"` rows are gone
-  (update fields land on the choice rows).
+- **Requires jsPsych ≥ 8** (peer dependency was `>=7`; `createController` also
+  rejects a jsPsych 7 instance at runtime, since script-tag pages never see peer
+  dependencies). The response-plugin peer dependencies are dropped entirely.
+  Data rows keep the same `post_mean_*` / `ado_*` schema, except that each
+  choice row now carries the posterior that resulted from it, the separate
+  `ado_event: "start"`/`"update"` rows are gone (update fields land on the
+  choice rows), and the `choice_raw` column is removed — under the new API the
+  plugin's raw response already stays on `data.response`, and `choice` is the
+  user-recorded model outcome, so `choice_raw` had become a misleading
+  duplicate of `choice`.
 
 ### Added
 

@@ -31,21 +31,21 @@ function formatDebugLatency(value) {
 }
 
 /**
- * Describe a design for the debug log. Models may supply a task-specific
- * presentation.describeDesign(design) -> string[]; otherwise fall back to
- * generic key=value lines so any model is debuggable out of the box.
+ * Describe a design for the debug log. Experiments may supply a task-specific
+ * describeDesign(design) -> string[] (threaded through the timeline config);
+ * otherwise fall back to generic key=value lines so any model is debuggable
+ * out of the box.
  *
  * @param {Object} design - The design object.
- * @param {Object} config - Timeline config (may carry presentation.describeDesign).
+ * @param {Object} config - Timeline config (may carry describeDesign).
  * @returns {string[]} Lines describing the design.
  */
 function describeDesign(design, config) {
   if (!design) {
     return ["(none)"];
   }
-  const describe = config.presentation && config.presentation.describeDesign;
-  if (typeof describe === "function") {
-    return describe(design);
+  if (typeof config.describeDesign === "function") {
+    return config.describeDesign(design);
   }
   return Object.entries(design).map(([key, value]) => `${key}: ${value}`);
 }

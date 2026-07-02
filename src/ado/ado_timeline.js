@@ -215,15 +215,20 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
 
   // The controller's start() is synchronous by contract: the first design comes
   // from JS prior draws (no WASM needed), and the Stan controller kicks off its
-  // worker init in the background for update() to await. That lets the first
-  // adaptive trial render without an injected loading trial.
-  const start_result = adaptive_controller.start(run_context);
-  if (start_result && typeof start_result.then === "function") {
-    throw new Error(
-      "createAdoTimeline: adaptive_controller.start() must return the initial design state synchronously.",
-    );
+  // worker init in the background for update() to await. It runs at TIMELINE
+  // start (via on_timeline_start below), not at build time: the prior-draw MI
+  // scan over the grid can take hundreds of ms on large grids, and deferring it
+  // keeps page load unblocked and routes failures through failExperiment instead
+  // of an uncaught page-setup exception.
+  function initializeAdo() {
+    const start_result = adaptive_controller.start(run_context);
+    if (start_result && typeof start_result.then === "function") {
+      throw new Error(
+        "createAdoTimeline: adaptive_controller.start() must return the initial design state synchronously.",
+      );
+    }
+    setDesignQueue(start_result);
   }
-  setDesignQueue(start_result);
 
   // Adaptive stopping (#21): build up to max_trials adaptive steps, each testlet
   // wrapped in a node that is skipped once the controller signals should_stop.
@@ -282,13 +287,49 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
 
     // Compose the ADO finalize step onto the response trial's own on_finish (which
     // the facade already composed over the user's on_finish): record the outcome +
-    // design + posterior on the data row, then either run the controller update
-    // (testlet boundary) or advance to the next prefetched design. jsPsych 8 awaits
-    // this, so the next adaptive trial cannot render until the design is ready.
+    // design + posterior on the data row. jsPsych 8 awaits these composed handlers,
+    // so the next adaptive trial cannot render until the design is ready.
     const response_trial = response_trials[0];
     delete response_trial.__ado_is_response;
     const inner_on_finish = response_trial.on_finish;
     const at_boundary = (i + 1) % testlet_size === 0 || i + 1 === max_trials;
+
+    // Run at the end of the whole adaptive step (after the LAST trial, which may
+    // come after the response trial — e.g. a feedback screen): refit + refill the
+    // queue at testlet boundaries, or advance to the next prefetched design inside
+    // a testlet. Errors are stamped on the given row and abort visibly.
+    const runStepEnd = async function (error_row) {
+      try {
+        if (at_boundary) {
+          const batch = testlet_rows.slice();
+          testlet_rows.length = 0;
+          const payload = testlet_size === 1 ? batch[0] : batch;
+          const result = await adaptive_controller.update(payload);
+          setDesignQueue(result);
+          stopped = Boolean(result.should_stop);
+          logAdoTrial(run_context, batch[batch.length - 1], result, config);
+          appendPosteriorHistory(run_context, result);
+          appendInformationGainHistory(run_context, batch, result);
+          for (const row of batch) {
+            copyPosteriorFields(row, result);
+            copyUpdateFields(row, result, batch.length);
+          }
+          updateLiveCharts(run_context.param_history || {}, ado_state, run_context);
+          updateInformationGainPanel(run_context);
+        } else {
+          advanceWithinTestlet();
+        }
+      } catch (error) {
+        error_row.ado_event = "error";
+        error_row.ado_error = String((error && error.message) || error);
+        failExperiment(error);
+        throw error;
+      }
+    };
+
+    const last_trial = choice_trials[choice_trials.length - 1];
+    const response_is_last = response_trial === last_trial;
+
     response_trial.on_finish = async function (data) {
       try {
         if (inner_on_finish) {
@@ -308,7 +349,6 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
       delete data.__ado_response;
       // The plugin's own raw response (button index, key, slider value) stays on
       // data.response; choice is the validated model outcome recorded by the user.
-      data.choice_raw = choice;
       data.choice = choice;
       // Discrete responses map the outcome index to a label; continuous responses
       // have no labels, so the label is simply null there.
@@ -322,33 +362,23 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
       copySelectionFields(data, ado_state, current_design_metric);
       testlet_rows.push(data);
 
-      if (at_boundary) {
-        const batch = testlet_rows.slice();
-        testlet_rows.length = 0;
-        const payload = testlet_size === 1 ? batch[0] : batch;
-        try {
-          const result = await adaptive_controller.update(payload);
-          setDesignQueue(result);
-          stopped = Boolean(result.should_stop);
-          logAdoTrial(run_context, batch[batch.length - 1], result, config);
-          appendPosteriorHistory(run_context, result);
-          appendInformationGainHistory(run_context, batch, result);
-          for (const row of batch) {
-            copyPosteriorFields(row, result);
-            copyUpdateFields(row, result, batch.length);
-          }
-          updateLiveCharts(run_context.param_history || {}, ado_state, run_context);
-          updateInformationGainPanel(run_context);
-        } catch (error) {
-          data.ado_event = "error";
-          data.ado_error = String((error && error.message) || error);
-          failExperiment(error);
-          throw error;
-        }
-      } else {
-        advanceWithinTestlet();
+      if (response_is_last) {
+        await runStepEnd(data);
       }
     };
+
+    // When trials follow the response trial (feedback screens etc.), they must
+    // still render THIS step's design, so the queue advance/update waits for the
+    // step's final trial.
+    if (!response_is_last) {
+      const inner_last_on_finish = last_trial.on_finish;
+      last_trial.on_finish = async function (data) {
+        if (inner_last_on_finish) {
+          await Promise.resolve(inner_last_on_finish.call(this, data));
+        }
+        await runStepEnd(data);
+      };
+    }
 
     testlet_trials.push(...choice_trials);
 
@@ -363,7 +393,16 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
   return [
     {
       timeline: trials,
+      // on_timeline_start fires before the first child trial's parameters are
+      // resolved, so the first design is in place exactly when it's needed and a
+      // start() failure aborts visibly instead of crashing page setup.
       on_timeline_start: () => {
+        try {
+          initializeAdo();
+        } catch (error) {
+          failExperiment(error);
+          throw error;
+        }
         if (typeof hooks.onTimelineStart === "function") {
           hooks.onTimelineStart();
         }

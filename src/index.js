@@ -87,6 +87,21 @@ function createController(jsPsych, config = {}) {
   if (config.design_grid == null) {
     throw new Error("createController: `design_grid` is required.");
   }
+  // The scheduling guarantee (the composed async on_finish is AWAITED before the
+  // next trial renders) is a jsPsych 8 behavior. peerDependencies are invisible to
+  // script-tag pages, so fail loudly here rather than silently mispair designs and
+  // responses under jsPsych 7.
+  if (jsPsych && typeof jsPsych.version === "function") {
+    const version = String(jsPsych.version());
+    const major = Number.parseInt(version, 10);
+    if (Number.isInteger(major) && major < 8) {
+      throw new Error(
+        `createController: jspsych-ado requires jsPsych >= 8 (found ${version}). ` +
+          "jsPsych 7 does not await async on_finish, so adaptive scheduling would " +
+          "silently corrupt the design/response pairing.",
+      );
+    }
+  }
 
   const adapter = buildModelAdapter(config.model, "createController");
   validateDesignGridForModel(config.design_grid, adapter, adapter.id);
@@ -183,12 +198,11 @@ function createController(jsPsych, config = {}) {
       const design_strategy = timeline_config.design_strategy ?? config.design_strategy ?? "ado";
       const effective_design_strategy = controller_mode === "mock" ? null : design_strategy;
       const debug = resolveDebug(timeline_config.debug ?? config.debug ?? "url");
-      const response_labels = inferResponseLabels(
+      const response_labels = resolveResponseLabels(
+        timeline_config.response_labels ?? config.response_labels,
         response_trial,
         adapter.responseSpace,
-        timeline_config.response_labels ?? config.response_labels,
       );
-      validateResponseLabels(response_labels, adapter.responseSpace);
       const stan = {
         ...DEFAULT_STAN,
         ...config.model.stan,
@@ -228,12 +242,15 @@ function createController(jsPsych, config = {}) {
               : "stan",
         controller_mode,
         design_strategy: effective_design_strategy,
+        // The controllers read session_id from the start(context) call (the mock
+        // has no constructor arg for it), so it must ride the run_context.
+        session_id: timeline_config.session_id ?? config.session_id,
         model_id: adapter.id,
         posterior_display: config.model.posterior_display,
       };
       if (simulate) {
         run_context.simulation_mode = simulate.mode ?? "data-only";
-        run_context.simulate_choice = makeSimulatedParticipant(adapter, simulate);
+        run_context.simulate_choice = makeSimulatedParticipant(adapter, simulate, response_labels);
       }
 
       // Per-run response-recording state. recording_open gates recordResponse to
@@ -504,6 +521,9 @@ function buildModelAdapter(model, context) {
     responseMoments: model.responseMoments,
     responseSupport: model.responseSupport,
     responseSampler: model.responseSampler,
+    // Optional simulation audit hooks (the simulator reads these off the adapter).
+    simulationData: model.simulationData,
+    subjectiveValues: model.subjectiveValues,
   };
 }
 
@@ -552,36 +572,49 @@ function normalizeControllerTrials(trial_or_trials, response_trial_index) {
   return { trials, response_trial_index: index };
 }
 
-function inferResponseLabels(response_trial, responseSpace, explicit_labels) {
+/**
+ * Resolve the outcome labels recorded as data.choice_label.
+ *
+ * EXPLICIT labels are the user's statement of the model's outcome coding, so a
+ * count mismatch with the response space is a hard error. Labels INFERRED from a
+ * static button-trial `choices` array are best-effort sugar (a keyboard trial's
+ * `choices` are keys, not outcomes): when the count doesn't match, warn and fall
+ * back to numeric labels instead of rejecting a validly-wired experiment.
+ */
+function resolveResponseLabels(explicit_labels, response_trial, responseSpace) {
   if (isContinuous(responseSpace)) {
     return explicit_labels != null ? labelsToConfig(explicit_labels) : null;
   }
-  if (explicit_labels != null) {
-    return labelsToConfig(explicit_labels);
-  }
-  if (response_trial && Array.isArray(response_trial.choices)) {
-    return labelsToConfig(response_trial.choices);
-  }
   const response_count = getResponseCount(responseSpace);
-  if (response_count != null) {
-    return Object.fromEntries(
-      Array.from({ length: response_count }, (_value, index) => [index, String(index)]),
-    );
-  }
-  return {};
-}
+  const numeric_labels = () =>
+    response_count != null
+      ? Object.fromEntries(
+          Array.from({ length: response_count }, (_value, index) => [index, String(index)]),
+        )
+      : {};
 
-function validateResponseLabels(response_labels, responseSpace) {
-  const response_count = getResponseCount(responseSpace);
-  if (response_count == null) {
-    return;
+  if (explicit_labels != null) {
+    const labels = labelsToConfig(explicit_labels);
+    const label_count = countLabels(labels);
+    if (response_count != null && label_count !== response_count) {
+      throw new Error(
+        `ado.createTimeline: response_labels has ${label_count} entries; expected ${response_count}.`,
+      );
+    }
+    return labels;
   }
-  const label_count = countLabels(response_labels);
-  if (label_count !== response_count) {
-    throw new Error(
-      `ado.createTimeline: response_labels has ${label_count} entries; expected ${response_count}.`,
+
+  if (response_trial && Array.isArray(response_trial.choices)) {
+    if (response_count == null || response_trial.choices.length === response_count) {
+      return labelsToConfig(response_trial.choices);
+    }
+    console.warn(
+      `ado.createTimeline: not inferring outcome labels from the response trial's ` +
+        `${response_trial.choices.length} choices (the model has ${response_count} outcomes — ` +
+        `plugin choices are UI, not outcome coding). Pass response_labels to name the outcomes.`,
     );
   }
+  return numeric_labels();
 }
 
 // Convert ["SS","LL"] -> {0:"SS",1:"LL"}; pass an object through unchanged.
@@ -604,7 +637,8 @@ function countLabels(labels) {
 
 // Build the simulate_choice hook for a synthetic participant: draw a response from
 // the model likelihood at the live design (same seam the recovery tooling uses).
-function makeSimulatedParticipant(adapter, simulate) {
+// response_labels name the sim_p_<label> audit fields on discrete responses.
+function makeSimulatedParticipant(adapter, simulate, response_labels) {
   const participant = simulate.participant;
   if (!participant || typeof participant !== "object") {
     throw new Error(
@@ -624,7 +658,7 @@ function makeSimulatedParticipant(adapter, simulate) {
   return (design) => {
     const sim = isContinuous(adapter.responseSpace)
       ? simulateContinuousResponse(design, simulation_config, rng, adapter)
-      : simulateCategoricalChoice(design, simulation_config, rng, adapter);
+      : simulateCategoricalChoice(design, simulation_config, rng, adapter, { response_labels });
     return typeof simulate.respond === "function" ? simulate.respond(design, sim) : sim;
   };
 }

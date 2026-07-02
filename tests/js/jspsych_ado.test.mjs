@@ -275,23 +275,40 @@ test("mock run: rows carry the ADO data schema", async () => {
   assert.equal(Object.hasOwn(row, "__ado_response"), false, "internal field is not saved");
 });
 
-test("response_labels: explicit labels win; mismatched counts throw", () => {
+test("response_labels: explicit labels are strict; inference is best-effort with a warning", () => {
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
     controller: "mock",
   });
   const trial = { type: "x", stimulus: "s", choices: ["a", "b"], on_finish: () => {} };
+  // EXPLICIT labels state the model's outcome coding — a mismatch is a hard error.
   assert.throws(
     () => ado.createTimeline(trial, { response_labels: ["one", "two", "three"], debug: false }),
     /response_labels has 3 entries; expected 2/,
   );
-  // One inferred label from a 1-button trial also fails against a binary model.
-  const one_button = { type: "x", stimulus: "s", choices: ["only"], on_finish: () => {} };
-  assert.throws(
-    () => ado.createTimeline(one_button, { debug: false }),
-    /has 1 entries; expected 2/,
-  );
+  // INFERRED labels are sugar: a keyboard-ish trial whose choices don't match the
+  // outcome count warns and falls back to numeric labels instead of rejecting a
+  // validly-wired experiment (the mapping happens in on_finish).
+  const warnings = [];
+  const original_warn = console.warn;
+  console.warn = (msg) => warnings.push(String(msg));
+  try {
+    const three_keys = {
+      type: "keyboard",
+      stimulus: "s",
+      choices: ["f", "j", "escape"],
+      on_finish: () => {},
+    };
+    const frag = ado.createTimeline(three_keys, { n_trials: 1, debug: false });
+    assert.ok(frag.length, "timeline builds despite the choices/outcome mismatch");
+    assert.ok(
+      warnings.some((w) => /not inferring outcome labels/.test(w)),
+      "a warning explains the fallback",
+    );
+  } finally {
+    console.warn = original_warn;
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -752,6 +769,98 @@ test("simulate: composes simulation_options drawing responses from the model lik
 // ---------------------------------------------------------------------------
 // Misc facade helpers
 // ---------------------------------------------------------------------------
+
+test("trials AFTER the response trial still render THIS step's design (feedback screens)", async () => {
+  const ado = createController(makeJsPsych(), {
+    model: makeModel(),
+    design_grid: DESIGN_GRID,
+    controller: "mock",
+  });
+  const respond = {
+    type: "response",
+    stimulus: () => `${ado.evaluateDesignVariable("t_ll")}`,
+    choices: ["SS", "LL"],
+    on_finish: (d) => ado.recordResponse(d.response),
+  };
+  const feedback = {
+    type: "feedback",
+    stimulus: () => `you saw ${ado.evaluateDesignVariable("t_ll")}`,
+  };
+  const { rows, rendered } = await runFragment(
+    ado.createTimeline([respond, feedback], { n_trials: 3, response_trial_index: 0, debug: false }),
+    (step) => (step % 2 === 0 ? { response: 1 } : {}),
+  );
+  const ado_rows = rows.filter((r) => r.ado_event === "update");
+  assert.equal(ado_rows.length, 3);
+  ado_rows.forEach((row, step) => {
+    const feedback_stimulus = rendered[step * 2 + 1].stimulus;
+    assert.equal(
+      feedback_stimulus,
+      `you saw ${row.ado_design.t_ll}`,
+      `step ${step}'s feedback shows step ${step}'s design, not the next one`,
+    );
+  });
+});
+
+test("session_id reaches the mock controller (contract parity with stan)", async () => {
+  const ado = createController(makeJsPsych(), {
+    model: makeModel(),
+    design_grid: DESIGN_GRID,
+    controller: "mock",
+    session_id: "P-0042",
+  });
+  const trial = {
+    type: "x",
+    stimulus: "s",
+    choices: ["a", "b"],
+    on_finish: (d) => ado.recordResponse(d.response),
+  };
+  const { rows } = await runFragment(
+    ado.createTimeline(trial, { n_trials: 1, debug: false }),
+    () => ({
+      response: 0,
+    }),
+  );
+  assert.equal(rows[0].ado_session_id, "P-0042");
+});
+
+test("simulate: model audit hooks (subjectiveValues, labeled probabilities) reach the row", async () => {
+  const model = makeModel({
+    subjectiveValues: (design, params) => ({ v_gap: design.r_ll - design.r_ss - params.k }),
+  });
+  const ado = createController(makeJsPsych(), {
+    model,
+    design_grid: DESIGN_GRID,
+    controller: "mock",
+  });
+  const trial = {
+    type: "html-button-response",
+    stimulus: "s",
+    choices: ["SS", "LL"],
+    on_finish: (d) => ado.recordResponse(d.response),
+  };
+  const frag = ado.createTimeline(trial, {
+    n_trials: 1,
+    debug: false,
+    simulate: { participant: { k: 0.02, tau: 1.5 }, seed: 7 },
+  });
+  frag[0].on_timeline_start();
+  const t1 = frag[0].timeline[0].timeline[0];
+  const sim = t1.simulation_options();
+  assert.equal(typeof sim.data.sim_v_gap, "number", "subjectiveValues audit field present");
+  assert.equal(typeof sim.data.sim_p_ss, "number", "probability fields named by inferred labels");
+  assert.equal(typeof sim.data.sim_p_ll, "number");
+});
+
+test("createController rejects jsPsych < 8 loudly (script-tag users don't see peerDeps)", () => {
+  const v7 = { version: () => "7.3.4", abortExperiment() {} };
+  assert.throws(
+    () => createController(v7, { model: makeModel(), design_grid: DESIGN_GRID }),
+    /requires jsPsych >= 8 \(found 7\.3\.4\)/,
+  );
+  const v8 = { version: () => "8.2.3", abortExperiment() {} };
+  assert.ok(createController(v8, { model: makeModel(), design_grid: DESIGN_GRID }));
+});
 
 test("labelsToConfig converts arrays and passes objects through", () => {
   assert.deepEqual(labelsToConfig(["SS", "LL"]), { 0: "SS", 1: "LL" });
