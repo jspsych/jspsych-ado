@@ -89,10 +89,6 @@ export interface ModelPackage {
   /** Continuous: data-generating sampler used by the simulated participant. */
   responseSampler?: (design: Design, params: Draw, rng: () => number) => number;
   posterior_display?: PosteriorDisplay;
-  stan?: StanConfig;
-  n_trials?: number;
-  testlet_size?: number;
-  stopping?: StoppingConfig | null;
 }
 
 /** Synthetic-participant config for jsPsych.simulate() runs. */

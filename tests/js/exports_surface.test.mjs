@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 // Pins the package's PUBLIC export surface so a future change can't silently re-widen
-// it. The supported surface is the façade entry plus the model/task package subpaths;
+// it. The supported surface is the façade entry plus the model-package subpath;
 // the engine, controllers, and vendored tinystan are internal (reachable only via the
 // package's own relative imports, not as consumer-facing subpaths).
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));

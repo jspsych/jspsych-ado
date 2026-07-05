@@ -29,6 +29,13 @@ const TASK_ONLY_FIELDS = [
   "task",
 ];
 
+// Run-policy fields: how a particular RUN uses a model (sampler effort, trial
+// counts, refit cadence, stopping). They belong on createController config or
+// per-timeline options — the same statistical model serves a 6-trial tutorial, a
+// 42-trial study, and a recovery simulation. Kept off the model package so the
+// package stays a pure statistical contract.
+const RUN_POLICY_FIELDS = ["stan", "n_trials", "testlet_size", "stopping"];
+
 function getResponseCount(responseSpace) {
   if (!responseSpace || typeof responseSpace.type !== "string") {
     return null;
@@ -308,6 +315,14 @@ function validateModel(model, opts = {}) {
   for (const k of TASK_ONLY_FIELDS) {
     if (model[k] != null) {
       err(`\`${k}\` belongs in experiment/trial code, not in a model package.`);
+    }
+  }
+  for (const k of RUN_POLICY_FIELDS) {
+    if (model[k] != null) {
+      err(
+        `\`${k}\` is run policy, not model contract — pass it to createController ` +
+          `(or per-timeline to ado.createTimeline) instead of the model package.`,
+      );
     }
   }
 

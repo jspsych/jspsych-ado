@@ -179,6 +179,22 @@ test("validateModel: rejects task-owned fields on a model package", () => {
   assert.ok(problems.some((p) => /belongs in experiment\/trial code/.test(p.message)));
 });
 
+test("validateModel: rejects run-policy fields on a model package (model = statistical contract)", () => {
+  for (const [field, value] of [
+    ["n_trials", 42],
+    ["testlet_size", 2],
+    ["stopping", { eig_fraction: 0.1 }],
+    ["stan", { num_chains: 4 }],
+  ]) {
+    const { valid, problems } = validateModel(makeModel({ [field]: value }));
+    assert.equal(valid, false, `${field} must be rejected`);
+    assert.ok(
+      problems.some((p) => /run policy, not model contract/.test(p.message)),
+      `${field} error names the boundary`,
+    );
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Core mock-mode flow through the PUBLIC API
 // ---------------------------------------------------------------------------

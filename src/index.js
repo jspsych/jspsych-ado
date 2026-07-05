@@ -191,12 +191,11 @@ function createController(jsPsych, config = {}) {
         ? static_trial_info.trials[static_trial_info.response_trial_index]
         : null;
 
-      const n_trials =
-        timeline_config.n_trials ?? config.n_trials ?? config.model.n_trials ?? DEFAULT_N_TRIALS;
+      const n_trials = timeline_config.n_trials ?? config.n_trials ?? DEFAULT_N_TRIALS;
       const testlet_size = normalizeTestletSize(
-        timeline_config.testlet_size ?? config.testlet_size ?? config.model.testlet_size,
+        timeline_config.testlet_size ?? config.testlet_size,
       );
-      const stopping = timeline_config.stopping ?? config.stopping ?? config.model.stopping ?? null;
+      const stopping = timeline_config.stopping ?? config.stopping ?? null;
       const controller_mode = normalizeControllerMode(
         timeline_config.controller ?? config.controller,
       );
@@ -208,12 +207,7 @@ function createController(jsPsych, config = {}) {
         response_trial,
         adapter.responseSpace,
       );
-      const stan = {
-        ...DEFAULT_STAN,
-        ...config.model.stan,
-        ...config.stan,
-        ...timeline_config.stan,
-      };
+      const stan = { ...DEFAULT_STAN, ...config.stan, ...timeline_config.stan };
       const simulate = timeline_config.simulate ?? config.simulate ?? null;
 
       const adaptive_controller =
@@ -474,8 +468,8 @@ function isDebugUrlEnabled() {
   return !/^(0|false|off|no)$/i.test(value);
 }
 
-// Validate the model package and adapt it to the engine's controller shape
-// (mirrors the old registry's buildAdapter, but from a model object directly).
+// Validate a model package and adapt it to the shape the engine/controllers
+// consume (resolved buildData, derived responseProbs, forwarded hooks).
 function buildModelAdapter(model, context) {
   const { valid, problems } = validateModel(model);
   const errors = problems.filter((p) => p.level === "error");

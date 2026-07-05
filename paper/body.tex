@@ -68,7 +68,7 @@ browser. While ADOpy and DARC enable ADO within experiments, they are less amena
 
 \section{Software design}
 
-Figure~\ref{fig:conceptual} summarizes the runtime loop implemented by \texttt{jspsych-ado}. On each trial, the controller scores candidate designs and selects the one expected to provide the most information. jsPsych then presents the selected design and records the participant's response. The inference backend uses the accumulated responses and registered model to update the posterior distribution over parameters. Candidate designs are the stimulus settings the controller can choose from, such as reward and delay values in a delay-discounting task.
+Figure~\ref{fig:conceptual} summarizes the runtime loop implemented by \texttt{jspsych-ado}. On each trial, the controller scores candidate designs and selects the one expected to provide the most information. jsPsych then presents the selected design and records the participant's response. The inference backend uses the accumulated responses and the model's Stan program to update the posterior distribution over parameters. Candidate designs are the stimulus settings the controller can choose from, such as reward and delay values in a delay-discounting task.
 
 \begin{figure}
     \centering
@@ -115,7 +115,7 @@ The resulting recovery, parity, and browser-level checks are discussed below as 
 \label{fig:code-block}
 \end{figure}
 
-We will now explain the details using a numerosity (numeric) discrimination task, following \citet{halberda2008individual}, which ships with the package as a ready-to-run task/model pair. In this example there is a single stimulus parameter controling the numerosity ratio of the two dot arrays and denoted by the design $d$ and a single model parameter, the Weber fraction $\theta = w$ (a participant's approximate-number-system acuity). A cumulative-normal (probit) function $\Phi$ is assumed to be the psychometric function, and the task is two-alternative forced choice (the participant judges which color is more numerous), giving a binary response $y$. Using the ADO method, the Weber fraction can be estimated, with the next dot pair $d^{*}$ on each trial
+We will now explain the details using a numerosity (numeric) discrimination task, following \citet{halberda2008individual}, for which the package ships a ready-to-run model package (the task code is ordinary jsPsych experiment code, included as a runnable demo). In this example there is a single stimulus parameter controling the numerosity ratio of the two dot arrays and denoted by the design $d$ and a single model parameter, the Weber fraction $\theta = w$ (a participant's approximate-number-system acuity). A cumulative-normal (probit) function $\Phi$ is assumed to be the psychometric function, and the task is two-alternative forced choice (the participant judges which color is more numerous), giving a binary response $y$. Using the ADO method, the Weber fraction can be estimated, with the next dot pair $d^{*}$ on each trial
 chosen to maximize the expected information gain about $w$.
 
 After $t$ trials, the accumulated dataset is $D = \{(d_i, y_i)\}_{i=1}^{t}$, and Stan samples the posterior over $\theta$:

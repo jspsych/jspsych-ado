@@ -42,7 +42,7 @@ function responseDensity(design, draw, y) {
 /**
  * Fast path for the MI integration hot loop: hoist the per-(design, draw) mean and
  * normalizer out so each quadrature node only does (y - mean), a square, and one exp.
- * Must compute the same density as responseDensity (a registration probe checks this).
+ * Must compute the same density as responseDensity (a validation probe (createController/prepareModel) checks this).
  *
  * @param {Object} design - { s }.
  * @param {Object} draw - { loga, b, sigma }.

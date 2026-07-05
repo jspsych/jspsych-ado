@@ -58,7 +58,7 @@ quadrature (`ado/mi_engine.js` `mutualInfoContinuous`) — so the model supplies
   engine estimates it by quadrature on the same mesh.
 - `responseDensityFactory(design, draw)` → `(y) => density` — optional fast path that
   hoists per-`(design, draw)` constants out of the integration loop; it must compute
-  the same density as `responseDensity` (a registration probe checks they agree).
+  the same density as `responseDensity` (a validation probe checks they agree).
 - `responseSampler(design, params, rng)` → `y` — for the simulated participant.
 
 The response that flows through the pipeline (jsPsych `choice`) must be in the same

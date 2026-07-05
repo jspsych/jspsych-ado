@@ -10,7 +10,7 @@ import { makeStoppingEvaluator } from "../ado/stopping.js";
 import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
 
 /**
- * Create a deterministic local controller for any registered model.
+ * Create a deterministic local controller for any model parameter set.
  *
  * @param {Object} options
  * @param {Object|Array} options.grid_design - Candidate design grid (object of value

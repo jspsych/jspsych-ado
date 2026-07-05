@@ -34,8 +34,8 @@ You bring a **task** (design grid + presentation) and a **model** (Stan likeliho
 small JS adapter); `jsPsychADO` checks that they are compatible and turns them into an
 adaptive jsPsych timeline. Responses can be **binary, finite-categorical, or continuous** —
 the engine enumerates outcomes for discrete responses and integrates the predictive density
-for continuous ones. Or start from one of the bundled task/model packages, ready to run out
-of the box.
+for continuous ones. Or start from one of the bundled model packages and adapt a demo's
+task code — every demo is ordinary jsPsych experiment code, ready to copy.
 
 ## Status
 
@@ -46,7 +46,8 @@ categorical line-length, and continuous magnitude estimation (Stevens' power law
 and are covered by CI (unit tests + real headless Worker/WASM smokes + a bundler build
 smoke). The committed WASM is bundler-safe and the package builds under Vite and webpack 5
 (see [Using with a bundler](#using-with-a-bundler)). Still pre-1.0: the
-task/model/controller extension APIs may change before 1.0.
+model-package and controller APIs may change before 1.0 (task code is ordinary jsPsych
+experiment code, not a package API).
 
 ## Quick start
 
