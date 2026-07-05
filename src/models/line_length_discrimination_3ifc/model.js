@@ -5,7 +5,7 @@
 // 0). responseProbs is the SINGLE SOURCE OF TRUTH for the likelihood — shared by the MI
 // engine and the simulator, and it must match the .stan model. LINE_LENGTH_SCALE (px per
 // evidence unit) normalizes pixel-length differences so `sensitivity` is on a sane scale.
-// Paired with the line_length_discrimination task package.
+// Paired with the line-length task code in demos/line_length_discrimination/.
 
 const LINE_LENGTH_SCALE = 20;
 const LINE_KEYS = ["line_length_a", "line_length_b", "line_length_c"];

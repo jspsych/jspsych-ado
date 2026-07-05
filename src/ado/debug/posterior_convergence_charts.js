@@ -531,6 +531,68 @@ function removeAdoDebugPanels() {
   removeInfoGainDebugPanel();
 }
 
+function removeDebugDebriefPanel() {
+  const panel =
+    typeof document !== "undefined" ? document.getElementById("ado-debug-debrief-panel") : null;
+  if (panel) {
+    panel.remove();
+  }
+}
+
+/**
+ * Show the debug debrief as a dismissible overlay (final posterior mean ± SD per
+ * parameter plus full-size convergence charts). Debug-only; a no-op without a DOM.
+ */
+function showDebugDebriefPanel(run_context) {
+  if (!run_context.debug || typeof document === "undefined") {
+    return;
+  }
+  removeDebugDebriefPanel();
+
+  const panel = document.createElement("div");
+  panel.id = "ado-debug-debrief-panel";
+  panel.style.cssText = [
+    "position:fixed",
+    "left:1rem",
+    "right:1rem",
+    "bottom:1rem",
+    "max-height:58vh",
+    "overflow:auto",
+    "background:#ffffff",
+    "border:1px solid #d1d5db",
+    "box-shadow:0 18px 45px rgba(15,23,42,0.18)",
+    "z-index:1001",
+    "padding:1rem",
+    "border-radius:8px",
+    "text-align:center",
+  ].join(";");
+  panel.innerHTML =
+    '<button type="button" id="ado-debug-debrief-close" ' +
+    'style="position:absolute;top:0.5rem;right:0.5rem;border:1px solid #d1d5db;background:#fff;color:#374151;border-radius:4px;padding:0.25rem 0.5rem;cursor:pointer;">' +
+    "Close" +
+    "</button>" +
+    '<div style="padding-top:0.25rem;">' +
+    makeDebriefStimulus(run_context.param_history || {}, run_context.posterior_display) +
+    "</div>";
+  document.body.appendChild(panel);
+  const close = document.getElementById("ado-debug-debrief-close");
+  if (close) {
+    close.addEventListener("click", () => panel.remove());
+  }
+}
+
+/**
+ * End-of-run debug teardown: remove the live panels and show the debrief overlay.
+ * Called by the adaptive timeline's on_timeline_finish; a no-op unless debug is on.
+ */
+function finalizeDebugUi(run_context) {
+  if (!run_context.debug) {
+    return;
+  }
+  removeAdoDebugPanels();
+  showDebugDebriefPanel(run_context);
+}
+
 export {
   getParamAxisDomain,
   makeParamConvergenceSvg,
@@ -540,4 +602,6 @@ export {
   appendInformationGainHistory,
   updateInformationGainPanel,
   removeAdoDebugPanels,
+  showDebugDebriefPanel,
+  finalizeDebugUi,
 };

@@ -36,5 +36,5 @@ Worker/WASM + bundler smokes) and only publishes if they pass and the tag matche
    gh release create vX.Y.Z --title vX.Y.Z --notes "<paste the CHANGELOG section>"
    ```
 
-> Pre-1.0: minor versions may include breaking changes to the task/model/controller
+> Pre-1.0: minor versions may include breaking changes to the model-package and controller
 > extension APIs. Bump **minor** for those, **patch** for fixes.

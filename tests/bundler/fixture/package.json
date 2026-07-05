@@ -9,7 +9,6 @@
   "dependencies": {
     "jspsych": "^8",
     "@jspsych/plugin-html-button-response": "^2",
-    "@jspsych/plugin-call-function": "^2",
     "vite": "^5"
   }
 }

@@ -5,9 +5,64 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the package is pre-1.0, minor versions may include breaking changes to the
-task/model/controller extension APIs.
+model-package and controller APIs.
 
 ## [Unreleased]
+
+### Changed — controller-first authoring API (#135)
+
+**Breaking.** The registry API is replaced by a controller API that makes the
+participant-facing task ordinary jsPsych code (proposed in #135, prototyped in #136):
+
+```js
+const ado = jsPsychADO.createController(jsPsych, { model, design_grid, stan });
+const trial = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: () => `${ado.evaluateDesignVariable("r_ss")} now or ...?`,
+  choices: ["Sooner", "Later"],
+  on_finish: (data) => ado.recordResponse(data.response),
+};
+jsPsych.run([intro, ...ado.createTimeline(trial), end]);
+```
+
+- **Removed:** model-level run-policy fields — `ModelPackage` no longer carries
+  `stan`, `n_trials`, `testlet_size`, or `stopping`, and `createTimeline` no longer
+  reads them as fallbacks; `validateModel` now rejects them (like task-owned
+  fields). Run policy lives on `createController` config / per-timeline options:
+  the same statistical model serves a 6-trial tutorial and a 42-trial study.
+  Also removed: `registerTask`, `registerModel`, `registerModelPackage`, `validateTask`,
+  `prepareModels`, the task/model registries, the `createTimeline(jsPsych, { task, model })`
+  form, the packaged `src/tasks/*` (task code now lives with each demo), the
+  `demos/_shared/experiment_shell.js` URL runner (`controller=`/`strategy=` become
+  `createController` options), and the response-trial factories
+  (`htmlButtonChoice`/`canvasFrame`/`canvasResponse`/`canvasSliderChoice` — user code
+  authors its own trials).
+- **Added:** `createController` (design accessors `evaluateDesignVariable` /
+  `designVariable` / `getDesign`, live `getState`, validated `recordResponse`,
+  and `ado.createTimeline(trialOrTrials, options)` accepting one trial, a
+  fixation→stimulus→response array, or a trial factory); `prepareModel(spec,
+{ compileServer })` replaces `prepareModels` for the compile-from-source
+  prototyping path; a `simulate` option re-homes the old `?simulate=` synthetic
+  participant (drawing from the model likelihood, incl. continuous
+  `responseSampler`); library-owned `?debug=1` handling with an end-of-run
+  posterior debrief overlay.
+- **Scheduling:** no more injected `call-function` trials — the controller update is
+  composed into the response trial's async `on_finish`, which jsPsych 8 awaits, so the
+  next trial cannot render before the next design is ready. The design queue advances
+  at the end of each adaptive step (jsPsych 8 resolves dynamic parameters before
+  `on_start`, so testlet batches stay consistent between what is rendered and what is
+  recorded). Controller `start()` is now synchronous: the Stan worker loads in the
+  background and the first `update()` awaits it.
+- **Requires jsPsych ≥ 8** (peer dependency was `>=7`; `createController` also
+  rejects a jsPsych 7 instance at runtime, since script-tag pages never see peer
+  dependencies). The response-plugin peer dependencies are dropped entirely.
+  Data rows keep the same `post_mean_*` / `ado_*` schema, except that each
+  choice row now carries the posterior that resulted from it, the separate
+  `ado_event: "start"`/`"update"` rows are gone (update fields land on the
+  choice rows), and the `choice_raw` column is removed — under the new API the
+  plugin's raw response already stays on `data.response`, and `choice` is the
+  user-recorded model outcome, so `choice_raw` had become a misleading
+  duplicate of `choice`.
 
 ### Added
 
@@ -15,39 +70,47 @@ task/model/controller extension APIs.
   via the `types` field and the `.` export's `types` condition), so consumers get editor
   IntelliSense and type-checking without the library taking on a TypeScript build. The
   declarations are hand-written and type-checked in CI (`npm run typecheck`); deep imports
-  (`jspsych-ado/models/*`, `jspsych-ado/tasks/*`) remain untyped.
+  (`jspsych-ado/models/*`) remain untyped.
 - Continuous-response support: a model can declare `responseSpace: { type: "continuous" }`
   and supply a response density (plus moments/entropy/sampler); the engine scores designs by
-  density-quadrature expected information gain. Ships the `magnitude_estimation` task + model
-  (Stevens' power law) and the `canvasSliderChoice` response factory (#114).
+  density-quadrature expected information gain. Ships the `magnitude_estimation` model
+  package (Stevens' power law) with its canvas-slider task code in
+  `demos/magnitude_estimation/` (#114).
 
 ### Changed
 
 - Raised the minimum Node to `>=20` (was `>=18`); CI now runs the unit suite + recovery
   smokes on a 20.x/22.x matrix instead of only Node 22.
 - Narrowed the package `exports` to the supported public surface: the façade (`.`),
-  `./models/*`, `./tasks/*`, and `./package.json`. The `./ado/*`, `./controllers/*`,
-  and `./core/tinystan/*` subpaths are no longer importable — they were internal
+  `./models/*`, and `./package.json`. The `./ado/*`, `./controllers/*`, and
+  `./core/tinystan/*` subpaths are no longer importable — they were internal
   engine, controller, and vendored-runtime files, never a supported public API
-  (resolves #86). Internal relative imports inside the package are unaffected.
+  (resolves #86); the transient `./tasks/*` subpath was removed with the task
+  layer (see the controller-API entry above). Internal relative imports inside
+  the package are unaffected.
 - Renamed the package source directory `jspsych-ado/` to `src/` (idiomatic
   single-package layout). The public `exports` keys are unchanged, so consumer
-  deep-imports (`jspsych-ado/models/*`, `jspsych-ado/tasks/*`) still resolve.
-- The demo-only experiment shell moved out of the published package to
-  `demos/_shared/experiment_shell.js`; the package now ships only the library.
+  deep-imports (`jspsych-ado/models/*`) still resolve.
+- The demo-only experiment shell moved out of the published package (and was
+  subsequently removed entirely with the controller API — see above); the package
+  ships only the library.
 
 ### Removed
 
 - The legacy `ado=stan|mock|random` URL alias (and `allow_legacy_ado`) on the demo
-  pages; use the canonical `controller=`/`strategy=` parameters instead.
+  pages. (The `controller=`/`strategy=` URL parameters that replaced it were
+  themselves removed later in this cycle with the demo URL runner — both switches
+  are now `createController` options; see the controller-API entry above.)
 
 ### Internal
 
 - Restructured large modules into cohesive units with unchanged public behavior:
-  `ado_timeline.js` → `+ado/response_trials.js` + `ado/debug/{ado_trial_log,posterior_convergence_charts}.js`;
-  `index.js` → `+ado/validation.js` + `models/stan_source.js`; the Stan controller's
-  Web Worker transport → `controllers/stan_worker_client.js`, with shared controller
-  scaffolding in `controllers/controller_common.js`.
+  `ado_timeline.js` → `ado/debug/{ado_trial_log,posterior_convergence_charts}.js`
+  (plus, later in this cycle, `ado/simulation_hooks.js` — the interim
+  `ado/response_trials.js` factories were dissolved into demo code with the
+  controller API); `index.js` → `src/validation.js` + `models/stan_source.js`; the
+  Stan controller's Web Worker transport → `controllers/stan_worker_client.js`,
+  with shared controller scaffolding in `controllers/controller_common.js`.
 
 ## [0.2.0] - 2026-06-18
 

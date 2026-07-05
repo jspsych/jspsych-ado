@@ -29,7 +29,6 @@
       "default": "./src/index.js"
     },
     "./models/*": "./src/models/*",
-    "./tasks/*": "./src/tasks/*",
     "./package.json": "./package.json"
   },
   "sideEffects": [
@@ -46,7 +45,7 @@
   "scripts": {
     "test": "node --test tests/js/*.test.mjs",
     "test:smoke": "node tests/js/stan_recovery.smoke.mjs",
-    "test:browser": "node tests/browser/dd_smoke.mjs && node tests/browser/line_length_discrimination_smoke.mjs && node tests/browser/magnitude_estimation_smoke.mjs && node tests/browser/byo_model_exponential_smoke.mjs && node tests/browser/byo_task_money_choice_smoke.mjs",
+    "test:browser": "node tests/browser/controller_api_smoke.mjs && node tests/browser/dd_tutorial_smoke.mjs && node tests/browser/size_discrimination_smoke.mjs && node tests/browser/dd_smoke.mjs && node tests/browser/line_length_discrimination_smoke.mjs && node tests/browser/halberda_dot_comparison_smoke.mjs && node tests/browser/magnitude_estimation_smoke.mjs && node tests/browser/byo_model_exponential_smoke.mjs && node tests/browser/byo_task_money_choice_smoke.mjs",
     "patch:wasm": "node scripts/patch-wasm-glue.mjs",
     "test:bundler": "node tests/bundler/run.mjs",
     "format": "prettier --write .",
@@ -60,25 +59,7 @@
     "node": ">=20"
   },
   "peerDependencies": {
-    "@jspsych/plugin-call-function": ">=1",
-    "@jspsych/plugin-canvas-keyboard-response": ">=1",
-    "@jspsych/plugin-canvas-slider-response": ">=1",
-    "@jspsych/plugin-html-button-response": ">=1",
-    "jspsych": ">=7"
-  },
-  "peerDependenciesMeta": {
-    "@jspsych/plugin-html-button-response": {
-      "optional": true
-    },
-    "@jspsych/plugin-call-function": {
-      "optional": true
-    },
-    "@jspsych/plugin-canvas-keyboard-response": {
-      "optional": true
-    },
-    "@jspsych/plugin-canvas-slider-response": {
-      "optional": true
-    }
+    "jspsych": ">=8"
   },
   "devDependencies": {
     "husky": "^9.1.7",

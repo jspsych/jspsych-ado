@@ -1,11 +1,10 @@
-// Stan source handling for models registered from source (stanCode / stanUrl):
+// Stan source handling for models supplied as source (stanCode / stanUrl):
 //   - parseStanPriors derives the engine's JS prior {param:{dist,...}} from the .stan
-//     source, so a source-registered model needs no hand-written `prior`.
+//     source, so a source model needs no hand-written `prior`.
 //   - compileToModuleUrl POSTs the source to a stan-playground compile server and
 //     returns the compiled main.js URL.
-// Models registered with a precompiled `moduleUrl` (the committed packages) never
-// reach either function. Error messages name the façade caller (registerModel /
-// prepareModels) since that is where these run from.
+// Both serve the prepareModel(...) model-preparation path; committed model packages
+// (precompiled `moduleUrl`) never reach either function.
 
 /**
  * POST a Stan source string to a stan-playground compile server and return the compiled
@@ -29,19 +28,19 @@ async function compileToModuleUrl(stanCode, server, authToken) {
     });
   } catch (networkError) {
     throw new Error(
-      `prepareModels: could not reach the compile server at ${base}. Check the URL/CORS, ` +
+      `prepareModel: could not reach the compile server at ${base}. Check the URL/CORS, ` +
         `or run one locally (docker run -p 8083:8080 ghcr.io/flatironinstitute/stan-wasm-server:latest) ` +
         `and pass compileServer:"http://localhost:8083". Original error: ${String(networkError)}`,
     );
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`prepareModels: compile failed (${res.status}). ${detail}`.trim());
+    throw new Error(`prepareModel: compile failed (${res.status}). ${detail}`.trim());
   }
   const payload = await res.json().catch(() => null);
   const model_id = payload && payload.model_id;
   if (!model_id) {
-    throw new Error("prepareModels: server response did not include a model_id.");
+    throw new Error("prepareModel: server response did not include a model_id.");
   }
   return `${base}/download/${model_id}/main.js`;
 }
@@ -49,7 +48,7 @@ async function compileToModuleUrl(stanCode, server, authToken) {
 /**
  * Derive the engine's JS prior from a .stan source by reading each parameter's sampling
  * statement. Supports normal, lognormal, and normal + <lower=0> (-> half-normal); throws
- * on a missing/unsupported/non-numeric prior so the model fails fast at registration.
+ * on a missing/unsupported/non-numeric prior so the model fails fast during preparation/validation.
  *
  * @param {Array<string|{name: string, lower?: number}>} paramSpecs - Parameters to parse.
  * @param {string} stanCode - Full .stan source.
@@ -78,7 +77,7 @@ function parseStanPriors(stanCode, paramSpecs) {
     const match = new RegExp(`\\b${name}\\s*~\\s*(\\w+)\\s*\\(([^;]*)\\)\\s*;`).exec(source);
     if (!match) {
       throw new Error(
-        `registerModel: no prior found for "${name}" in the Stan source. Add a sampling ` +
+        `parseStanPriors: no prior found for "${name}" in the Stan source. Add a sampling ` +
           `statement (e.g. ${name} ~ normal(...);) or pass an explicit \`prior\`.`,
       );
     }
@@ -86,7 +85,7 @@ function parseStanPriors(stanCode, paramSpecs) {
     const args = match[2].split(",").map((s) => Number(s.trim()));
     if (args.some(Number.isNaN)) {
       throw new Error(
-        `registerModel: could not read numeric prior arguments for "${name}" ("${match[2].trim()}"). ` +
+        `parseStanPriors: could not read numeric prior arguments for "${name}" ("${match[2].trim()}"). ` +
           `Pass an explicit \`prior\`.`,
       );
     }
@@ -94,7 +93,7 @@ function parseStanPriors(stanCode, paramSpecs) {
     // silently leave sd/sdlog undefined and produce NaN prior draws. (#13)
     if ((dist === "normal" || dist === "lognormal") && args.length !== 2) {
       throw new Error(
-        `registerModel: "${name}" prior ${dist}(...) expects 2 numeric arguments but got ` +
+        `parseStanPriors: "${name}" prior ${dist}(...) expects 2 numeric arguments but got ` +
           `${args.length} ("${match[2].trim()}"). Pass an explicit \`prior\`.`,
       );
     }
@@ -105,7 +104,7 @@ function parseStanPriors(stanCode, paramSpecs) {
       if (declaredPositive) {
         if (Math.abs(args[0]) > 1e-9) {
           throw new Error(
-            `registerModel: "${name}" is lower-bounded at 0 with a non-zero-mean normal prior ` +
+            `parseStanPriors: "${name}" is lower-bounded at 0 with a non-zero-mean normal prior ` +
               `(a truncated normal), which the prior sampler can't represent. Pass an explicit ` +
               `\`prior\` (e.g. { dist:"halfnormal", sd:... }).`,
           );
@@ -116,7 +115,7 @@ function parseStanPriors(stanCode, paramSpecs) {
       }
     } else {
       throw new Error(
-        `registerModel: unsupported Stan prior "${dist}(...)" for "${name}". Auto-parse supports ` +
+        `parseStanPriors: unsupported Stan prior "${dist}(...)" for "${name}". Auto-parse supports ` +
           `normal, lognormal, and normal+<lower=0> (half-normal). Pass an explicit \`prior\` for others.`,
       );
     }

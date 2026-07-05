@@ -1,96 +1,19 @@
-// Headless browser smoke for the CONTINUOUS-response task/model path (Stevens power
-// law via a canvas slider). Drives a simulated participant through the real jsPsych
-// page — exercising the Web Worker + WASM path the Node smokes bypass — and checks
-// that every supported controller completes with a real-valued response and the
-// continuous posterior fields (loga, b, sigma).
+// Headless browser smoke for the CONTINUOUS-response path (Stevens power law via a
+// canvas slider) under the controller API. Uses the demo-owned ?simulate=data-only
+// flag: the demo wires a synthetic participant through the createTimeline `simulate`
+// option, so the run draws responses from the model's responseSampler and exercises
+// the real Web Worker + WASM path the Node smokes bypass.
 //
 // Run: node tests/browser/magnitude_estimation_smoke.mjs
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import puppeteer from "puppeteer";
 import { startStaticServer } from "./static_server.mjs";
+import { attachDiagnostics } from "./demo_helpers.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const PAGE = "/demos/magnitude_estimation/index.html";
-const TASK = "magnitude_estimation";
-const N_TRIALS = 20; // matches default_magnitude_estimation_config.n_trials
-const BENIGN = [/favicon\.ico$/];
-const isBenign = (url) => BENIGN.some((re) => re.test(url));
-
-async function runMode(browser, baseUrl, spec) {
-  const page = await browser.newPage();
-  const consoleErrors = [];
-  const pageErrors = [];
-  const failedReqs = [];
-
-  page.on("console", (msg) => {
-    if (msg.type() !== "error") return;
-    if (/Failed to load resource/i.test(msg.text())) return;
-    consoleErrors.push(msg.text());
-  });
-  page.on("pageerror", (err) => pageErrors.push(String(err)));
-  page.on("requestfailed", (req) => {
-    if (!isBenign(req.url())) failedReqs.push(`${req.url()} (${req.failure()?.errorText})`);
-  });
-  page.on("response", (resp) => {
-    if (resp.status() >= 400 && !isBenign(resp.url()))
-      failedReqs.push(`${resp.url()} (HTTP ${resp.status()})`);
-  });
-
-  await page.goto(`${baseUrl}${PAGE}?${spec.query}&simulate=data-only&debug=1`, {
-    waitUntil: "domcontentloaded",
-    timeout: 30000,
-  });
-
-  const result = await page
-    .waitForFunction(
-      (task, nTrials) => {
-        const jp = window.jsPsych;
-        if (!jp || !jp.data) return false;
-        const allRows = jp.data.get().values();
-        const eventRows = allRows.map((row) => row.value || row);
-        const rows = allRows.filter((row) => row.task === task);
-        const updates = eventRows.filter((row) => row.ado_event === "update");
-        const errored = eventRows.find((row) => row.ado_event === "error" || row.ado_error);
-        if (errored) return { errored: true, message: errored.ado_error || "unknown" };
-        if (rows.length < nTrials || updates.length < nTrials) return false;
-        const last = rows[rows.length - 1];
-        return {
-          errored: false,
-          choiceRows: rows.length,
-          updateRows: updates.length,
-          hasAdoDesign: !!last.ado_design && typeof last.ado_design === "object",
-          hasChoiceMi: Object.prototype.hasOwnProperty.call(last, "ado_mutual_info"),
-          hasChoiceSelectionTime: Object.prototype.hasOwnProperty.call(
-            last,
-            "ado_selection_time_ms",
-          ),
-          choice: last.choice,
-          choiceRaw: last.choice_raw ?? null,
-          choiceLabel: last.choice_label ?? null,
-          choiceMutualInfo: last.ado_mutual_info ?? null,
-          choiceSelectionTime: last.ado_selection_time_ms ?? null,
-          postMeanLoga: last.post_mean_loga ?? null,
-          postMeanB: last.post_mean_b ?? null,
-          postSdB: last.post_sd_b ?? null,
-          postMeanSigma: last.post_mean_sigma ?? null,
-          simB: last.sim_b ?? null,
-          simEstimate: last.sim_estimate ?? null,
-          controllerMode: last.controller_mode,
-          designStrategy: last.design_strategy ?? null,
-          updateRowsWithMetrics: updates.filter((row) => Array.isArray(row.ado_next_design_metrics))
-            .length,
-        };
-      },
-      { timeout: spec.timeout, polling: 500 },
-      TASK,
-      N_TRIALS,
-    )
-    .then((h) => h.jsonValue());
-
-  await page.close();
-  return { mode: spec.label, result, consoleErrors, pageErrors, failedReqs };
-}
+const PAGE = "/demos/magnitude_estimation/index.html?simulate=data-only&debug=1";
+const N_TRIALS = 20; // matches the demo's n_trials
 
 let failures = 0;
 const note = (ok, msg) => {
@@ -101,115 +24,125 @@ const note = (ok, msg) => {
 const server = await startStaticServer(ROOT);
 const browser = await puppeteer.launch({
   headless: true,
+  protocolTimeout: 600000,
   args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
 });
 
 try {
-  const specs = [
-    { label: "mock", query: "controller=mock", timeout: 60000 },
-    { label: "stan", query: "controller=stan&strategy=ado", timeout: 240000 },
-    { label: "random", query: "controller=stan&strategy=random", timeout: 240000 },
-  ];
-  for (const spec of specs) {
-    console.log(`\n[${spec.label}] ${server.url}${PAGE}?${spec.query}&simulate=data-only&debug=1`);
-    let out;
-    try {
-      out = await runMode(browser, server.url, spec);
-    } catch (e) {
-      note(false, `${spec.label}: run did not complete (${String(e).split("\n")[0]})`);
-      continue;
-    }
-    const r = out.result;
-    const mode = spec.label;
+  const page = await browser.newPage();
+  const diagnostics = attachDiagnostics(page);
+
+  console.log(`\n[magnitude-estimation demo] ${server.url}${PAGE}`);
+  await page.goto(`${server.url}${PAGE}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+  const r = await page
+    .waitForFunction(
+      (nTrials) => {
+        const jp = window.jsPsych;
+        if (!jp || !jp.data) return false;
+        const rows = jp.data
+          .get()
+          .values()
+          .filter(
+            (row) => row && row.ado_design && Object.prototype.hasOwnProperty.call(row, "choice"),
+          );
+        const errored = jp.data
+          .get()
+          .values()
+          .find((row) => row.ado_event === "error" || row.ado_error);
+        if (errored) return { errored: true, message: errored.ado_error || "unknown" };
+        // Update fields are written onto the row when the awaited on_finish resolves,
+        // so wait for ALL rows to carry them (not merely to exist).
+        if (
+          rows.length < nTrials ||
+          rows.filter((row) => row.ado_event === "update").length < nTrials
+        )
+          return false;
+        const last = rows[rows.length - 1];
+        return {
+          errored: false,
+          choiceRows: rows.length,
+          updateRows: rows.filter((row) => row.ado_event === "update").length,
+          hasAdoDesign: !!last.ado_design && typeof last.ado_design === "object",
+          hasChoiceMi: Object.prototype.hasOwnProperty.call(last, "ado_mutual_info"),
+          hasChoiceSelectionTime: Object.prototype.hasOwnProperty.call(
+            last,
+            "ado_selection_time_ms",
+          ),
+          updateRowsWithMetrics: rows.filter((row) => Array.isArray(row.ado_next_design_metrics))
+            .length,
+          choice: last.choice,
+          choiceLabel: last.choice_label ?? null,
+          rawResponse: last.response,
+          simB: last.sim_b ?? null,
+          postMeanLoga: last.post_mean_loga ?? null,
+          postMeanB: last.post_mean_b ?? null,
+          postSdB: last.post_sd_b ?? null,
+          postMeanSigma: last.post_mean_sigma ?? null,
+          controllerMode: last.controller_mode,
+          designStrategy: last.design_strategy ?? null,
+        };
+      },
+      { timeout: 480000, polling: 500 },
+      N_TRIALS,
+    )
+    .then((h) => h.jsonValue());
+
+  note(
+    !r.errored,
+    r.errored ? `controller error -> ${r.message}` : "completed without controller error",
+  );
+  if (!r.errored) {
+    note(r.choiceRows === N_TRIALS, `${N_TRIALS} choice trials recorded (got ${r.choiceRows})`);
+    note(r.updateRows === N_TRIALS, `${N_TRIALS} update rows recorded (got ${r.updateRows})`);
+    note(r.hasAdoDesign, "last row carries ado_design");
+    note(r.hasChoiceMi, "choice row carries ado_mutual_info");
+    note(r.hasChoiceSelectionTime, "choice row carries ado_selection_time_ms");
+    note(r.updateRowsWithMetrics === N_TRIALS, "update rows carry ado_next_design_metrics");
+    // Continuous response: choice is the modeled log-estimate (a real number, no label),
+    // and the raw slider value is the exp of it (the demo's respond mapping).
     note(
-      !r.errored,
-      r.errored
-        ? `${mode}: controller error -> ${r.message}`
-        : `${mode}: completed without controller error`,
-    );
-    if (!r.errored) {
-      note(
-        r.choiceRows === N_TRIALS,
-        `${mode}: ${N_TRIALS} choice trials recorded (got ${r.choiceRows})`,
-      );
-      note(
-        r.updateRows === N_TRIALS,
-        `${mode}: ${N_TRIALS} update rows recorded (got ${r.updateRows})`,
-      );
-      note(r.hasAdoDesign, `${mode}: last row carries ado_design`);
-      note(r.hasChoiceMi, `${mode}: choice row carries ado_mutual_info`);
-      note(r.hasChoiceSelectionTime, `${mode}: choice row carries ado_selection_time_ms`);
-      note(
-        r.updateRowsWithMetrics === N_TRIALS,
-        `${mode}: update rows carry ado_next_design_metrics`,
-      );
-      // Continuous response: choice is a real number (log estimate), not a class index,
-      // and there is no categorical label.
-      note(
-        typeof r.choice === "number" && Number.isFinite(r.choice),
-        `${mode}: choice is a finite real number (got ${r.choice})`,
-      );
-      note(
-        typeof r.choiceRaw === "number" && Number.isFinite(r.choiceRaw),
-        `${mode}: choice_raw (raw slider estimate) recorded (got ${r.choiceRaw})`,
-      );
-      note(
-        r.choiceLabel === null,
-        `${mode}: choice_label is null for a continuous response (got ${r.choiceLabel})`,
-      );
-      note(
-        r.controllerMode === (mode === "random" ? "stan" : mode),
-        `${mode}: controller_mode recorded (got ${r.controllerMode})`,
-      );
-      note(
-        typeof r.simB === "number" && typeof r.simEstimate === "number",
-        `${mode}: simulation audit fields populated (sim_b=${r.simB}, sim_estimate=${r.simEstimate})`,
-      );
-      if (mode === "stan" || mode === "random") {
-        note(
-          typeof r.choiceMutualInfo === "number" && Number.isFinite(r.choiceMutualInfo),
-          `${mode}: selected-design MI recorded (${r.choiceMutualInfo})`,
-        );
-        note(
-          typeof r.choiceSelectionTime === "number" && r.choiceSelectionTime >= 0,
-          `${mode}: selection time recorded (${r.choiceSelectionTime} ms)`,
-        );
-        note(
-          typeof r.postMeanLoga === "number" &&
-            typeof r.postMeanB === "number" &&
-            typeof r.postSdB === "number" &&
-            typeof r.postMeanSigma === "number",
-          `${mode}: continuous posterior populated (b mean=${r.postMeanB}, sd=${r.postSdB}, sigma=${r.postMeanSigma})`,
-        );
-      } else {
-        note(r.choiceMutualInfo === null, `${mode}: selected-design MI is null when unavailable`);
-        note(r.choiceSelectionTime === null, `${mode}: selection time is null when unavailable`);
-      }
-    }
-    note(
-      out.consoleErrors.length === 0,
-      `${mode}: no console errors` +
-        (out.consoleErrors.length ? ` -> ${out.consoleErrors.slice(0, 3).join(" | ")}` : ""),
+      typeof r.choice === "number" && Number.isFinite(r.choice),
+      `choice is a finite real number (got ${r.choice})`,
     );
     note(
-      out.pageErrors.length === 0,
-      `${mode}: no uncaught page errors` +
-        (out.pageErrors.length ? ` -> ${out.pageErrors.slice(0, 3).join(" | ")}` : ""),
+      r.choiceLabel === null,
+      `continuous response has no categorical label (got ${r.choiceLabel})`,
     );
     note(
-      out.failedReqs.length === 0,
-      `${mode}: no unexpected failed requests` +
-        (out.failedReqs.length ? ` -> ${out.failedReqs.slice(0, 3).join(" | ")}` : ""),
+      typeof r.rawResponse === "number" && Math.abs(Math.log(r.rawResponse) - r.choice) < 1e-6,
+      "choice equals log(raw slider response)",
     );
+    note(r.simB === 0.7, `simulated participant's b is audited on the row (got ${r.simB})`);
+    note(
+      [r.postMeanLoga, r.postMeanB, r.postSdB, r.postMeanSigma].every(
+        (v) => typeof v === "number" && Number.isFinite(v),
+      ),
+      "continuous posterior fields (loga, b, sigma) are numeric",
+    );
+    note(r.controllerMode === "stan", `controller_mode is stan (got ${r.controllerMode})`);
+    note(r.designStrategy === "ado", `design_strategy is ado (got ${r.designStrategy})`);
   }
+
+  note(
+    diagnostics.consoleErrors.length === 0,
+    `no console errors (${diagnostics.consoleErrors.join("; ")})`,
+  );
+  note(
+    diagnostics.pageErrors.length === 0,
+    `no page errors (${diagnostics.pageErrors.join("; ")})`,
+  );
+  note(
+    diagnostics.failedReqs.length === 0,
+    `no failed requests (${diagnostics.failedReqs.join("; ")})`,
+  );
 } finally {
   await browser.close();
   await server.close();
 }
 
-console.log(
-  failures === 0
-    ? "\nALL MAGNITUDE-ESTIMATION BROWSER SMOKE CHECKS PASSED"
-    : `\n${failures} CHECK(S) FAILED`,
-);
-process.exit(failures === 0 ? 0 : 1);
+if (failures > 0) {
+  console.error(`\nmagnitude estimation smoke: ${failures} failure(s)`);
+  process.exit(1);
+}
+console.log("\nmagnitude estimation smoke: all checks passed");
