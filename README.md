@@ -30,14 +30,36 @@ continuous.
 
 ## Quick start
 
-Serve the repo with any static server and open a demo (add `?debug=1` for live posterior
-charts):
+Your experiment is ordinary jsPsych code — read the ADO-selected design in your trial and
+record the outcome in `on_finish`:
 
-```text
-demos/delay_discounting_tutorial/index.html?debug=1
+```js
+import { jsPsychADO } from "jspsych-ado";
+import hyperbolic from "jspsych-ado/models/hyperbolic/model.js";
+
+const ado = jsPsychADO.createController(jsPsych, {
+  model: hyperbolic,
+  design_grid: { t_ss: [0], t_ll: [1, 4, 12, 26, 52], r_ss: [100, 200, 400, 600], r_ll: [800] },
+  n_trials: 42,
+});
+
+const trial = {
+  type: htmlButtonResponse,
+  stimulus: () =>
+    `$${ado.evaluateDesignVariable("r_ss")} now, or $${ado.evaluateDesignVariable("r_ll")} later?`,
+  choices: ["Sooner", "Later"],
+  on_finish: (data) => ado.recordResponse(data.response), // the model outcome (0/1)
+};
+
+jsPsych.run([...ado.createTimeline(trial)]); // wraps your trial into the adaptive loop
 ```
 
-Or install it in a bundler project: `npm install jspsych-ado`.
+`createTimeline` awaits each model update before the next trial renders. Full API and
+bundler setup are in the **[usage guide](docs/usage.md)**.
+
+To try the bundled demos, serve the repo statically and open one (add `?debug=1` for live
+posterior charts) — e.g. `demos/delay_discounting_tutorial/index.html`. Install:
+`npm install jspsych-ado`.
 
 ## Documentation
 
