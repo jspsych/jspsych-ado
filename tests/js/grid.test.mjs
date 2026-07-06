@@ -14,9 +14,9 @@ test("arange rounds to 10 decimals so float steps stay clean", () => {
   assert.deepEqual(arange(0, 0.7, 0.1), [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
 });
 
-test("arange excludes the endpoint even when float undershoot would re-include it (#2)", () => {
+test("arange excludes the endpoint even when float undershoot would re-include it", () => {
   // 0.1 steps: the raw accumulator reaches 0.9999999999999999 (< 1) on the 11th
-  // step, which used to round up to 1 and wrongly include the excluded endpoint.
+  // step; naive rounding would push it to 1 and wrongly re-include the endpoint.
   const tenths = arange(0, 1, 0.1);
   assert.equal(tenths.length, 10);
   assert.equal(tenths.at(-1), 0.9);
@@ -44,10 +44,11 @@ test("linspace rejects a non-integer or < 1 num", () => {
   assert.throws(() => linspace(0, 10, 2.5), /num must be an integer >= 1/);
 });
 
-// Regression guards: the migrated tasks must produce byte-identical grids to the
-// pre-refactor local range() helpers (which differed in endpoint inclusivity).
+// Regression guards: `arange`/`linspace` must reproduce the exact float sequences
+// the shipped task design grids depend on. The two families differ in endpoint
+// inclusivity: `arange` is half-open, the line-length deltas are inclusive.
 test("arange reproduces the legacy delay-discounting r_ss grid byte-for-byte", () => {
-  // old: range(12.5, 800, 12.5) with `value < stop` (half-open).
+  // The r_ss grid is range(12.5, 800, 12.5) with `value < stop` (half-open).
   const legacy = [];
   for (let v = 12.5; v < 800; v += 12.5) legacy.push(Number(v.toFixed(10)));
   assert.deepEqual(arange(12.5, 800, 12.5), legacy);
@@ -56,7 +57,7 @@ test("arange reproduces the legacy delay-discounting r_ss grid byte-for-byte", (
 });
 
 test("linspace reproduces the legacy line-length deltas byte-for-byte", () => {
-  // old: range(4, 48, 4) with `value <= stop` (INCLUSIVE — kept 48).
+  // The line-length deltas are range(4, 48, 4) with `value <= stop` (inclusive — 48 is kept).
   const legacy = [];
   for (let v = 4; v <= 48; v += 4) legacy.push(Number(v.toFixed(10)));
   assert.deepEqual(linspace(4, 48, 12), legacy);

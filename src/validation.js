@@ -19,7 +19,7 @@ import { validateStanDataSpec } from "./ado/stan_data.js";
 
 const SAMPLEABLE_PRIOR_DISTS = new Set(["lognormal", "normal", "halfnormal"]);
 
-// Fields that belong in experiment/trial code (the old task layer), never on a model.
+// Fields that belong in experiment/trial code (task-layer concerns), never on a model.
 const TASK_ONLY_FIELDS = [
   "design_grid",
   "presentation",
@@ -415,13 +415,4 @@ function validateModel(model, opts = {}) {
   return { valid, problems };
 }
 
-export {
-  TASK_ONLY_FIELDS,
-  isContinuous,
-  isSourceModel,
-  continuousModelProblems,
-  validateResponseSpace,
-  getResponseCount,
-  validateModel,
-  validateDesignGridForModel,
-};
+export { isContinuous, isSourceModel, getResponseCount, validateModel, validateDesignGridForModel };

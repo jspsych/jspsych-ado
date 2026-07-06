@@ -22,7 +22,7 @@ function nullDesignMetrics(count) {
  *
  * The effective trial cap is the stopping max_trials (which already falls back to
  * n_trials), so the controller supplies a design for every node the timeline can run —
- * `stopping: { max_trials > n_trials }` no longer underflows.
+ * so `stopping: { max_trials > n_trials }` cannot underflow the design queue.
  *
  * @param {Object} stopper - A makeStoppingEvaluator() result (reads stopper.config.max_trials).
  * @param {number} testlet_size - Choice trials shown between refits.

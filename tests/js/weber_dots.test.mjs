@@ -1,12 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import model, {
-  normalCdf,
-  numerosities,
-  responseProb,
-  responseProbs,
-} from "../../src/models/weber_dots/model.js";
+import model, { normalCdf, numerosities } from "../../src/models/weber_dots/model.js";
+const { responseProb, responseProbs } = model;
 import { makeStanDataBuilder } from "../../src/ado/stan_data.js";
 
 // The model declares a stanData map; the framework generates buildData from it.

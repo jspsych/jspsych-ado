@@ -1,4 +1,4 @@
-// Compile-from-source models as a preload step (#137): a model supplied as
+// Compile-from-source models as a preload step: a model supplied as
 // stanCode compiles eagerly at createController via a compile server; the Stan
 // controller's model_ready chains on the compiled artifact URLs; ado.preload()
 // gates the timeline jsPsychPreload-style; failures surface readably.

@@ -59,7 +59,7 @@ function parseStanPriors(stanCode, paramSpecs) {
   const prior = {};
 
   // Strip comments first so a commented-out or stale sampling statement
-  // (e.g. `// k ~ normal(0,1);`) can't be matched instead of the real prior. (#6)
+  // (e.g. `// k ~ normal(0,1);`) can't be matched instead of the real prior.
   const source = stanCode
     .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments
     .replace(/\/\/[^\n]*/g, " "); // line comments
@@ -71,7 +71,7 @@ function parseStanPriors(stanCode, paramSpecs) {
     const declaredPositive =
       meta.lower === 0 ||
       // Match a lower bound of EXACTLY 0 — "lower=0" followed by "," or ">", so a
-      // parameter bounded above 0 (`lower=0.5`, `lower=0.1`) isn't misread as 0. (#7)
+      // parameter bounded above 0 (`lower=0.5`, `lower=0.1`) isn't misread as 0.
       new RegExp(`real\\s*<[^>]*lower\\s*=\\s*0\\s*(?:,[^>]*)?>\\s*${name}\\b`).test(source);
 
     const match = new RegExp(`\\b${name}\\s*~\\s*(\\w+)\\s*\\(([^;]*)\\)\\s*;`).exec(source);
@@ -90,7 +90,7 @@ function parseStanPriors(stanCode, paramSpecs) {
       );
     }
     // normal/lognormal each take exactly 2 numeric arguments; a wrong arity would
-    // silently leave sd/sdlog undefined and produce NaN prior draws. (#13)
+    // silently leave sd/sdlog undefined and produce NaN prior draws.
     if ((dist === "normal" || dist === "lognormal") && args.length !== 2) {
       throw new Error(
         `parseStanPriors: "${name}" prior ${dist}(...) expects 2 numeric arguments but got ` +

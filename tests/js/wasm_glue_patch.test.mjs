@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { UNPATCHED, PATCHED, listModelMains } from "../../scripts/patch-wasm-glue.mjs";
 
-// Guards the bundler-safety fix (#57). For every committed model:
+// Guards the bundler-safety patch. For every committed model:
 //  - main.js must be patched so emscripten honors Module.locateFile (the
 //    stan-playground toolchain emits the UNPATCHED form, which fetches an unhashed
 //    sibling .wasm that 404s under a bundler). Re-run `node scripts/patch-wasm-glue.mjs`
@@ -19,7 +19,7 @@ test("there is at least one committed model to check", () => {
 });
 
 for (const { name, dir, file } of models) {
-  test(`${name}/main.js honors Module.locateFile (bundler-safe, #57)`, async () => {
+  test(`${name}/main.js honors Module.locateFile (bundler-safe)`, async () => {
     const src = await readFile(file, "utf8");
     assert.ok(
       src.includes(PATCHED),
@@ -31,7 +31,7 @@ for (const { name, dir, file } of models) {
     );
   });
 
-  test(`${name}/model.js declares a wasmUrl (bundler-safe, #57)`, async () => {
+  test(`${name}/model.js declares a wasmUrl (bundler-safe)`, async () => {
     const model = (await import(pathToFileURL(join(dir, "model.js")).href)).default;
     assert.ok(
       model && typeof model === "object",

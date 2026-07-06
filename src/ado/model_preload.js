@@ -1,5 +1,5 @@
 // The model-preload trial: the jsPsychPreload-style gate for compile-from-source
-// models (#137). ado.preload() returns one ordinary jsPsych trial built on the tiny
+// models. ado.preload() returns one ordinary jsPsych trial built on the tiny
 // self-contained plugin below (no plugin dependency): it shows a message while the
 // model's compile → download → readiness chain resolves, then ends. A compile
 // failure renders the compiler's actual error message (a stanc syntax error is

@@ -106,4 +106,4 @@ const weberDotsModel = {
 };
 
 export default weberDotsModel;
-export { stanData, normalCdf, numerosities, responseProb, responseProbs, subjectiveValues };
+export { normalCdf, numerosities };

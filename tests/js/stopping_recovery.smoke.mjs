@@ -1,4 +1,4 @@
-// Behavioral smoke for EIG-fraction adaptive stopping (#21), with REAL Stan WASM
+// Behavioral smoke for EIG-fraction adaptive stopping, with REAL Stan WASM
 // inference + the real MI engine. It runs the adaptive loop exactly as the
 // controller would — pick the max-EIG design, simulate, refit, evaluate the
 // stopping rule on the real grid-max EIG — and checks:

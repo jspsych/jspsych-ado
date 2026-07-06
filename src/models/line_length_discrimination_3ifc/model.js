@@ -120,14 +120,4 @@ const lineLengthDiscriminationModel = {
 };
 
 export default lineLengthDiscriminationModel;
-export {
-  LINE_LENGTH_SCALE,
-  LINE_KEYS,
-  stanData,
-  getLineLength,
-  lineLengthDiscriminationModel,
-  lineLengthEvidence,
-  responseProbs,
-  simulationData,
-  softmax,
-};
+export { LINE_LENGTH_SCALE, LINE_KEYS, getLineLength, lineLengthEvidence, softmax };

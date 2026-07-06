@@ -1,6 +1,6 @@
 // src/index.js — the jsPsychADO façade (package entry point).
 //
-// The public authoring path is controller-based (#135):
+// The public authoring path is controller-based:
 //
 //   const ado = jsPsychADO.createController(jsPsych, { model, design_grid, stan });
 //
@@ -39,6 +39,8 @@ import {
   isContinuous,
   isSourceModel,
 } from "./validation.js";
+import { resolveResponseLabels, labelsToConfig } from "./ado/response_labels.js";
+import { resolveDebug } from "./ado/debug_flag.js";
 import { parseStanPriors, compileToModuleUrl } from "./models/stan_source.js";
 
 const DEFAULT_STAN = { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 };
@@ -75,7 +77,7 @@ const _compileCache = new Map(); // `${server}\n${stanCode}` -> moduleUrl (per p
  * @param {Object} [config.stan] - Sampler overrides { num_chains, num_warmup, num_samples, seed }.
  * @param {number} [config.n_trials=42] - Adaptive trial count.
  * @param {number} [config.testlet_size=1] - Choice trials shown between Stan refits.
- * @param {Object} [config.stopping] - EIG-based early stopping (#21); omit for fixed length.
+ * @param {Object} [config.stopping] - EIG-based early stopping; omit for fixed length.
  * @param {string} [config.controller="stan"] - "stan" (live inference) or "mock" (no-WASM dev).
  * @param {string} [config.design_strategy="ado"] - "ado" (MI-optimal) or "random" (recovery baseline).
  * @param {?number} [config.design_seed] - Optional seed for prior/random design selection.
@@ -113,7 +115,7 @@ function createController(jsPsych, config = {}) {
     }
   }
 
-  // Source models (#137): a model supplied as Stan source instead of committed
+  // Source models: a model supplied as Stan source instead of committed
   // artifacts. The prior is derived from the source synchronously (so validation
   // and first-design selection work unchanged), and compilation kicks off EAGERLY
   // here — it overlaps welcome/instruction screens, and by the time an
@@ -419,7 +421,7 @@ function createController(jsPsych, config = {}) {
                 data.__ado_response = recorded_response;
                 copySimulationAuditFields(data, run_context);
               };
-              // Simulation hook (#135 follow-up to the old ?simulate= contract): when a
+              // Simulation hook: when a
               // synthetic participant is configured, supply plugin simulation data drawn
               // from the model likelihood at the live design. User-authored
               // simulation_options win.
@@ -507,7 +509,7 @@ async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } =
   const prior = spec.prior ?? parseStanPriors(stanCode, spec.params);
 
   // Key the cache by server AND source so the same .stan compiled against a
-  // different server doesn't return the first server's stale module URL. (#10)
+  // different server doesn't return the first server's stale module URL.
   const cacheKey = `${(compileServer || "").replace(/\/+$/, "")}\n${stanCode}`;
   let moduleUrl = _compileCache.get(cacheKey);
   if (!moduleUrl) {
@@ -531,28 +533,6 @@ function normalizeControllerMode(value) {
     throw new Error(`createController: controller must be "stan" or "mock", got "${value}".`);
   }
   return value;
-}
-
-function resolveDebug(value) {
-  if (value === "url") {
-    return isDebugUrlEnabled();
-  }
-  return Boolean(value);
-}
-
-function isDebugUrlEnabled() {
-  if (typeof globalThis === "undefined" || !globalThis.location) {
-    return false;
-  }
-  const params = new URLSearchParams(globalThis.location.search || "");
-  if (!params.has("debug")) {
-    return false;
-  }
-  const value = params.get("debug");
-  if (value == null || value === "") {
-    return true;
-  }
-  return !/^(0|false|off|no)$/i.test(value);
 }
 
 // Validate a model package and adapt it to the shape the engine/controllers
@@ -656,69 +636,6 @@ function normalizeControllerTrials(trial_or_trials, response_trial_index) {
     );
   }
   return { trials, response_trial_index: index };
-}
-
-/**
- * Resolve the outcome labels recorded as data.choice_label.
- *
- * EXPLICIT labels are the user's statement of the model's outcome coding, so a
- * count mismatch with the response space is a hard error. Labels INFERRED from a
- * static button-trial `choices` array are best-effort sugar (a keyboard trial's
- * `choices` are keys, not outcomes): when the count doesn't match, warn and fall
- * back to numeric labels instead of rejecting a validly-wired experiment.
- */
-function resolveResponseLabels(explicit_labels, response_trial, responseSpace) {
-  if (isContinuous(responseSpace)) {
-    return explicit_labels != null ? labelsToConfig(explicit_labels) : null;
-  }
-  const response_count = getResponseCount(responseSpace);
-  const numeric_labels = () =>
-    response_count != null
-      ? Object.fromEntries(
-          Array.from({ length: response_count }, (_value, index) => [index, String(index)]),
-        )
-      : {};
-
-  if (explicit_labels != null) {
-    const labels = labelsToConfig(explicit_labels);
-    const label_count = countLabels(labels);
-    if (response_count != null && label_count !== response_count) {
-      throw new Error(
-        `ado.createTimeline: response_labels has ${label_count} entries; expected ${response_count}.`,
-      );
-    }
-    return labels;
-  }
-
-  if (response_trial && Array.isArray(response_trial.choices)) {
-    if (response_count == null || response_trial.choices.length === response_count) {
-      return labelsToConfig(response_trial.choices);
-    }
-    console.warn(
-      `ado.createTimeline: not inferring outcome labels from the response trial's ` +
-        `${response_trial.choices.length} choices (the model has ${response_count} outcomes — ` +
-        `plugin choices are UI, not outcome coding). Pass response_labels to name the outcomes.`,
-    );
-  }
-  return numeric_labels();
-}
-
-// Convert ["SS","LL"] -> {0:"SS",1:"LL"}; pass an object through unchanged.
-function labelsToConfig(labels) {
-  if (Array.isArray(labels)) {
-    return Object.fromEntries(labels.map((label, index) => [index, label]));
-  }
-  return labels;
-}
-
-function countLabels(labels) {
-  if (Array.isArray(labels)) {
-    return labels.length;
-  }
-  if (labels && typeof labels === "object") {
-    return Object.keys(labels).length;
-  }
-  return null;
 }
 
 // Build the simulate_choice hook for a synthetic participant: draw a response from

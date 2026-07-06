@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { listModelMains } from "../../scripts/patch-wasm-glue.mjs";
 
 // Static guards for the source patterns bundlers (Vite/webpack) depend on to emit
-// and resolve the WASM + worker assets (#57). These are cheap and run in plain
+// and resolve the WASM + worker assets. These are cheap and run in plain
 // Node; the full "does a real bundler build load the hashed wasm" check lives in
 // the bundler spike (see PR notes), but these catch the likely regressions — a
 // cleanup that drops a magic comment, turns a `new URL(...)` into a hardcoded
@@ -75,7 +75,7 @@ test("the controller forwards model.wasmUrl to the worker client init", async ()
   const src = await read("src/controllers/stan_ado_controller.js");
   // Committed models resolve { moduleUrl: model.moduleUrl, wasmUrl: model.wasmUrl }
   // (source models substitute the compiled URLs), and the chain hands the pair to
-  // client.init — the #57 guarantee that the bundler-emitted wasm URL reaches the
+  // client.init — the guarantee that the bundler-emitted wasm URL reaches the
   // worker. Behaviorally asserted in tests/js/compile_preload.test.mjs.
   assert.match(
     src,

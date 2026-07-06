@@ -1,4 +1,4 @@
-// Runtime proof that the #57 glue patch works: emscripten must actually call
+// Runtime proof that the glue patch works: emscripten must actually call
 // Module.locateFile to resolve the wasm. We simulate a bundler by serving the wasm
 // bytes ONLY at a hashed URL and 404-ing the default sibling "main.wasm":
 //
@@ -7,7 +7,7 @@
 //
 // The first proves the PATCHED glue honors Module.locateFile (a regression where the
 // patch lands but is dead code would make this fail); the second proves the override
-// is actually required under a bundler (the bug #57 fixed). This loads the web-only
+// is actually required under a bundler. This loads the web-only
 // emscripten module in node via a fetch shim, like the recovery smokes, so it is NOT
 // part of `node --test`.
 //

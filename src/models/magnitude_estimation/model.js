@@ -150,15 +150,4 @@ const magnitudeEstimationModel = {
 };
 
 export default magnitudeEstimationModel;
-export {
-  SQRT_2PI,
-  normalPdf,
-  predictedLogMean,
-  buildData,
-  responseDensity,
-  responseDensityFactory,
-  responseMoments,
-  conditionalEntropy,
-  responseSampler,
-  magnitudeEstimationModel,
-};
+export { SQRT_2PI, normalPdf, predictedLogMean };

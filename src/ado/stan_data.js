@@ -1,10 +1,11 @@
 // Declarative jsPsych-rows -> Stan-data assembly.
 //
-// Models used to hand-write a buildData(trials) that did the same mechanical thing:
-// N = trials.length, map each design column to an array, and map the response to y
-// (with a +1 for 1-indexed categoricals — a convention you had to remember). That is
-// pure boilerplate and the top source of silent shape bugs, so a model now declares a
-// `stanData` MAP that mirrors its .stan `data` block and we generate the builder.
+// A model declares a `stanData` MAP that mirrors its .stan `data` block, and this
+// module generates the trials -> Stan-data builder from it. That avoids a mechanical,
+// error-prone hand-written buildData(trials) — N = trials.length, map each design
+// column to an array, map the response to y (with a +1 for 1-indexed categoricals) —
+// which is boilerplate and a common source of silent shape bugs. (A hand-written
+// buildData/toStanData remains an escape hatch for ragged or derived columns.)
 //
 // The map is keyed by Stan data-block variable name; each value is one of:
 //   "<trialKey>"               -> trials.map(t => t[trialKey])            (copy a column)

@@ -49,7 +49,7 @@ test("normalizeStoppingConfig rejects junk and turns EIG stopping off for non-po
   assert.equal(n.consecutive, 1);
 });
 
-test("normalizeStoppingConfig keeps eig_fraction == 1 but turns it off for > 1 (#4)", () => {
+test("normalizeStoppingConfig keeps eig_fraction == 1 but turns it off for > 1", () => {
   // A fraction > 1 sets a threshold above the max achievable EIG (ln K), i.e.
   // "always stop at min_trials" — a footgun, so it must disable EIG stopping.
   assert.equal(normalizeStoppingConfig({ eig_fraction: 1 }).eig_fraction, 1);
@@ -173,7 +173,7 @@ test("makeStoppingEvaluator threads the consecutive-below streak and reset() cle
   // first sub-threshold refit: streak 1, no stop; second in a row: stop.
   assert.deepEqual(stopper.evaluate(5, 0.04), { should_stop: false, stop_reason: null });
   assert.deepEqual(stopper.evaluate(6, 0.03), { should_stop: true, stop_reason: "eig_fraction" });
-  // reset clears the streak, so a single sub-threshold refit no longer stops.
+  // reset clears the streak, so a single sub-threshold refit does not stop.
   stopper.reset();
   assert.deepEqual(stopper.evaluate(7, 0.03), { should_stop: false, stop_reason: null });
 });

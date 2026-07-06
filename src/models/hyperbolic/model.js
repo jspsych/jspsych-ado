@@ -132,4 +132,4 @@ const hyperbolicModel = {
 };
 
 export default hyperbolicModel;
-export { responseProb, getHyperbolicValue, logistic, stanData, responseProbs, subjectiveValues };
+export { getHyperbolicValue, logistic };

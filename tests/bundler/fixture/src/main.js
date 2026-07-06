@@ -1,7 +1,7 @@
 // A real bundler consumer using the PUBLIC controller API with imported jsPsych
 // response plugins and NO globalThis assignment. The runner builds this with Vite
 // (production) and headlessly confirms the hashed WASM loads and a posterior is
-// produced — the exact path #57 repairs.
+// produced — the exact bundler wasm-resolution path this smoke exists to guard.
 import { initJsPsych } from "jspsych";
 import htmlButtonResponse from "@jspsych/plugin-html-button-response";
 import { jsPsychADO } from "jspsych-ado";

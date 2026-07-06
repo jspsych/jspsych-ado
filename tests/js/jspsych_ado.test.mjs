@@ -51,7 +51,7 @@ function makeModel(overrides = {}) {
 import { runFragment, makeJsPsych, installFakeWorker } from "./_timeline_harness.mjs";
 
 // ---------------------------------------------------------------------------
-// parseStanPriors (kept regressions: #6 comments, #7 half-normal bounds)
+// parseStanPriors: commented-out statements and half-normal bounds
 // ---------------------------------------------------------------------------
 
 const STAN_CODE = `
@@ -59,7 +59,7 @@ data { int<lower=0> N; }
 parameters {
   real<lower=0> k;
   real tau;
-  // beta ~ normal(9, 9);  (commented out on purpose, #6)
+  // beta ~ normal(9, 9);  (commented out on purpose)
   real<lower=0> beta;
 }
 model {
@@ -76,12 +76,12 @@ test("parseStanPriors: derives lognormal / normal / half-normal specs", () => {
   assert.deepEqual(prior.beta, { dist: "halfnormal", sd: 2 }); // <lower=0> + zero-mean normal
 });
 
-test("parseStanPriors: ignores commented-out sampling statements (#6)", () => {
+test("parseStanPriors: ignores commented-out sampling statements", () => {
   const prior = parseStanPriors(STAN_CODE, ["beta"]);
   assert.deepEqual(prior.beta, { dist: "halfnormal", sd: 2 });
 });
 
-test("parseStanPriors: lower=0.5 is NOT half-normal (#7)", () => {
+test("parseStanPriors: lower=0.5 is NOT half-normal", () => {
   const code = `
 parameters { real<lower=0.5> w; }
 model { w ~ normal(0, 1); }
@@ -454,7 +454,7 @@ test("stan run: on_finish is not resolved until the sample completes; next trial
   }
 });
 
-test("stan run: worker init receives moduleUrl AND wasmUrl (#57 regression)", async () => {
+test("stan run: worker init receives moduleUrl AND wasmUrl", async () => {
   const capture = [];
   const restore = installFakeWorker({ capture });
   try {
@@ -523,10 +523,10 @@ test("testlet_size=2: each trial inside a testlet renders its OWN design; one up
 });
 
 // ---------------------------------------------------------------------------
-// Early stopping through the timeline (#21 regression, restored)
+// Early stopping through the timeline
 // ---------------------------------------------------------------------------
 
-test("createAdoTimeline skips remaining testlets once the controller signals should_stop (#21)", async () => {
+test("createAdoTimeline skips remaining testlets once the controller signals should_stop", async () => {
   let updates = 0;
   const scripted_controller = {
     start: () => ({
@@ -677,7 +677,7 @@ test("controller reuse: a second createTimeline run works after the first (pract
 });
 
 // ---------------------------------------------------------------------------
-// Simulation hook (the old ?simulate= contract, re-homed)
+// Simulation hook (synthetic-participant runs via jsPsych.simulate())
 // ---------------------------------------------------------------------------
 
 test("simulate: composes simulation_options drawing responses from the model likelihood", async () => {

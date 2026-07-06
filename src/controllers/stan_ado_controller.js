@@ -100,7 +100,7 @@ function createStanAdoController({
   const design_rng = createSeededRng(design_seed ?? sample_config.seed);
   const debug_draw_rng = createSeededRng((design_seed ?? sample_config.seed) + 1);
 
-  // Adaptive stopping (#21). EIG stopping is ADO-ONLY: the metric is the grid-max
+  // Adaptive stopping. EIG stopping is ADO-ONLY: the metric is the grid-max
   // EIG of the next design (max_mutual_info), which only equals the best available
   // next trial under design_strategy "ado". Under "random" we deliberately do NOT
   // compute the grid-max EIG (random exists as a cheap baseline), so eig_fraction
@@ -121,7 +121,7 @@ function createStanAdoController({
   } else if (stopper.config.eig_fraction != null && max_possible_eig == null) {
     // No finite maximum EIG to normalize the fraction against (e.g. a continuous
     // response, whose ln(K) is undefined), so EIG-fraction stopping is inert and the
-    // run is fixed-length via max_trials. See #110 (continuous) and #101 (precision-target).
+    // run is fixed-length via max_trials.
     console.warn(
       "createStanAdoController: eig_fraction stopping is inert because this response " +
         "space has no finite maximum EIG; only max_trials applies.",
@@ -273,7 +273,7 @@ function createStanAdoController({
      * @returns {Object} Initial ADO state (null posteriors).
      */
     start: function () {
-      // Source models (#137) deliver their compiled artifact URLs through the
+      // Source models deliver their compiled artifact URLs through the
       // module_ready option (an in-flight promise; compile kicked off at
       // createController); committed models resolve immediately from the model
       // package. Either way the first update() awaits the chain.
@@ -312,7 +312,7 @@ function createStanAdoController({
         // here: do NOT feed its EIG into the stopping de-bounce streak. Otherwise a
         // sub-threshold prior EIG with the default min_trials=0 pre-increments the
         // streak, firing EIG stopping one real trial too early. The mock controller
-        // already passes null here. (#1)
+        // already passes null here.
         ...stopper.evaluate(trials.length, null),
         post_mean: null,
         post_sd: null,
@@ -342,7 +342,7 @@ function createStanAdoController({
       // Sample on the accumulated trials PLUS the new rows, but commit the new rows to
       // `trials` only after sampling succeeds. A rejected sample (in-flight guard,
       // worker failure, or empty draws) must not leave a phantom trial behind, which
-      // would corrupt every later posterior fit. (#3)
+      // would corrupt every later posterior fit.
       const draws = await samplePosterior(trials.concat(new_trials));
       trials.push(...new_trials);
       current_design_draws = draws;

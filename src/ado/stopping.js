@@ -1,4 +1,4 @@
-// Adaptive early-stopping rule for the ADO loop (#21).
+// Adaptive early-stopping rule for the ADO loop.
 //
 // Design selection already maximizes the expected information gain (EIG = the
 // mutual information I(θ; y | d) between the parameters and the response under a
@@ -12,7 +12,7 @@
 // spaces, instead of an absolute nats value that means different stringency for
 // binary vs categorical tasks.
 //
-// The rule is gated by min_trials / max_trials (a standalone safety cap, #23) and
+// The rule is gated by min_trials / max_trials (a standalone safety cap) and
 // de-bounced by `consecutive`: the EIG is a Monte-Carlo estimate that wiggles
 // trial to trial, so `consecutive > 1` requires the EIG to stay below threshold
 // for that many refits in a row before stopping (default 1 = react immediately).

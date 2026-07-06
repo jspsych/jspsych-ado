@@ -45,7 +45,7 @@ function createStanWorkerClient() {
     // request would otherwise hang forever. Terminate and drop the dead worker (so
     // its thread/WASM instance isn't leaked), then reject the in-flight request with
     // a clear error; any later send() fails fast rather than null-dereferencing the
-    // worker. (#8)
+    // worker.
     worker.onerror = function (event) {
       if (worker) {
         worker.terminate();
@@ -74,7 +74,7 @@ function createStanWorkerClient() {
     }
     // The worker is created in init() via ensureWorker(); if it died (onerror/
     // onmessageerror nulled it), fail with a clear message instead of dereferencing
-    // null. (#8)
+    // null.
     if (!worker) {
       return Promise.reject(new Error("Stan worker is unavailable (it failed to load earlier)."));
     }

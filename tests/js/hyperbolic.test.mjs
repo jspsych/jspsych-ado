@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import model, {
-  responseProb,
-  responseProbs,
-  getHyperbolicValue,
-  logistic,
-} from "../../src/models/hyperbolic/model.js";
+import model, { getHyperbolicValue, logistic } from "../../src/models/hyperbolic/model.js";
+// The likelihood is exposed on the model package object (the public interface);
+// standalone math helpers remain named exports.
+const { responseProb, responseProbs } = model;
 import { makeStanDataBuilder } from "../../src/ado/stan_data.js";
 
 // The model declares a stanData map; the framework generates buildData from it.

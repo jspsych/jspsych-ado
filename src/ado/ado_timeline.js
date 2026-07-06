@@ -1,13 +1,22 @@
 import { normalizeStoppingConfig } from "./stopping.js";
 import { normalizeDesignMetric, metricsFromResult } from "./design_metrics.js";
-import { logAdoTrial } from "./debug/ado_trial_log.js";
-import {
-  updateLiveCharts,
-  appendPosteriorHistory,
-  appendInformationGainHistory,
-  updateInformationGainPanel,
-  finalizeDebugUi,
-} from "./debug/posterior_convergence_charts.js";
+
+// The debug UI (per-trial console logs, live posterior/EIG charts, the debrief
+// overlay — ~1400 lines of chart/SVG code) is only needed when debug is on, so it
+// is DYNAMICALLY imported the first time it's used rather than statically. A
+// production bundler splits it into a separate chunk that participants running
+// without ?debug never download. Cached after first load; module-scoped because
+// the debug code is identical across every timeline on the page.
+let debugModulePromise = null;
+function loadDebugUi() {
+  if (!debugModulePromise) {
+    debugModulePromise = Promise.all([
+      import("./debug/ado_trial_log.js"),
+      import("./debug/posterior_convergence_charts.js"),
+    ]).then(([log, charts]) => ({ ...log, ...charts }));
+  }
+  return debugModulePromise;
+}
 
 // Generic adaptive-design-optimization (ADO) jsPsych timeline.
 //
@@ -230,7 +239,7 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
     setDesignQueue(start_result);
   }
 
-  // Adaptive stopping (#21): build up to max_trials adaptive steps, each testlet
+  // Adaptive stopping: build up to max_trials adaptive steps, each testlet
   // wrapped in a node that is skipped once the controller signals should_stop.
   // With no stopping config, max_trials = config.n_trials and nothing is ever
   // skipped, so the run is fixed-length and behaves exactly as before.
@@ -307,17 +316,23 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
           const result = await adaptive_controller.update(payload);
           setDesignQueue(result);
           stopped = Boolean(result.should_stop);
-          logAdoTrial(run_context, batch[batch.length - 1], result, config);
-          appendPosteriorHistory(run_context, result);
-          appendInformationGainHistory(run_context, batch, result);
+          // Load the debug UI lazily (only when on); a no-op for real participants.
+          const dbg = run_context.debug ? await loadDebugUi() : null;
+          if (dbg) {
+            dbg.logAdoTrial(run_context, batch[batch.length - 1], result, config);
+            dbg.appendPosteriorHistory(run_context, result);
+            dbg.appendInformationGainHistory(run_context, batch, result);
+          }
           const next_designs = designsFromResult(result);
           const next_design_metrics = metricsFromResult(result, next_designs.length);
           for (const row of batch) {
             copyPosteriorFields(row, result);
             copyUpdateFields(row, result, batch.length, next_designs, next_design_metrics);
           }
-          updateLiveCharts(run_context.param_history || {}, ado_state, run_context);
-          updateInformationGainPanel(run_context);
+          if (dbg) {
+            dbg.updateLiveCharts(run_context.param_history || {}, ado_state, run_context);
+            dbg.updateInformationGainPanel(run_context);
+          }
         } else {
           advanceWithinTestlet();
         }
@@ -418,7 +433,11 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
       // getState() keep working while the controller/grid/draws become
       // collectable.
       on_timeline_finish: () => {
-        finalizeDebugUi(run_context);
+        if (run_context.debug) {
+          // Fire-and-forget: the debrief overlay appears once the (already-loaded)
+          // debug chunk resolves; nothing downstream depends on its timing.
+          loadDebugUi().then((dbg) => dbg.finalizeDebugUi(run_context));
+        }
         if (typeof hooks.onTimelineFinish === "function") {
           const final_state = ado_state ? { ...ado_state, posterior_draws: null } : null;
           const final_design = current_design;

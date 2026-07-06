@@ -1,10 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  default as model,
-  responseProbs,
-} from "../../src/models/line_length_discrimination_3ifc/model.js";
+import model from "../../src/models/line_length_discrimination_3ifc/model.js";
+const { responseProbs } = model;
 import { makeStanDataBuilder } from "../../src/ado/stan_data.js";
 
 // Local copy of the demo's design helper (task code is experiment-owned under the

@@ -172,9 +172,4 @@ function formatPosteriorDrawCharts(draws, params = null, posterior_display = nul
   return ["Posterior draw histograms (asciichart):", ...charts].join("\n\n");
 }
 
-export {
-  buildHistogram,
-  inferPosteriorParams,
-  formatPosteriorDrawChart,
-  formatPosteriorDrawCharts,
-};
+export { buildHistogram, inferPosteriorParams, formatPosteriorDrawCharts };

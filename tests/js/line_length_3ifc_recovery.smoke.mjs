@@ -1,6 +1,6 @@
 // Real Stan WASM recovery smoke for the 3-parameter categorical model
 // (line_length_discrimination_3ifc: sensitivity, bias_b, bias_c; 3-outcome). This
-// is the >2-param case (#87): the browser smoke only asserts posteriors POPULATE,
+// is the >2-param case: the browser smoke only asserts posteriors POPULATE,
 // so this is the only check that the three parameters are RECOVERED within
 // tolerance off the browser. Checks:
 //   1. recovery        - all three params recovered within tolerance at N trials

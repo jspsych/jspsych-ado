@@ -112,6 +112,18 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
   pages. (The `controller=`/`strategy=` URL parameters that replaced it were
   themselves removed later in this cycle with the demo URL runner — both switches
   are now `createController` options; see the controller-API entry above.)
+- `jspsych-ado/models/compile_stan_model.js` (`compileStanModel`) — an unreferenced
+  pre-controller-API helper superseded by `prepareModel(spec, { compileServer })`,
+  which compiles a Stan-source model to a usable package the same way.
+- Redundant named exports from the shipped model files (`jspsych-ado/models/*/model.js`).
+  A model's public interface is its **default export** (the model package object): the
+  likelihood, `stanData`/`buildData`, and simulation hooks are already fields on it, so
+  the duplicate named exports (`responseProb`, `responseProbs`, `stanData`, `buildData`,
+  `responseDensity*`, `responseMoments`, `conditionalEntropy`, `responseSampler`,
+  `subjectiveValues`, `simulationData`) and the default-alias named exports
+  (`lineLengthDiscriminationModel`, `magnitudeEstimationModel`) were removed. Access
+  them as `model.responseProb` etc. Standalone math helpers (`logistic`, `normalCdf`,
+  `softmax`, `normalPdf`, …) remain named exports.
 
 ### Internal
 
@@ -122,6 +134,16 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
   controller API); `index.js` → `src/validation.js` + `models/stan_source.js`; the
   Stan controller's Web Worker transport → `controllers/stan_worker_client.js`,
   with shared controller scaffolding in `controllers/controller_common.js`.
+- The debug UI (per-trial logs, live posterior/EIG charts, the debrief overlay —
+  ~1,400 lines of chart/SVG code under `src/ado/debug/`) is now **dynamically
+  imported** by the timeline only when debug is enabled. A production bundler
+  splits it into a separate chunk that participants running without `?debug`
+  never download (~18 KB minified out of the main bundle); behavior with debug on
+  is unchanged.
+- Slimmed the `index.js` façade (~780 → ~695 lines) by extracting outcome-label
+  resolution to `src/ado/response_labels.js` and the debug-flag/URL resolver to
+  `src/ado/debug_flag.js` (the sync boolean that decides whether to load the debug
+  chunk above).
 
 ## [0.2.0] - 2026-06-18
 

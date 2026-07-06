@@ -597,11 +597,8 @@ export {
   getParamAxisDomain,
   makeParamConvergenceSvg,
   updateLiveCharts,
-  makeDebriefStimulus,
   appendPosteriorHistory,
   appendInformationGainHistory,
   updateInformationGainPanel,
-  removeAdoDebugPanels,
-  showDebugDebriefPanel,
   finalizeDebugUi,
 };

@@ -1,4 +1,4 @@
-// Real-bundler smoke for the #57 packaging story. Packs the library, installs the
+// Real-bundler smoke for the packaging story. Packs the library, installs the
 // tarball into tests/bundler/fixture (a Vite consumer using the PUBLIC API with
 // plugin injection), runs a production build, serves the output, and headlessly
 // confirms:
