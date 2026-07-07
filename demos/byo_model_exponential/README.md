@@ -13,7 +13,7 @@ demos/byo_model_exponential/index.html
 Append `?debug=1` for controller debug panels and the final posterior summary.
 
 `from_source.html` is the same experiment with **no committed artifacts**: it
-supplies the model as `stanCode` and compiles it in the browser during
+supplies the model as `stanCode` and compiles it via a compile server during
 `ado.preload()` (#137). It shares `responseProb`/`stanData` with `index.html`, so
 the two pages fit the same model. This is the dev/teaching path; the compile
 server only allows browser requests from allowlisted origins (works from

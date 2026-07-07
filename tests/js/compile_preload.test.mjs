@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createController, validateModel } from "../../src/index.js";
+import { createController, validateModel, prepareModel } from "../../src/index.js";
 import { runFragment, makeJsPsych, installFakeWorker } from "./_timeline_harness.mjs";
 
 const STAN_CODE = `
@@ -324,4 +324,20 @@ test("preload max_load_time: a stalled compile aborts visibly instead of spinnin
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("prepareModel: rejects a wasmUrl on a source spec (avoids stale-binary pairing)", async () => {
+  // The guard runs before any network I/O, so no compile server is contacted.
+  await assert.rejects(
+    () =>
+      prepareModel(
+        {
+          stanCode: "parameters { real m; } model { m ~ normal(0, 1); }",
+          params: ["m"],
+          wasmUrl: "https://old.example/main.wasm",
+        },
+        { compileServer: "https://compile.example" },
+      ),
+    /wasmUrl.*must not be set on a source model/,
+  );
 });

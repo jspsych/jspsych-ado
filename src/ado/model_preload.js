@@ -20,7 +20,7 @@ function escapeHtml(text) {
  * Class-per-call so each instance closes over its own ready()/labels without
  * threading functions through jsPsych's parameter system.
  *
- * @param {Function} ready - () => Promise resolving when the model is usable.
+ * @param {Function} ready - () => Promise resolving when the model is compiled and downloaded.
  * @param {Object} opts
  * @param {string} [opts.message] - HTML shown while waiting.
  * @param {string} [opts.error_message] - HTML heading shown above a compile error.

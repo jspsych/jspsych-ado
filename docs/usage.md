@@ -66,7 +66,8 @@ the halberda demo builds a canvas task this way.
 - `ado.getState()` — the live posterior summaries and selection diagnostics.
 - `ado.preload(opts)` / `ado.ready()` — for models supplied as `stanCode`, a
   jsPsychPreload-style gate trial (and the underlying promise) that waits for the
-  in-browser compile; committed-artifact models resolve immediately. See
+  model to be compiled on a compile server and downloaded; committed-artifact models
+  resolve immediately. See
   [`demos/byo_model_exponential/from_source.html`](../demos/byo_model_exponential/from_source.html).
 - `prepareModel(spec, { compileServer })` — compile a Stan-source model spec into a model
   package yourself (the lower-level path `stanCode` models use internally).

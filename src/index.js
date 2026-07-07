@@ -139,12 +139,13 @@ function createController(jsPsych, config = {}) {
         compileServer: (config.compile && config.compile.server) || DEFAULT_COMPILE_SERVER,
         authToken: (config.compile && config.compile.authToken) || DEFAULT_TOKEN,
       }).then(async (prepared) => {
-        // ready()/preload promise the model is USABLE, so verify the compiled
-        // glue actually downloads. The body is consumed so the browser can cache/
-        // revalidate it for the worker's import (an unread body may never be
-        // cache-committed; a bodyless HEAD probe trips Chrome's aborted-request
-        // diagnostics). wasmUrl stays null: the server-hosted main.js fetches its
-        // sibling wasm.
+        // ready()/preload gate on the compiled glue being fetched and cached — a
+        // strong readiness signal, though the worker's own import + wasm-load still
+        // happen when the Stan controller starts (client.init). The body is consumed
+        // so the browser can cache/revalidate it for that import (an unread body may
+        // never be cache-committed; a bodyless HEAD probe trips Chrome's aborted-
+        // request diagnostics). wasmUrl stays null: the server-hosted main.js fetches
+        // its sibling wasm.
         const res = await fetch(prepared.moduleUrl);
         if (!res.ok) {
           throw new Error(
@@ -490,6 +491,15 @@ async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } =
   }
   if (spec.moduleUrl) {
     return spec;
+  }
+  // A leftover wasmUrl would pair the server-compiled main.js with a stale binary.
+  // createController's own source path sanitizes it to null; reject it here to cover
+  // direct prepareModel callers (including stanUrl specs createController never sees).
+  if (spec.wasmUrl != null) {
+    throw new Error(
+      "prepareModel: `wasmUrl` must not be set on a source model (stanCode/stanUrl); " +
+        "remove it — the compile server serves its own wasm.",
+    );
   }
   if (!compileServer) {
     throw new Error(
