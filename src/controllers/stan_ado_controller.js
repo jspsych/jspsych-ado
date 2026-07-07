@@ -132,10 +132,6 @@ function createStanAdoController({
     );
   }
 
-  // The Web Worker transport (lifecycle + single in-flight slot) is owned by the handle
-  // and shared across this handle's timelines; this controller only awaits sample() (its
-  // init was kicked off by the handle and is exposed as worker_ready).
-  const client = worker_client;
   let current_design_draws = null;
 
   /**
@@ -143,7 +139,10 @@ function createStanAdoController({
    * array of per-draw parameter objects (the shape the MI engine expects).
    */
   async function samplePosterior(sampleTrials) {
-    const result = await client.sample({
+    // The Web Worker transport (single in-flight slot) is owned by the handle and shared
+    // across this handle's timelines; this controller only calls sample() — the worker's
+    // init was kicked off by the handle and awaited (as worker_ready) before we get here.
+    const result = await worker_client.sample({
       data: model.buildData(sampleTrials),
       params: model.params,
       sampleConfig: sample_config,
@@ -264,26 +263,15 @@ function createStanAdoController({
 
   const nextBlockSize = makeBlockSizer(stopper, testlet_size);
 
-  // The worker's model load is kicked off by the handle (shared across this handle's
-  // timelines); start() just adopts that in-flight promise and the first update() awaits
-  // it. The first design only needs JS prior draws, so the adaptive timeline can be built
-  // (and the first trial rendered) without waiting on the worker. A load failure surfaces
-  // on ready()/preload AND on the first update(), which the timeline turns into a visible
-  // experiment abort.
-  let model_ready = null;
-
   return {
     /**
-     * Start loading the WASM model and choose the first design from prior draws.
+     * Reset run state and choose the first design from JS prior draws. The worker's model
+     * load is handle-owned (the first update() awaits it), so the first design — which only
+     * needs prior draws — is available synchronously without waiting on the worker.
      *
      * @returns {Object} Initial ADO state (null posteriors).
      */
     start: function () {
-      // Adopt the handle's in-flight worker load (ready()/preload gate on it too); the
-      // first update() awaits it before sampling.
-      model_ready = worker_ready;
-      model_ready.catch(() => {}); // surfaced by the first update() await
-
       trials.length = 0;
       stopper.reset();
 
@@ -333,7 +321,9 @@ function createStanAdoController({
      */
     update: async function (trial_data) {
       const started_at = now();
-      await model_ready;
+      // The worker's model load is handle-owned; await it before sampling (a load failure
+      // rejects here AND at ready()/preload, surfacing as a visible experiment abort).
+      await worker_ready;
 
       const rows = Array.isArray(trial_data) ? trial_data : [trial_data];
       const realized_information_gains = computeRealizedInformationGains(rows);

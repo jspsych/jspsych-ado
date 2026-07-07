@@ -194,12 +194,17 @@ function createController(jsPsych, config = {}) {
     stan_runtime = { client, ready };
     return stan_runtime;
   }
+  // Normalize the handle-level controller ONCE — this validates config.controller early
+  // and drives both the eager-compile gate and ready(). Per-timeline overrides normalize
+  // separately in createTimeline.
+  const handle_controller = normalizeControllerMode(config.controller);
+
   // Kick the compile off EAGERLY in the common case so it overlaps welcome/
   // instruction screens. Mock-mode handles stay network-free: the mock controller
   // never consumes the WASM, so a dev loop (or an offline machine) must not die
   // on a compile-server call it doesn't need. (A per-timeline controller:"stan"
   // override still triggers the compile lazily below.)
-  if (config.controller !== "mock") {
+  if (handle_controller !== "mock") {
     ensureModuleReady();
   }
 
@@ -272,7 +277,7 @@ function createController(jsPsych, config = {}) {
      * For custom loading UI; ado.preload() consumes it for you.
      */
     ready() {
-      if (config.controller === "mock") {
+      if (handle_controller === "mock") {
         return Promise.resolve();
       }
       return ensureStanRuntime().ready.then(() => undefined);

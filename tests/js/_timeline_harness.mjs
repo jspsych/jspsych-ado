@@ -61,11 +61,17 @@ function makeJsPsych() {
  * released, so tests can assert that on_finish truly awaits the model update;
  * `capture` records every posted message; `draws` overrides the canned columns.
  */
-function installFakeWorker({ gate = null, capture = null, draws = null } = {}) {
+function installFakeWorker({ gate = null, capture = null, draws = null, fail = null } = {}) {
   const originalWorker = globalThis.Worker;
   globalThis.Worker = class FakeWorker {
     postMessage(message) {
       if (capture) capture.push(message);
+      if (fail) {
+        // Simulate a worker script/load failure: onerror fires, no message is posted
+        // (the client terminates the worker and rejects the in-flight request).
+        queueMicrotask(() => this.onerror && this.onerror({ message: fail }));
+        return;
+      }
       const respond = () => {
         if (message.type === "init") {
           this.onmessage({ data: { type: "inited" } });
@@ -84,6 +90,7 @@ function installFakeWorker({ gate = null, capture = null, draws = null } = {}) {
         queueMicrotask(respond);
       }
     }
+    terminate() {}
   };
   return () => {
     globalThis.Worker = originalWorker;

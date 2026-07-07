@@ -217,13 +217,7 @@ test("worker load failure: ado.ready() rejects and preload aborts (compile OK, w
   // covers the worker load, so this must reject (and preload must abort) rather than
   // greenlighting a model that can't actually run.
   const server = installFakeCompileServer();
-  const originalWorker = globalThis.Worker;
-  globalThis.Worker = class FailingWorker {
-    postMessage() {
-      queueMicrotask(() => this.onerror && this.onerror({ message: "wasm instantiate failed" }));
-    }
-    terminate() {}
-  };
+  const restoreWorker = installFakeWorker({ fail: "wasm instantiate failed" });
   try {
     const jsPsych = makeJsPsych();
     const ado = createController(jsPsych, {
@@ -237,7 +231,7 @@ test("worker load failure: ado.ready() rejects and preload aborts (compile OK, w
     assert.ok(jsPsych.aborted, "preload aborted on worker load failure");
     assert.equal(jsPsych.aborted.data.ado_preload_ok, false);
   } finally {
-    globalThis.Worker = originalWorker;
+    restoreWorker();
     server.restore();
   }
 });
