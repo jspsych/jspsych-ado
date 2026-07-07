@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createController, validateModel, prepareModel } from "../../src/index.js";
+import { validateSourceSpec } from "../../src/validation.js";
 import { runFragment, makeJsPsych, installFakeWorker } from "./_timeline_harness.mjs";
 
 const STAN_CODE = `
@@ -339,5 +340,64 @@ test("prepareModel: rejects a wasmUrl on a source spec (avoids stale-binary pair
         { compileServer: "https://compile.example" },
       ),
     /wasmUrl.*must not be set on a source model/,
+  );
+});
+
+// validateSourceSpec is the one seam shared by validateModel and prepareModel.
+test("validateSourceSpec: source-shape + no-wasmUrl-on-source matrix", () => {
+  const ok = (spec) => assert.deepEqual(validateSourceSpec(spec), [], JSON.stringify(spec));
+  const bad = (spec, re) =>
+    assert.ok(
+      validateSourceSpec(spec).some((m) => re.test(m)),
+      JSON.stringify(spec),
+    );
+
+  // exactly one source (empty string is treated as absent — truthy presence)
+  ok({ stanCode: "x" });
+  ok({ stanUrl: "https://x/m.stan" });
+  ok({ moduleUrl: "https://x/main.js" });
+  bad({}, /provide exactly one/);
+  bad({ stanCode: "x", stanUrl: "https://x/m.stan" }, /not both/);
+  bad({ stanCode: "" }, /provide exactly one/);
+
+  // wasmUrl: rejected on a source spec, allowed on a committed (moduleUrl) spec
+  bad({ stanCode: "x", wasmUrl: "https://old/main.wasm" }, /must not be set on a source model/);
+  bad(
+    { stanUrl: "https://x/m.stan", wasmUrl: "https://old/main.wasm" },
+    /must not be set on a source model/,
+  );
+  ok({ moduleUrl: "https://x/main.js", wasmUrl: "https://x/main.wasm" });
+});
+
+// Pre-existing stanUrl blind spots in validateModel, now fixed via the shared seam.
+test("validateModel: a prior-less stanUrl source spec is a valid package (first-class source)", () => {
+  // Pre-refactor this was invalid on two counts: the shape was misread as "neither
+  // moduleUrl nor stanCode", and an absent prior was exempted only for stanCode. Both are
+  // fixed — a stanUrl model derives its prior via prepareModel just like inline stanCode.
+  const { valid, problems } = validateModel(
+    makeSourceModel({ stanCode: undefined, stanUrl: "https://x.test/model.stan" }),
+  );
+  assert.equal(valid, true, JSON.stringify(problems));
+});
+
+test("validateModel: rejects a wasmUrl on a stanUrl source spec (previously slipped through)", () => {
+  const { problems } = validateModel(
+    makeSourceModel({
+      stanCode: undefined,
+      stanUrl: "https://x.test/model.stan",
+      wasmUrl: "https://old.test/main.wasm",
+    }),
+  );
+  assert.ok(problems.some((p) => /wasmUrl.*must not be set on a source model/.test(p.message)));
+});
+
+test("createController: a stanUrl-only model is rejected with an actionable message", () => {
+  assert.throws(
+    () =>
+      createController(makeJsPsych(), {
+        model: makeSourceModel({ stanCode: undefined, stanUrl: "https://x.test/model.stan" }),
+        design_grid: DESIGN_GRID,
+      }),
+    /stanUrl-only model must be compiled with prepareModel/,
   );
 });

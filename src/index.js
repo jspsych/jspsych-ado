@@ -34,6 +34,7 @@ import { makeChoiceSimulationOptions, copySimulationAuditFields } from "./ado/si
 import { makeModelPreloadPlugin } from "./ado/model_preload.js";
 import {
   validateModel,
+  validateSourceSpec,
   validateDesignGridForModel,
   getResponseCount,
   isContinuous,
@@ -122,6 +123,16 @@ function createController(jsPsych, config = {}) {
   // ado.preload() trial runs it has often already resolved. The chain feeds the
   // Stan controller's model_ready, which the first posterior update awaits.
   const is_source_model = isSourceModel(config.model);
+  // stanUrl is a prepareModel-only input: createController is synchronous and cannot fetch
+  // it into source for the prior derivation / eager compile below. Fail actionably here
+  // instead of surfacing later as a Stan-init crash on an undefined module.
+  if (config.model && config.model.stanUrl && !config.model.stanCode && !config.model.moduleUrl) {
+    throw new Error(
+      "createController: a stanUrl-only model must be compiled with prepareModel first " +
+        "(createController needs inline stanCode or a committed moduleUrl). " +
+        "Pass the awaited prepareModel(...) result as `model`.",
+    );
+  }
   const enriched_model =
     is_source_model && config.model.prior == null
       ? { ...config.model, prior: parseStanPriors(config.model.stanCode, config.model.params) }
@@ -483,23 +494,14 @@ async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } =
   if (!spec || typeof spec !== "object") {
     throw new Error("prepareModel: spec must be an object.");
   }
-  const sources = ["stanCode", "stanUrl", "moduleUrl"].filter((k) => spec[k] != null);
-  if (sources.length !== 1) {
-    throw new Error(
-      `prepareModel: provide exactly one of stanCode | stanUrl | moduleUrl (got ${sources.length}).`,
-    );
+  // Source-shape + no-wasmUrl-on-source, shared with validateModel (the seam rejects a
+  // wasmUrl only on source specs, so a committed { moduleUrl, wasmUrl } spec passes through).
+  const problems = validateSourceSpec(spec);
+  if (problems.length) {
+    throw new Error("prepareModel: " + problems[0]);
   }
   if (spec.moduleUrl) {
     return spec;
-  }
-  // A leftover wasmUrl would pair the server-compiled main.js with a stale binary.
-  // createController's own source path sanitizes it to null; reject it here to cover
-  // direct prepareModel callers (including stanUrl specs createController never sees).
-  if (spec.wasmUrl != null) {
-    throw new Error(
-      "prepareModel: `wasmUrl` must not be set on a source model (stanCode/stanUrl); " +
-        "remove it — the compile server serves its own wasm.",
-    );
   }
   if (!compileServer) {
     throw new Error(
