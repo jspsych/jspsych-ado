@@ -74,9 +74,12 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
   jsPsychPreload-style gate trial — shows a message until `ado.ready()` resolves,
   rendering the compiler's error message and aborting if compilation fails. The
   preload trial is optional: without it the first posterior update awaits
-  readiness. Committed artifacts remain the production/reproducibility path; see
-  `demos/byo_model_exponential/from_source.html` and the compile-server CORS
-  notes in #137.
+  readiness. `ado.ready()` / `ado.preload()` resolve only once the model is fully
+  **loadable** — the Stan worker has imported the compiled module and instantiated
+  its wasm (for committed models too, not just compiled ones) — so a green preload
+  certifies the run can actually proceed. Committed artifacts remain the
+  production/reproducibility path; see `demos/byo_model_exponential/from_source.html`
+  and the compile-server CORS notes in #137.
 - TypeScript declarations for the public `jsPsychADO` façade (`src/index.d.ts`, surfaced
   via the `types` field and the `.` export's `types` condition), so consumers get editor
   IntelliSense and type-checking without the library taking on a TypeScript build. The
@@ -127,6 +130,18 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
 
 ### Internal
 
+- Source-model validation is unified behind one `stanUrl`-aware `validateSourceSpec`
+  seam shared by `validateModel` and `prepareModel` (a single canonical
+  no-`wasmUrl`-on-source message instead of three drifting copies). This fixes two
+  latent `stanUrl` gaps in the public `validateModel`: a `{stanUrl}` spec was misread
+  as "neither `moduleUrl` nor `stanCode`", and `{stanUrl, wasmUrl}` slipped past the
+  wasmUrl rule. `createController` now rejects a `stanUrl`-only model with an
+  actionable "compile with `prepareModel` first" message (it derives priors
+  synchronously and cannot fetch a URL).
+- The Stan Web Worker is now owned by the controller **handle** — one shared,
+  lazily-loaded worker created on first `ready()`/`preload()`/timeline — rather than
+  one per timeline. `createController` stays worker-free until readiness is awaited,
+  and a handle's practice→main timelines reuse the same worker (inited once).
 - Restructured large modules into cohesive units with unchanged public behavior:
   `ado_timeline.js` → `ado/debug/{ado_trial_log,posterior_convergence_charts}.js`
   (plus, later in this cycle, `ado/simulation_hooks.js` — the interim

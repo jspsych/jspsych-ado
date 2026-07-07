@@ -21,6 +21,7 @@
 
 import { createStanAdoController } from "./controllers/stan_ado_controller.js";
 import { createMockAdoController } from "./controllers/mock_ado_controller.js";
+import { createStanWorkerClient } from "./controllers/stan_worker_client.js";
 import { createAdoTimeline, normalizeTestletSize } from "./ado/ado_timeline.js";
 import { enumerateDesigns } from "./ado/mi_engine.js";
 import { arange, linspace } from "./ado/grid.js";
@@ -150,13 +151,12 @@ function createController(jsPsych, config = {}) {
         compileServer: (config.compile && config.compile.server) || DEFAULT_COMPILE_SERVER,
         authToken: (config.compile && config.compile.authToken) || DEFAULT_TOKEN,
       }).then(async (prepared) => {
-        // ready()/preload gate on the compiled glue being fetched and cached — a
-        // strong readiness signal, though the worker's own import + wasm-load still
-        // happen when the Stan controller starts (client.init). The body is consumed
-        // so the browser can cache/revalidate it for that import (an unread body may
-        // never be cache-committed; a bodyless HEAD probe trips Chrome's aborted-
-        // request diagnostics). wasmUrl stays null: the server-hosted main.js fetches
-        // its sibling wasm.
+        // This step compiles + downloads the glue; ensureStanRuntime chains the worker
+        // import + wasm-load (client.init) onto it, so ready()/preload cover the full
+        // load. The body is consumed so the browser can cache/revalidate it for that
+        // import (an unread body may never be cache-committed; a bodyless HEAD probe
+        // trips Chrome's aborted-request diagnostics). wasmUrl stays null: the
+        // server-hosted main.js fetches its sibling wasm.
         const res = await fetch(prepared.moduleUrl);
         if (!res.ok) {
           throw new Error(
@@ -172,6 +172,27 @@ function createController(jsPsych, config = {}) {
       module_ready.catch(() => {});
     }
     return module_ready;
+  }
+
+  // The Stan runtime = one shared worker client for the whole handle, created and
+  // model-loaded LAZILY on the first ready()/preload/timeline (never at construction, so
+  // createController stays worker-free for validation-only use). Memoized: practice and
+  // main runs reuse the same worker (a worker fault aborts the current run, so a later
+  // timeline never inherits a dead one); ready()/preload gate on its init, so a green
+  // preload means the worker actually imported the module and instantiated its wasm.
+  let stan_runtime = null;
+  function ensureStanRuntime() {
+    if (stan_runtime) {
+      return stan_runtime;
+    }
+    const client = createStanWorkerClient(); // worker-free until init()
+    const module_source =
+      ensureModuleReady() ?? // source: compile + download; committed: null
+      Promise.resolve({ moduleUrl: adapter.moduleUrl, wasmUrl: adapter.wasmUrl });
+    const ready = module_source.then(({ moduleUrl, wasmUrl }) => client.init(moduleUrl, wasmUrl));
+    ready.catch(() => {}); // surfaced via ready()/preload/first update, not an unhandled rejection
+    stan_runtime = { client, ready };
+    return stan_runtime;
   }
   // Kick the compile off EAGERLY in the common case so it overlaps welcome/
   // instruction screens. Mock-mode handles stay network-free: the mock controller
@@ -238,12 +259,23 @@ function createController(jsPsych, config = {}) {
     },
 
     /**
-     * Resolves when the model is usable: immediately for committed models, after
-     * compile + artifact download for source (stanCode) models. For custom
-     * loading UI; ado.preload() consumes it for you.
+     * Resolves once the handle's Stan model is loaded and usable: the worker has imported
+     * the compiled module and instantiated its wasm (after compile + artifact download for
+     * source models). Rejects if that compile, download, or worker load fails.
+     *
+     * Reflects the handle-level controller, mirroring the eager-compile gate: a
+     * `controller: "mock"` handle resolves immediately (no wasm). A per-timeline
+     * `controller: "stan"` override on a mock-default handle is NOT gated here — that
+     * timeline's worker loads when it is built (the first update awaits it), so put such an
+     * override on a stan-default handle if you want preload() to cover it.
+     *
+     * For custom loading UI; ado.preload() consumes it for you.
      */
     ready() {
-      return module_ready ? module_ready.then(() => undefined) : Promise.resolve();
+      if (config.controller === "mock") {
+        return Promise.resolve();
+      }
+      return ensureStanRuntime().ready.then(() => undefined);
     },
 
     /**
@@ -308,6 +340,10 @@ function createController(jsPsych, config = {}) {
       const stan = { ...DEFAULT_STAN, ...config.stan, ...timeline_config.stan };
       const simulate = timeline_config.simulate ?? config.simulate ?? null;
 
+      // The shared, lazily-loaded worker for the whole handle (memoized). Building a stan
+      // timeline kicks off the load if it hasn't started (e.g. a mock-default handle with
+      // a per-timeline controller:"stan" override); ready()/preload gate on the same init.
+      const stan_runtime_for_timeline = controller_mode === "mock" ? null : ensureStanRuntime();
       const adaptive_controller =
         controller_mode === "mock"
           ? createMockAdoController({
@@ -319,9 +355,8 @@ function createController(jsPsych, config = {}) {
             })
           : createStanAdoController({
               model: adapter,
-              // Starts the compile lazily when the handle-level default was mock
-              // but this timeline overrides to stan; null for committed models.
-              module_ready: ensureModuleReady(),
+              worker_client: stan_runtime_for_timeline.client,
+              worker_ready: stan_runtime_for_timeline.ready,
               grid_design: candidate_designs,
               stan,
               n_trials,

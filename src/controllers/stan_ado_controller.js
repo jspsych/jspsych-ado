@@ -12,7 +12,6 @@ import {
 } from "../ado/mi_engine.js";
 import { createSeededRng } from "../ado/ado_simulation.js";
 import { maxPossibleEig, makeStoppingEvaluator } from "../ado/stopping.js";
-import { createStanWorkerClient } from "./stan_worker_client.js";
 import { nullDesignMetrics, makeBlockSizer, now } from "./controller_common.js";
 
 // Number of prior draws used to pick the first design (before any data exist).
@@ -30,6 +29,10 @@ const PRIOR_DRAWS = 2000;
  *
  * @param {Object} options
  * @param {Object} options.model - Model adapter (params, prior, moduleUrl, buildData, responseProb/responseProbs).
+ * @param {Object} options.worker_client - Shared, handle-owned Stan worker client; this
+ *   controller only calls sample() on it (its init was kicked off by the handle).
+ * @param {Promise} options.worker_ready - Resolves once the worker has loaded the model;
+ *   the first update() awaits it before sampling. Rejects on compile/download/load failure.
  * @param {Object} options.grid_design - Candidate design grid for MI optimization.
  * @param {Object} [options.stan] - Sampler settings {num_chains, num_warmup, num_samples, seed}.
  * @param {string} [options.session_id] - Session identifier saved into the data.
@@ -46,7 +49,8 @@ const PRIOR_DRAWS = 2000;
  */
 function createStanAdoController({
   model,
-  module_ready: module_source_promise = null,
+  worker_client,
+  worker_ready,
   grid_design,
   stan = {},
   session_id = "stan-session",
@@ -128,9 +132,10 @@ function createStanAdoController({
     );
   }
 
-  // The Web Worker transport (lifecycle + single in-flight slot) lives in
-  // stan_worker_client.js; this controller only awaits init()/sample().
-  const client = createStanWorkerClient();
+  // The Web Worker transport (lifecycle + single in-flight slot) is owned by the handle
+  // and shared across this handle's timelines; this controller only awaits sample() (its
+  // init was kicked off by the handle and is exposed as worker_ready).
+  const client = worker_client;
   let current_design_draws = null;
 
   /**
@@ -259,11 +264,12 @@ function createStanAdoController({
 
   const nextBlockSize = makeBlockSizer(stopper, testlet_size);
 
-  // start() is synchronous: it kicks off the WASM load in the background and the
-  // first update() awaits it. The first design only needs JS prior draws, so the
-  // adaptive timeline can be built (and the first trial rendered) without waiting
-  // on the worker. A load failure surfaces on the first update(), which the
-  // timeline turns into a visible experiment abort.
+  // The worker's model load is kicked off by the handle (shared across this handle's
+  // timelines); start() just adopts that in-flight promise and the first update() awaits
+  // it. The first design only needs JS prior draws, so the adaptive timeline can be built
+  // (and the first trial rendered) without waiting on the worker. A load failure surfaces
+  // on ready()/preload AND on the first update(), which the timeline turns into a visible
+  // experiment abort.
   let model_ready = null;
 
   return {
@@ -273,14 +279,9 @@ function createStanAdoController({
      * @returns {Object} Initial ADO state (null posteriors).
      */
     start: function () {
-      // Source models deliver their compiled artifact URLs through the
-      // module_ready option (an in-flight promise; compile kicked off at
-      // createController); committed models resolve immediately from the model
-      // package. Either way the first update() awaits the chain.
-      const module_source =
-        module_source_promise ??
-        Promise.resolve({ moduleUrl: model.moduleUrl, wasmUrl: model.wasmUrl });
-      model_ready = module_source.then(({ moduleUrl, wasmUrl }) => client.init(moduleUrl, wasmUrl));
+      // Adopt the handle's in-flight worker load (ready()/preload gate on it too); the
+      // first update() awaits it before sampling.
+      model_ready = worker_ready;
       model_ready.catch(() => {}); // surfaced by the first update() await
 
       trials.length = 0;

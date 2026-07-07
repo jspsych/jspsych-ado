@@ -84,6 +84,7 @@ test("validateModel: stanCode without moduleUrl is a valid package; both/neither
 
 test("createController: compiles EAGERLY, derives the prior from the Stan source", async () => {
   const server = installFakeCompileServer();
+  const restoreWorker = installFakeWorker();
   try {
     const ado = createController(makeJsPsych(), {
       model: makeSourceModel(),
@@ -96,14 +97,16 @@ test("createController: compiles EAGERLY, derives the prior from the Stan source
     assert.equal(compile_calls[0].body, STAN_CODE);
     // Defaults to the public Flatiron server.
     assert.match(compile_calls[0].url, /^https:\/\/stan-wasm\.flatironinstitute\.org\/compile$/);
-    await ado.ready(); // resolves once the fake compile returns
+    await ado.ready(); // resolves once the fake compile returns and the worker loads
   } finally {
+    restoreWorker();
     server.restore();
   }
 });
 
 test("createController: a custom compile server is honored", async () => {
   const server = installFakeCompileServer();
+  const restoreWorker = installFakeWorker();
   try {
     const ado = createController(makeJsPsych(), {
       model: makeSourceModel({ id: "src_custom" }),
@@ -113,6 +116,7 @@ test("createController: a custom compile server is honored", async () => {
     await ado.ready();
     assert.ok(server.calls.some((c) => c.url === "http://localhost:8083/compile"));
   } finally {
+    restoreWorker();
     server.restore();
   }
 });
@@ -154,6 +158,7 @@ test("stan run: the worker init receives the COMPILED module URL", async () => {
 
 test("ado.preload(): finishes the trial once the compile resolves", async () => {
   const server = installFakeCompileServer();
+  const restoreWorker = installFakeWorker();
   try {
     const jsPsych = makeJsPsych();
     const ado = createController(jsPsych, {
@@ -173,6 +178,7 @@ test("ado.preload(): finishes the trial once the compile resolves", async () => 
     assert.equal(jsPsych.finished.ado_preload_ok, true);
     assert.equal(typeof jsPsych.finished.ado_preload_ms, "number");
   } finally {
+    restoreWorker();
     server.restore();
   }
 });
@@ -206,6 +212,36 @@ test("compile failure: preload renders the compiler's message and aborts; ready(
   }
 });
 
+test("worker load failure: ado.ready() rejects and preload aborts (compile OK, worker fails)", async () => {
+  // Compile + download succeed, but the worker fails to import/instantiate. ready() now
+  // covers the worker load, so this must reject (and preload must abort) rather than
+  // greenlighting a model that can't actually run.
+  const server = installFakeCompileServer();
+  const originalWorker = globalThis.Worker;
+  globalThis.Worker = class FailingWorker {
+    postMessage() {
+      queueMicrotask(() => this.onerror && this.onerror({ message: "wasm instantiate failed" }));
+    }
+    terminate() {}
+  };
+  try {
+    const jsPsych = makeJsPsych();
+    const ado = createController(jsPsych, {
+      model: makeSourceModel({ id: "src_worker_fail", variant: "worker_fail" }),
+      design_grid: DESIGN_GRID,
+    });
+    await assert.rejects(() => ado.ready(), /Stan worker failed to load/);
+    const plugin = new (ado.preload().type)(jsPsych);
+    plugin.trial({ innerHTML: "" });
+    await new Promise((r) => setTimeout(r, 0));
+    assert.ok(jsPsych.aborted, "preload aborted on worker load failure");
+    assert.equal(jsPsych.aborted.data.ado_preload_ok, false);
+  } finally {
+    globalThis.Worker = originalWorker;
+    server.restore();
+  }
+});
+
 test("committed models: ready() resolves immediately and preload is a no-op gate", async () => {
   const jsPsych = makeJsPsych();
   const ado = createController(jsPsych, {
@@ -231,6 +267,7 @@ test("committed models: ready() resolves immediately and preload is a no-op gate
 
 test("session compile cache: two handles over the same source + server share one compile", async () => {
   const server = installFakeCompileServer();
+  const restoreWorker = installFakeWorker();
   try {
     const model = makeSourceModel({ id: "src_cached", variant: "cache" });
     const a = createController(makeJsPsych(), { model, design_grid: DESIGN_GRID });
@@ -240,7 +277,74 @@ test("session compile cache: two handles over the same source + server share one
     const compile_calls = server.calls.filter((c) => c.url.endsWith("/compile"));
     assert.equal(compile_calls.length, 1, "second handle hit the session cache");
   } finally {
+    restoreWorker();
     server.restore();
+  }
+});
+
+test("controller reuse (stan): two timelines from one handle share a single worker init", async () => {
+  const server = installFakeCompileServer();
+  const messages = [];
+  const restoreWorker = installFakeWorker({ capture: messages });
+  try {
+    const ado = createController(makeJsPsych(), {
+      model: makeSourceModel({ id: "src_reuse", variant: "reuse" }),
+      design_grid: DESIGN_GRID,
+    });
+    const makeTrial = () => ({
+      type: "html-button-response",
+      stimulus: () => `${ado.evaluateDesignVariable("t_ll")}`,
+      choices: ["SS", "LL"],
+      on_finish: (d) => ado.recordResponse(d.response),
+    });
+    const practice = await runFragment(
+      ado.createTimeline(makeTrial(), { n_trials: 2, debug: false }),
+      () => ({ response: 1 }),
+    );
+    const main = await runFragment(
+      ado.createTimeline(makeTrial(), { n_trials: 2, debug: false }),
+      () => ({ response: 0 }),
+    );
+
+    assert.equal(practice.rows.length, 2);
+    assert.equal(main.rows.length, 2);
+    // The handle's worker is inited exactly once and reused across both timelines
+    // (the old per-controller design would have inited twice).
+    const inits = messages.filter((m) => m.type === "init");
+    assert.equal(inits.length, 1, "both timelines share one worker init");
+  } finally {
+    restoreWorker();
+    server.restore();
+  }
+});
+
+test("committed models (stan): ready() loads the worker and forwards the committed wasmUrl", async () => {
+  // A committed (non-mock) model: ready() now goes through ensureStanRuntime -> client.init
+  // with the committed moduleUrl/wasmUrl (no compile). Certifies the #57 guarantee that the
+  // bundler-emitted wasmUrl reaches the worker, and that ready() gates on the worker load.
+  const messages = [];
+  const restoreWorker = installFakeWorker({ capture: messages });
+  try {
+    const ado = createController(makeJsPsych(), {
+      model: makeSourceModel({
+        id: "committed_stan",
+        stanCode: undefined,
+        moduleUrl: "https://example.test/main.js",
+        wasmUrl: "https://example.test/main.wasm",
+        prior: {
+          k: { dist: "lognormal", meanlog: -4, sdlog: 2 },
+          tau: { dist: "lognormal", meanlog: 0, sdlog: 1 },
+        },
+      }),
+      design_grid: DESIGN_GRID,
+    });
+    await ado.ready();
+    const inits = messages.filter((m) => m.type === "init");
+    assert.equal(inits.length, 1, "ready() posted exactly one worker init");
+    assert.equal(inits[0].moduleUrl, "https://example.test/main.js");
+    assert.equal(inits[0].wasmUrl, "https://example.test/main.wasm");
+  } finally {
+    restoreWorker();
   }
 });
 

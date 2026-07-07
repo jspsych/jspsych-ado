@@ -71,20 +71,20 @@ test("the worker client spawns the worker via new URL(..., import.meta.url) so t
   );
 });
 
-test("the controller forwards model.wasmUrl to the worker client init", async () => {
-  const src = await read("src/controllers/stan_ado_controller.js");
-  // Committed models resolve { moduleUrl: model.moduleUrl, wasmUrl: model.wasmUrl }
-  // (source models substitute the compiled URLs), and the chain hands the pair to
-  // client.init — the guarantee that the bundler-emitted wasm URL reaches the
-  // worker. Behaviorally asserted in tests/js/compile_preload.test.mjs.
+test("the handle forwards the model's wasmUrl to the worker client init", async () => {
+  const src = await read("src/index.js");
+  // The handle's ensureStanRuntime resolves { moduleUrl: adapter.moduleUrl, wasmUrl:
+  // adapter.wasmUrl } for committed models (source models substitute the compiled URLs)
+  // and hands the pair to client.init — the guarantee that the bundler-emitted wasm URL
+  // reaches the worker. Behaviorally asserted in tests/js/compile_preload.test.mjs.
   assert.match(
     src,
-    /\{\s*moduleUrl:\s*model\.moduleUrl,\s*wasmUrl:\s*model\.wasmUrl\s*\}/,
-    "stan_ado_controller.js must source moduleUrl/wasmUrl from the model package.",
+    /\{\s*moduleUrl:\s*adapter\.moduleUrl,\s*wasmUrl:\s*adapter\.wasmUrl\s*\}/,
+    "index.js must source moduleUrl/wasmUrl from the model package (adapter).",
   );
   assert.match(
     src,
     /client\.init\(\s*moduleUrl,\s*wasmUrl\s*\)/,
-    "stan_ado_controller.js must forward the resolved moduleUrl/wasmUrl to client.init().",
+    "index.js must forward the resolved moduleUrl/wasmUrl to client.init().",
   );
 });

@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createStanAdoController } from "../../src/controllers/stan_ado_controller.js";
+import { createStanWorkerClient } from "../../src/controllers/stan_worker_client.js";
 
 // A binary model stub sufficient for the controller (params/prior/buildData/responseProb).
 function makeModel() {
@@ -48,6 +49,16 @@ function installScriptedWorker(handler) {
 
 const baseArgs = (model) => ({ model, grid_design: { d: [0, 1] }, n_trials: 2 });
 
+// The handle now owns worker init; a controller adopts a shared client + worker_ready.
+// Kick the load off against the currently-installed (scripted) Worker, then build the
+// controller around that shared client — mirroring index.js's ensureStanRuntime.
+function makeControllerWithClient(model = makeModel()) {
+  const client = createStanWorkerClient();
+  const worker_ready = client.init(model.moduleUrl, model.wasmUrl);
+  worker_ready.catch(() => {});
+  return createStanAdoController({ ...baseArgs(model), worker_client: client, worker_ready });
+}
+
 test("construction rejects num_chains < 1", () => {
   assert.throws(
     () =>
@@ -82,11 +93,11 @@ test("construction rejects num_samples < 1", () => {
 });
 
 test("worker onerror surfaces on the first update() with a clear load-failure message", async () => {
-  // start() is synchronous (it kicks off the load in the background), so a load
-  // failure must reject the FIRST update() instead of hanging the run.
+  // The worker load is kicked off by the handle (here, makeControllerWithClient); a load
+  // failure must reject the FIRST update() (and ready()/preload) instead of hanging the run.
   const restore = installScriptedWorker((_message, port) => port.error("module not found"));
   try {
-    const controller = createStanAdoController(baseArgs(makeModel()));
+    const controller = makeControllerWithClient();
     controller.start();
     await assert.rejects(
       controller.update({ ado_design: { d: 0 }, choice: 0 }),
@@ -100,7 +111,7 @@ test("worker onerror surfaces on the first update() with a clear load-failure me
 test("worker onmessageerror surfaces on the first update() with a deserialization message", async () => {
   const restore = installScriptedWorker((_message, port) => port.messageerror());
   try {
-    const controller = createStanAdoController(baseArgs(makeModel()));
+    const controller = makeControllerWithClient();
     controller.start();
     await assert.rejects(
       controller.update({ ado_design: { d: 0 }, choice: 0 }),
@@ -120,7 +131,7 @@ test("empty draw columns reject update() with 'no posterior draws'", async () =>
     }
   });
   try {
-    const controller = createStanAdoController(baseArgs(makeModel()));
+    const controller = makeControllerWithClient();
     await controller.start();
     await assert.rejects(
       controller.update({ ado_design: { d: 0 }, choice: 0 }),
@@ -142,7 +153,7 @@ test("a second in-flight request is rejected instead of clobbering the first", a
     }
   });
   try {
-    const controller = createStanAdoController(baseArgs(makeModel()));
+    const controller = makeControllerWithClient();
     await controller.start();
     const first = controller.update({ ado_design: { d: 0 }, choice: 0 });
     first.catch(() => {}); // first never settles (worker hangs); avoid an unhandled rejection
