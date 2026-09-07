@@ -6,11 +6,6 @@
 //   2. recovery still holds at the early stop (k within a factor of 5)
 //   3. a stricter (higher) eig_fraction stops no later than a lenient one
 //   4. min_trials is always respected (never stops earlier)
-//
-// Like the other recovery tests this loads the web-only WASM in node via a fetch
-// shim and bypasses the Web Worker, so it is NOT part of `node --test`.
-//
-// Run:  node tests/wasm/stopping_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 

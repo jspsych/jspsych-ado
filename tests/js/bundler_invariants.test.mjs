@@ -5,12 +5,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { listModelMains } from "../../scripts/patch-wasm-glue.mjs";
 
-// Static guards for the source patterns bundlers (Vite/webpack) depend on to emit
-// and resolve the WASM + worker assets. These are cheap and run in plain
-// Node; the full "does a real bundler build load the hashed wasm" check lives in
-// the bundler spike (see PR notes), but these catch the likely regressions — a
-// cleanup that drops a magic comment, turns a `new URL(...)` into a hardcoded
-// string, or removes the locateFile injection — before they ship.
+// Static guards for the source patterns bundlers depend on to emit and resolve the WASM +
+// worker assets (the end-to-end check is tests/bundler/run.mjs).
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const read = (rel) => readFile(join(ROOT, rel), "utf8");
 
@@ -73,10 +69,8 @@ test("the worker client spawns the worker via new URL(..., import.meta.url) so t
 
 test("the handle forwards the model's wasmUrl to the worker client init", async () => {
   const src = await read("src/index.js");
-  // The handle's ensureStanRuntime resolves { moduleUrl: adapter.moduleUrl, wasmUrl:
-  // adapter.wasmUrl } for committed models (source models substitute the compiled URLs)
-  // and hands the pair to client.init — the guarantee that the bundler-emitted wasm URL
-  // reaches the worker. Behaviorally asserted in tests/js/compile_preload.test.mjs.
+  // ensureStanRuntime hands adapter.wasmUrl to client.init (asserted behaviorally in
+  // compile_preload.test.mjs).
   assert.match(
     src,
     /\{\s*moduleUrl:\s*adapter\.moduleUrl,\s*wasmUrl:\s*adapter\.wasmUrl\s*\}/,

@@ -9,11 +9,6 @@
 //   1. recovery   - loga, b, sigma recovered within tolerance at N adaptive trials
 //   2. b ordering - recovered exponent rises with the true exponent
 //   3. precision  - b posterior SD shrinks with more trials
-//
-// Like the other recovery tests it loads the web-only WASM in node via a fetch shim
-// and bypasses the Web Worker; NOT part of `node --test`. Seeds are fixed.
-//
-// Run: node tests/wasm/magnitude_estimation_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 

@@ -19,20 +19,14 @@
   </head>
   <body></body>
   <script type="module">
-    // The DEV/TEACHING variant of the bring-your-own-model demo: the model is
-    // supplied as STAN SOURCE and compiled to WASM during ado.preload() — no
-    // offline compile step, no committed artifacts, no hand-written prior.
-    //
-    // Compile-server note: the default public server only allows browser requests
-    // from CORS-allowed origins — serve this page at http://127.0.0.1:3000 (an
-    // allowed dev origin), or run a local server
-    // (docker run -p 8083:8080 ghcr.io/flatironinstitute/stan-wasm-server:latest)
-    // and pass compile: { server: "http://localhost:8083" }. For a DEPLOYED study,
-    // prefer the committed-artifacts path in index.html (see README).
+    // The bring-your-own-model demo from Stan SOURCE: compiled on a compile server during
+    // ado.preload(), no committed artifacts, prior parsed from the source. The public
+    // server only allows CORS-allowed origins (serve at http://127.0.0.1:3000, or run
+    // docker run -p 8083:8080 ghcr.io/flatironinstitute/stan-wasm-server:latest and pass
+    // compile: { server: "http://localhost:8083" }). Deployed studies use index.html.
     import { jsPsychADO } from "jspsych-ado";
     import { design_grid, describeDesign, makeChoices, response_labels } from "./demos/byo_model_exponential/task.js";
-    // ONE likelihood, one Stan-data map — shared with the committed-artifacts
-    // variant (index.html) so the two pages can never fit different models.
+    // Likelihood + stanData shared with index.html so the two pages fit the same model.
     import { responseProb, stanData } from "./demos/byo_model_exponential/model.js";
 
     const jsPsych = initJsPsych({
@@ -44,8 +38,7 @@
       r.text(),
     );
 
-    // Same statistical model as index.html, minus moduleUrl/wasmUrl/prior: the
-    // artifacts come from the compile server and the prior is parsed from the source.
+    // index.html's model minus moduleUrl/wasmUrl/prior.
     const model = {
       id: "exponential",
       stanCode,

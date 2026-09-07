@@ -1,20 +1,9 @@
-// Exponential discounting model package (Samuelson, 1937).
-//
-// This is the "bring your own model" example (see demos/byo_model_exponential/):
-// it uses the same delay-choice design/trial shape as the hyperbolic model, but
-// swaps the subjective-value function to V = R * exp(-k*t). Like every ADO
-// model, this adapter is the single source of truth for the JS likelihood and
-// must match exponential.stan; the prior block must match the .stan priors.
-//
-// Generated TinyStan artifacts live under compiled/ and keep their required
-// names, main.js + main.wasm; see compiled/PROVENANCE.md to regenerate them.
+// Exponential discounting model package (Samuelson, 1937): the "bring your own model"
+// example. Same delay-choice design as the hyperbolic model, with V = R * exp(-k*t).
+// responseProb and `prior` must match exponential.stan; the compiled artifacts live
+// under compiled/ (see compiled/PROVENANCE.md to regenerate them).
 
-/**
- * Numerically stable logistic (inverse-logit) transform.
- *
- * @param {number} value - Real-valued input.
- * @returns {number} 1 / (1 + exp(-value)) in [0, 1].
- */
+/** Numerically stable logistic (inverse-logit). */
 function logistic(value) {
   if (value >= 0) {
     return 1 / (1 + Math.exp(-value));
@@ -23,39 +12,19 @@ function logistic(value) {
   return exp_value / (1 + exp_value);
 }
 
-/**
- * Exponentially discounted subjective value: V = R * exp(-k*t).
- *
- * @param {number} reward - Objective reward amount.
- * @param {number} delay - Delay until reward.
- * @param {number} k - Discount rate.
- * @returns {number} Discounted subjective value.
- */
+/** Exponentially discounted subjective value: V = R * exp(-k*t). */
 function getExponentialValue(reward, delay, k) {
   return reward * Math.exp(-k * delay);
 }
 
-/**
- * P(choose larger-later) for one design under one parameter draw. Matches the
- * likelihood in exponential.stan: bernoulli_logit(tau * (v_ll - v_ss)).
- *
- * @param {Object} design - {t_ss, t_ll, r_ss, r_ll}.
- * @param {Object} params - {k, tau}.
- * @returns {number} P(response = 1 = LL).
- */
+/** P(choose larger-later): bernoulli_logit(tau * (v_ll - v_ss)), as in exponential.stan. */
 function responseProb(design, params) {
   const v_ss = getExponentialValue(design.r_ss, design.t_ss, params.k);
   const v_ll = getExponentialValue(design.r_ll, design.t_ll, params.k);
   return logistic(params.tau * (v_ll - v_ss));
 }
 
-/**
- * Optional simulator audit fields: the exponentially discounted subjective values.
- *
- * @param {Object} design - {t_ss, t_ll, r_ss, r_ll}.
- * @param {Object} params - {k}.
- * @returns {{sim_v_ss: number, sim_v_ll: number}}
- */
+/** Simulator audit fields: the discounted subjective values. */
 function simulationData(design, params) {
   return {
     sim_v_ss: getExponentialValue(design.r_ss, design.t_ss, params.k),
@@ -63,8 +32,7 @@ function simulationData(design, params) {
   };
 }
 
-// Stan `data` block mirror, identical to the hyperbolic model because both read
-// the same delay-choice design fields. "response" is the binary participant choice.
+// Mirrors the exponential.stan data block (see ado/stan_data.js).
 const stanData = {
   t_ss: "t_ss",
   t_ll: "t_ll",
@@ -78,7 +46,6 @@ const exponentialModel = {
   params: ["k", "tau"],
   designKeys: ["t_ss", "t_ll", "r_ss", "r_ll"],
   responseSpace: { type: "binary" },
-  // Must match exponential.stan: k ~ lognormal(-4, 2); tau ~ lognormal(0, 1).
   prior: {
     k: { dist: "lognormal", meanlog: -4, sdlog: 2 },
     tau: { dist: "lognormal", meanlog: 0, sdlog: 1 },
@@ -88,8 +55,8 @@ const exponentialModel = {
     tau: { label: "τ", y_min: 0, y_max: 5, lower_bound: 0, min_y_span: 0.5 },
   },
   moduleUrl: new URL("./compiled/main.js", import.meta.url).href,
-  // Statically referenced so bundlers emit the .wasm asset; the worker feeds this to
-  // emscripten's locateFile so the wasm loads after bundling (see ado/stan_worker.js).
+  // Statically referenced so bundlers emit/hash the wasm; the worker routes it through
+  // emscripten's locateFile (#57).
   wasmUrl: new URL("./compiled/main.wasm", import.meta.url).href,
   stanData,
   responseProb,

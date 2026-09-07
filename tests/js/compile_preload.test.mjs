@@ -1,7 +1,5 @@
-// Compile-from-source models as a preload step: a model supplied as
-// stanCode compiles eagerly at createController via a compile server; the Stan
-// controller's model_ready chains on the compiled artifact URLs; ado.preload()
-// gates the timeline jsPsychPreload-style; failures surface readably.
+// Compile-from-source models as a preload step: stanCode compiles eagerly at
+// createController; ado.preload() gates the timeline; failures surface readably.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -214,9 +212,7 @@ test("compile failure: preload renders the compiler's message and aborts; ready(
 });
 
 test("worker load failure: ado.ready() rejects and preload aborts (compile OK, worker fails)", async () => {
-  // Compile + download succeed, but the worker fails to import/instantiate. ready() now
-  // covers the worker load, so this must reject (and preload must abort) rather than
-  // greenlighting a model that can't actually run.
+  // Compile + download succeed but the worker fails to load: ready() rejects, preload aborts.
   const server = installFakeCompileServer();
   const restoreWorker = installFakeWorker({ fail: "wasm instantiate failed" });
   try {
@@ -263,8 +259,7 @@ test("controller reuse (stan): two timelines from one handle share a single work
 
     assert.equal(practice.rows.length, 2);
     assert.equal(main.rows.length, 2);
-    // The handle's worker is inited exactly once and reused across both timelines
-    // (the old per-controller design would have inited twice).
+    // The handle's worker is inited exactly once and reused across both timelines.
     const inits = messages.filter((m) => m.type === "init");
     assert.equal(inits.length, 1, "both timelines share one worker init");
   } finally {
@@ -274,9 +269,7 @@ test("controller reuse (stan): two timelines from one handle share a single work
 });
 
 test("committed models (stan): ready() loads the worker and forwards the committed wasmUrl", async () => {
-  // A committed model: ready() goes through ensureStanRuntime -> client.init
-  // with the committed moduleUrl/wasmUrl (no compile). Certifies the #57 guarantee that the
-  // bundler-emitted wasmUrl reaches the worker, and that ready() gates on the worker load.
+  // A committed model: ready() gates on the worker load and the bundler wasmUrl reaches it (#57).
   const messages = [];
   const restoreWorker = installFakeWorker({ capture: messages });
   try {
@@ -302,8 +295,6 @@ test("committed models (stan): ready() loads the worker and forwards the committ
     restoreWorker();
   }
 });
-
-// --- Review-pass regressions ---
 
 test("a stanCode model with a leftover wasmUrl is rejected (stale local wasm vs server glue)", () => {
   const { valid, problems } = validateModel(

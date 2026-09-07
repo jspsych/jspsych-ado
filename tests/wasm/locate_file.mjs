@@ -5,13 +5,8 @@
 //   - WITH a locateFile override pointing at the hashed URL  -> StanModel.load succeeds
 //   - WITHOUT the override (default findWasmBinary -> sibling) -> StanModel.load fails
 //
-// The first proves the PATCHED glue honors Module.locateFile (a regression where the
-// patch lands but is dead code would make this fail); the second proves the override
-// is actually required under a bundler. This loads the web-only
-// emscripten module in node via a fetch shim, like the recovery tests, so it is NOT
-// part of `node --test`.
-//
-// Run:  node tests/wasm/locate_file.mjs
+// The first proves the patched glue honors Module.locateFile; the second proves the
+// override is required under a bundler.
 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

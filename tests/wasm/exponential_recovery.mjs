@@ -4,11 +4,6 @@
 //   1. recovery        - k and tau recovered within tolerance at N adaptive trials
 //   2. k ordering      - recovered k rises with the true discount rate
 //   3. precision       - k posterior SD shrinks with more trials
-//
-// Like the other recovery tests it loads the web-only WASM in node via a fetch
-// shim and bypasses the Web Worker; NOT part of `node --test`. Seeds are fixed.
-//
-// Run: node tests/wasm/exponential_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 

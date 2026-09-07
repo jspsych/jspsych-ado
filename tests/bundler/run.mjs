@@ -8,8 +8,6 @@
 //
 // This is the only check that exercises the fix end-to-end through a real bundler;
 // the node tests bypass the Worker and the browser tests serve raw source.
-//
-// Run:  node tests/bundler/run.mjs        (npm run test:bundler)
 
 import { execFileSync } from "node:child_process";
 import { readFile, rm, readdir } from "node:fs/promises";
