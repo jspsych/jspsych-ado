@@ -1,24 +1,18 @@
-// Model-agnostic mock ADO controller. Satisfies the same start/update contract as
-// the in-browser Stan controller, but without WASM — for fast timeline/UI work and
-// browser test tests. It knows nothing about any specific task: designs are drawn
-// from the candidate grid via the generic engine, and mock posteriors are emitted
-// for whatever parameter names the model declares. Selection diagnostics are
-// reported as null so mock runs never imply real information-gain estimates.
+// Deterministic no-WASM controller with the same start/update contract as the Stan
+// controller, for timeline/UI work and browser tests. Designs walk the candidate grid;
+// mock posteriors drift with the trial index; selection metrics are null.
 
 import { enumerateDesigns } from "../ado/mi_engine.js";
 import { makeStoppingEvaluator } from "../ado/stopping.js";
 import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
 
 /**
- * Create a deterministic local controller for any model parameter set.
- *
  * @param {Object} options
- * @param {Object|Array} options.grid_design - Candidate design grid (object of value
- *   arrays, or a curated array of designs) — same shape the Stan controller takes.
- * @param {string[]} [options.params] - Parameter names to emit mock posteriors for
- *   (e.g. ["k", "tau"]); defaults to none.
+ * @param {Object|Array} options.grid_design - Candidate design grid.
+ * @param {string[]} [options.params] - Parameter names to emit mock posteriors for.
  * @param {number} [options.n_trials] - Total number of choice trials.
  * @param {number} [options.testlet_size=1] - Choice trials shown between updates.
+ * @param {Object} [options.stopping] - Only max_trials applies (no real EIG).
  * @returns {Object} Controller with sync start(context) and async update(trial_data).
  */
 function createMockAdoController({
@@ -36,16 +30,12 @@ function createMockAdoController({
     throw new Error("createMockAdoController: testlet_size must be a positive integer");
   }
 
-  // Mock has no real EIG, so EIG stopping is inert (no max_possible_eig); only the
-  // max_trials cap applies. should_stop/stop_reason are still emitted for contract
-  // parity, so the timeline's stopping loop behaves identically.
   const stopper = makeStoppingEvaluator({ stopping, default_max_trials: n_trials });
   const nextBlockSize = makeBlockSizer(stopper, testlet_size);
 
   let session_id = "mock-session";
   let trial_index = 0;
 
-  // Walk the candidate designs deterministically so successive trials differ.
   function mockDesign(index) {
     return designs[(index * 7) % designs.length];
   }
@@ -59,8 +49,6 @@ function createMockAdoController({
     return next_designs;
   }
 
-  // Deterministic per-parameter summaries that drift with the trial index, so the
-  // live posterior charts have something monotone-ish to render.
   function mockPosterior(index) {
     const post_mean = {};
     const post_sd = {};
@@ -72,13 +60,6 @@ function createMockAdoController({
   }
 
   return {
-    /**
-     * Start a mock ADO session and return the first deterministic design.
-     * Synchronous by the controller contract (the timeline builds on it directly).
-     *
-     * @param {Object} context - Run context; session_id is used if present.
-     * @returns {Object} ADO state with next_design and null posteriors.
-     */
     start: function (context) {
       session_id = (context && context.session_id) || "mock-session";
       trial_index = 0;
@@ -98,12 +79,6 @@ function createMockAdoController({
       };
     },
 
-    /**
-     * Advance the mock controller after one completed jsPsych choice row/testlet.
-     *
-     * @param {Object|Array<Object>} trial_data - Choice row(s) with ado_trial_index.
-     * @returns {Promise<Object>} Updated mock ADO state.
-     */
     update: async function (trial_data) {
       const rows = Array.isArray(trial_data) ? trial_data : [trial_data];
       trial_index += rows.length;

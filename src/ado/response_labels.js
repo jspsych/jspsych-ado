@@ -1,11 +1,8 @@
-// Outcome-label resolution for the controller facade: turns a model's response
-// space plus optional explicit/inferred labels into the { index: label } map
-// recorded as data.choice_label. Kept out of index.js so the facade holds
-// orchestration, not label bookkeeping.
+// Outcome-label resolution: the { index: label } map recorded as data.choice_label.
 
 import { isContinuous, getResponseCount } from "../validation.js";
 
-/** Convert ["SS","LL"] -> {0:"SS",1:"LL"}; pass an object through unchanged. */
+/** ["SS","LL"] -> {0:"SS",1:"LL"}; objects pass through. */
 function labelsToConfig(labels) {
   if (Array.isArray(labels)) {
     return Object.fromEntries(labels.map((label, index) => [index, label]));
@@ -24,18 +21,14 @@ function countLabels(labels) {
 }
 
 /**
- * Resolve the outcome labels recorded as data.choice_label.
+ * Resolve outcome labels. Explicit labels must match the response count (hard error);
+ * labels inferred from a button trial's static `choices` are best-effort (a keyboard
+ * trial's `choices` are keys, not outcomes), falling back to numeric labels with a warning.
  *
- * EXPLICIT labels are the user's statement of the model's outcome coding, so a
- * count mismatch with the response space is a hard error. Labels INFERRED from a
- * static button-trial `choices` array are best-effort sugar (a keyboard trial's
- * `choices` are keys, not outcomes): when the count doesn't match, warn and fall
- * back to numeric labels instead of rejecting a validly-wired experiment.
- *
- * @param {?(string[]|Object)} explicit_labels - Labels passed by the user, or null.
+ * @param {?(string[]|Object)} explicit_labels
  * @param {?Object} response_trial - The response-collecting trial (for its `choices`).
- * @param {Object} responseSpace - The model's response space.
- * @returns {?Object} An { index: label } map, or null for continuous responses.
+ * @param {Object} responseSpace
+ * @returns {?Object} { index: label }, or null for continuous responses.
  */
 function resolveResponseLabels(explicit_labels, response_trial, responseSpace) {
   if (isContinuous(responseSpace)) {

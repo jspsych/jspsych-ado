@@ -5,9 +5,7 @@ import { createAdoTimeline } from "../../src/ado/ado_timeline.js";
 import { createController, parseStanPriors, validateModel } from "../../src/index.js";
 import { labelsToConfig } from "../../src/ado/response_labels.js";
 
-// ---------------------------------------------------------------------------
 // Fixtures
-// ---------------------------------------------------------------------------
 
 // Multi-valued grid ON PURPOSE: several regression tests assert that the design a
 // trial RENDERS is the design its data row RECORDS (a single-design grid can never
@@ -46,9 +44,7 @@ function makeModel(overrides = {}) {
 
 import { runFragment, makeJsPsych, installFakeWorker } from "./_timeline_harness.mjs";
 
-// ---------------------------------------------------------------------------
 // parseStanPriors: commented-out statements and half-normal bounds
-// ---------------------------------------------------------------------------
 
 const STAN_CODE = `
 data { int<lower=0> N; }
@@ -102,9 +98,7 @@ model { k ~ normal(1); }
   assert.throws(() => parseStanPriors(code, ["k"]), /expects 2 numeric arguments/);
 });
 
-// ---------------------------------------------------------------------------
 // createController validation
-// ---------------------------------------------------------------------------
 
 test("createController: requires model and design_grid", () => {
   assert.throws(() => createController(makeJsPsych(), {}), /provide a model package/);
@@ -158,9 +152,7 @@ test("validateModel: rejects run-policy fields on a model package (model = stati
   }
 });
 
-// ---------------------------------------------------------------------------
 // Core mock-mode flow through the PUBLIC API
-// ---------------------------------------------------------------------------
 
 test("mock run: rendered stimulus always matches the recorded design (stale-design regression)", async () => {
   const jsPsych = makeJsPsych();
@@ -264,9 +256,7 @@ test("response_labels: explicit labels are strict; inference is best-effort with
   }
 });
 
-// ---------------------------------------------------------------------------
 // recordResponse contract
-// ---------------------------------------------------------------------------
 
 test("recordResponse: gated to on_finish, single-shot, and validated against the response space", async () => {
   const jsPsych = makeJsPsych();
@@ -408,9 +398,7 @@ test("user mapping owns raw->outcome: mapped value is the choice, raw response s
   assert.equal(rows[0].choice_label, "LL");
 });
 
-// ---------------------------------------------------------------------------
 // Stan mode through the fake worker
-// ---------------------------------------------------------------------------
 
 test("stan run: on_finish is not resolved until the sample completes; next trial sees the new design", async () => {
   const gate = [];
@@ -486,9 +474,7 @@ test("stan run: worker init receives moduleUrl AND wasmUrl", async () => {
   }
 });
 
-// ---------------------------------------------------------------------------
 // Testlets through the PUBLIC API (the in-testlet design advance)
-// ---------------------------------------------------------------------------
 
 test("testlet_size=2: each trial inside a testlet renders its OWN design; one update per boundary", async () => {
   const ado = createController(makeJsPsych(), {
@@ -526,9 +512,7 @@ test("testlet_size=2: each trial inside a testlet renders its OWN design; one up
   assert.equal(rows[2].ado_trial_index, 4);
 });
 
-// ---------------------------------------------------------------------------
 // Early stopping through the timeline
-// ---------------------------------------------------------------------------
 
 test("createAdoTimeline skips remaining testlets once the controller signals should_stop", async () => {
   let updates = 0;
@@ -584,9 +568,7 @@ test("createAdoTimeline skips remaining testlets once the controller signals sho
   assert.equal(rows[1].ado_stop_reason, "eig_below_threshold");
 });
 
-// ---------------------------------------------------------------------------
 // Multi-trial steps, factory form, reuse, cloning
-// ---------------------------------------------------------------------------
 
 test("array form: prelude trials read the design; the LAST trial is the response by default", async () => {
   const ado = createController(makeJsPsych(), {
@@ -680,9 +662,7 @@ test("controller reuse: a second createTimeline run works after the first (pract
   });
 });
 
-// ---------------------------------------------------------------------------
 // Simulation hook (synthetic-participant runs via jsPsych.simulate())
-// ---------------------------------------------------------------------------
 
 test("simulate: composes simulation_options drawing responses from the model likelihood", async () => {
   const ado = createController(makeJsPsych(), {
@@ -719,9 +699,7 @@ test("simulate: composes simulation_options drawing responses from the model lik
   assert.equal(data.choice, sim.data.response);
 });
 
-// ---------------------------------------------------------------------------
 // Misc facade helpers
-// ---------------------------------------------------------------------------
 
 test("trials AFTER the response trial still render THIS step's design (feedback screens)", async () => {
   const ado = createController(makeJsPsych(), {

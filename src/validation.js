@@ -1,3 +1,7 @@
+// Model / design-grid validation for the jsPsychADO façade, plus buildModelAdapter (the
+// validated package in the shape the engine and controllers consume). Pure and
+// synchronous; the façade throws/warns on the problems returned.
+
 import { createSeededRng } from "./ado/ado_simulation.js";
 import {
   enumerateDesigns,
@@ -8,18 +12,9 @@ import {
 } from "./ado/mi_engine.js";
 import { makeStanDataBuilder, validateStanDataSpec } from "./ado/stan_data.js";
 
-// Model / design-grid validation for the jsPsychADO façade.
-//
-// Two entry points, plus the response-space predicates they share:
-//   - validateModel(model, opts)                    — a model package's shape (+ optional probe)
-//   - validateDesignGridForModel(grid, model, name) — that a design grid and model fit
-//     (grid enumerates, every model design key present, a likelihood probe, a buildData probe)
-// before createController builds anything. The functions are pure and synchronous; the
-// façade throws/warns based on the problems they return.
-
 const SAMPLEABLE_PRIOR_DISTS = new Set(["lognormal", "normal", "halfnormal"]);
 
-// Fields that belong in experiment/trial code (task-layer concerns), never on a model.
+// Task-layer fields that never belong on a model package.
 const TASK_ONLY_FIELDS = [
   "design_grid",
   "presentation",
@@ -29,11 +24,7 @@ const TASK_ONLY_FIELDS = [
   "task",
 ];
 
-// Run-policy fields: how a particular RUN uses a model (sampler effort, trial
-// counts, refit cadence, stopping). They belong on createController config or
-// per-timeline options — the same statistical model serves a 6-trial tutorial, a
-// 42-trial study, and a recovery simulation. Kept off the model package so the
-// package stays a pure statistical contract.
+// Run policy belongs on createController config / per-timeline options, not the model.
 const RUN_POLICY_FIELDS = ["stan", "n_trials", "testlet_size", "stopping"];
 
 function getResponseCount(responseSpace) {
@@ -53,29 +44,21 @@ function getResponseCount(responseSpace) {
   return null;
 }
 
-// A continuous response has no finite category count; the engine scores it by
-// numerical integration of a density rather than enumerating outcomes.
 function isContinuous(responseSpace) {
   return Boolean(responseSpace) && responseSpace.type === "continuous";
 }
 
-// A source model ships Stan source instead of committed artifacts; its prior may be
-// derived and its WASM is compiled at preload time. ONE definition, shared by the
-// facade and validation so the predicate can't drift.
+// A source model ships Stan source (compiled at preload time) instead of committed artifacts.
 function isSourceModel(model) {
   return (
     Boolean(model) && typeof model.stanCode === "string" && !!model.stanCode && !model.moduleUrl
   );
 }
 
-// The two ways a model names its compilation source (exactly one must be present).
 const SOURCE_KEYS = ["moduleUrl", "stanCode"];
 
-// Validate the SOURCE-SHAPE contract shared by prepareModel and validateModel: exactly one
-// of `moduleUrl` | `stanCode`, and no `wasmUrl` on a source (stanCode) spec — a committed
-// `moduleUrl` spec MAY carry wasmUrl (local bundler-hashed wasm). Pure and synchronous;
-// returns problem-message strings so each caller adapts to its idiom (validateModel pushes
-// them via err(); prepareModel throws the first).
+// Source-shape contract shared by prepareModel and validateModel: exactly one of
+// moduleUrl | stanCode, and no wasmUrl on a source spec. Returns problem strings.
 function validateSourceSpec(spec) {
   const problems = [];
   if (!spec || typeof spec !== "object") {
@@ -83,9 +66,8 @@ function validateSourceSpec(spec) {
     return problems;
   }
   const has = (key) => typeof spec[key] === "string" && !!spec[key];
-  // A present-but-non-string URL field (a URL object where `.href` was meant) must
-  // say so: counted as "absent" it would misreport "provide exactly one of ...", and
-  // a URL-object wasmUrl survives to worker postMessage, dying as a DataCloneError.
+  // A URL object (forgot .href) must be named as such; a URL-object wasmUrl would
+  // otherwise die later in worker postMessage with a DataCloneError.
   for (const key of [...SOURCE_KEYS, "wasmUrl"]) {
     if (spec[key] != null && typeof spec[key] !== "string") {
       problems.push(
@@ -119,8 +101,6 @@ function validateSourceSpec(spec) {
   return problems;
 }
 
-// One source of truth for what a CONTINUOUS model must provide. Returns problem
-// messages (empty if OK); validateModel collects all.
 function continuousModelProblems(model) {
   const problems = [];
   if (typeof model.responseDensity !== "function") {
@@ -134,9 +114,7 @@ function continuousModelProblems(model) {
   return problems;
 }
 
-// Probe a continuous model's density at a representative response value. Returns an
-// error message, or null when the density is a finite nonnegative number. Shared by
-// validateDesignGridForModel and validateModel.
+// Probe a continuous density at the middle of its support; returns an error message or null.
 function probeContinuousDensity(model, design, draw) {
   const support = makeContinuousSupportResolver(model)(design, [draw]);
   const probe_y = (support[0] + support[1]) / 2;
@@ -144,8 +122,6 @@ function probeContinuousDensity(model, design, draw) {
   if (typeof density !== "number" || !Number.isFinite(density) || density < 0) {
     return `response density probe returned ${density}; expected a finite nonnegative number`;
   }
-  // If a fast-path factory is supplied, it must compute the same density (the engine
-  // uses it on the MI hot loop while realized gain still uses responseDensity).
   if (typeof model.responseDensityFactory === "function") {
     const fast = model.responseDensityFactory(design, draw)(probe_y);
     if (!Number.isFinite(fast) || Math.abs(fast - density) > 1e-9 * (1 + Math.abs(density))) {
@@ -155,11 +131,6 @@ function probeContinuousDensity(model, design, draw) {
   return null;
 }
 
-/**
- * Validate a responseSpace shape. Returns an error string (prefixed with `context`) or null
- * if valid. Accepts {type:"binary"}, {type:"categorical", n_categories>=2}, and
- * {type:"continuous"} (optional integer intervals>=2).
- */
 function validateResponseSpace(responseSpace, context) {
   if (!responseSpace || typeof responseSpace.type !== "string") {
     return `${context}: responseSpace.type must be a string.`;
@@ -208,16 +179,13 @@ function findUndefined(value, path = "data") {
 }
 
 /**
- * Validate that a design grid and a model adapter are compatible, THROWING if not (this
- * is the gate createController calls before building). Checks: the grid enumerates and is
- * non-empty; every model design key is present on every candidate design; a prior-draw
- * likelihood probe returns the right number of probabilities (or a finite density for
- * continuous); and a buildData probe returns a Stan data object with no undefined fields.
+ * Validate that a design grid and a model adapter fit, throwing if not: the grid
+ * enumerates non-empty, every design key is present, a prior-draw likelihood probe returns
+ * the right shape, and a buildData probe returns Stan data with no undefined fields.
  *
  * @param {Object|Array} grid_design - Candidate design grid.
  * @param {Object} model - Built model adapter.
  * @param {string} modelName - Model name (for the error message).
- * @throws {Error} If the pair is incompatible (message lists every problem found).
  */
 function validateDesignGridForModel(grid_design, model, modelName) {
   const problems = [];
@@ -292,12 +260,12 @@ function validateDesignGridForModel(grid_design, model, modelName) {
 }
 
 /**
- * Validate a model-package default export (the shape under models/<name>/model.js).
+ * Validate a model package (the shape under models/<name>/model.js).
  *
  * @param {Object} model - The model package default export.
  * @param {Object} [opts]
- * @param {Object} [opts.sampleDesign] - A design to probe responseProb/responseProbs/buildData with.
- * @param {Object} [opts.sampleDraw]   - A parameter draw to probe responseProb/responseProbs with.
+ * @param {Object} [opts.sampleDesign] - A design to probe the likelihood with.
+ * @param {Object} [opts.sampleDraw] - A parameter draw to probe the likelihood with.
  * @returns {{valid: boolean, problems: Array<{level: "error"|"warn", message: string}>}}
  */
 function validateModel(model, opts = {}) {
@@ -323,18 +291,12 @@ function validateModel(model, opts = {}) {
   if (!params || params.length === 0 || !params.every((p) => typeof p === "string")) {
     err("`params` must be a non-empty array of parameter-name strings.");
   }
-  // A model supplies EITHER committed artifacts (moduleUrl, the production path) OR Stan
-  // source (stanCode, compiled at preload time). Source-shape + no-wasmUrl-on-source is
-  // validated by the seam shared with prepareModel.
   const has_moduleUrl = typeof model.moduleUrl === "string" && model.moduleUrl;
   for (const problem of validateSourceSpec(model)) {
     err(problem);
   }
-  // Not required (static-served deployments work without it), but a bundler
-  // (Vite/webpack) hashes main.wasm, so without wasmUrl the model 404s its wasm
-  // at runtime in a bundled build (#57). An explicit `wasmUrl: null` opts out: the
-  // artifacts are server-hosted (prepareModel sets it), so main.js fetches its own
-  // sibling wasm and there is no local asset for a bundler to rename.
+  // Bundlers hash main.wasm, so a committed model without wasmUrl 404s its wasm in a
+  // bundled build (#57). An explicit null opts out (server-hosted artifacts).
   if (has_moduleUrl && model.wasmUrl === undefined) {
     warn(
       '`wasmUrl` is not set (e.g. new URL("./main.wasm", import.meta.url).href). ' +
@@ -353,8 +315,6 @@ function validateModel(model, opts = {}) {
       err(response_space_error);
     }
   }
-  // Stan data plumbing: a declarative stanData map (preferred) OR a hand-written
-  // buildData escape hatch. Validate the map's shape when present.
   if (model.stanData != null) {
     for (const p of validateStanDataSpec(model.stanData)) err(p);
   } else if (typeof model.buildData !== "function") {
@@ -386,9 +346,8 @@ function validateModel(model, opts = {}) {
     }
   }
 
-  // Prior must cover every parameter, with a family the first-design sampler can draw.
-  // Source models (stanCode) may omit it — the facade derives it from the Stan source
-  // via parseStanPriors before anything samples.
+  // The prior must cover every parameter with a family the first-design sampler can
+  // draw. Source models may omit it (derived from the Stan source).
   if (params && model.prior && typeof model.prior === "object") {
     for (const p of params) {
       const spec = model.prior[p];
@@ -404,14 +363,11 @@ function validateModel(model, opts = {}) {
       }
     }
   } else if (params && (model.prior != null || !isSourceModel(model))) {
-    // A present-but-non-object prior is always an error; an ABSENT prior is fine only
-    // for source models (stanCode): the facade derives it from the source.
     err(
       "`prior` must be an object mapping each parameter to a {dist, ...} spec matching the .stan priors.",
     );
   }
 
-  // Optional runtime probe.
   if (
     opts.sampleDesign &&
     isContinuous(model.responseSpace) &&
@@ -450,8 +406,7 @@ function validateModel(model, opts = {}) {
   return { valid, problems };
 }
 
-// Validate a model package and adapt it to the shape the engine/controllers
-// consume (resolved buildData, derived responseProbs, forwarded hooks).
+// Validate a model package and fill in the engine-facing derived fields.
 function buildModelAdapter(model, context) {
   const { problems } = validateModel(model);
   const errors = problems.filter((p) => p.level === "error");
@@ -464,16 +419,13 @@ function buildModelAdapter(model, context) {
   for (const w of problems.filter((p) => p.level === "warn")) {
     console.warn(`${context}("${model.id}"): ${w.message}`);
   }
-  // validateModel already rejected task-owned / run-policy fields, so the package can
-  // pass through whole; only the engine-facing derived fields are filled in.
   return {
     ...model,
-    wasmUrl: model.wasmUrl ?? null, // forwarded to the worker's locateFile (#57)
+    wasmUrl: model.wasmUrl ?? null,
     buildData:
       model.buildData ??
       makeStanDataBuilder({ stanData: model.stanData, responseSpace: model.responseSpace }),
-    // Discrete models always expose a probability VECTOR to the engine/simulator
-    // (binary responseProb is wrapped); continuous models expose a density instead.
+    // Discrete models always expose a probability vector; continuous ones expose a density.
     responseProbs: isContinuous(model.responseSpace) ? undefined : getResponseProbsFunction(model),
   };
 }

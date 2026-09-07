@@ -1,23 +1,6 @@
-// src/index.js — the jsPsychADO façade (package entry point).
-//
-// The public authoring path is controller-based:
-//
-//   const ado = jsPsychADO.createController(jsPsych, { model, design_grid, stan });
-//
-//   const trial = {
-//     type: jsPsychHtmlButtonResponse,
-//     stimulus: () => `${ado.evaluateDesignVariable("r_ss")} now or ...`,
-//     choices: ["Sooner", "Later"],
-//     on_finish: (data) => ado.recordResponse(data.response),
-//   };
-//
-//   jsPsych.run([intro, ...ado.createTimeline(trial), end]);
-//
-// The task layer is ordinary user-authored jsPsych trials; ADO owns the adaptive
-// controller/runtime. ado.createTimeline(...) owns the scheduling guarantee:
-// response -> model update -> next design -> next trial render (jsPsych 8 awaits
-// the composed async on_finish). Model validation lives in validation.js and the
-// Stan-source helpers (prior parsing + remote compile) in models/stan_source.js.
+// The jsPsychADO façade (package entry point): createController, prepareModel, and the
+// public helpers. Model validation lives in validation.js; Stan-source helpers (prior
+// parsing + remote compile) in models/stan_source.js.
 
 import { createStanAdoController } from "./controllers/stan_ado_controller.js";
 import { createMockAdoController } from "./controllers/mock_ado_controller.js";
@@ -48,12 +31,8 @@ import { parseStanPriors, compileToModuleUrl } from "./models/stan_source.js";
 const DEFAULT_STAN = { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 };
 const DEFAULT_N_TRIALS = 42;
 const DEFAULT_TOKEN = "1234";
-// The free public stan-playground compile server (Ward, Soules & Magland 2026,
-// 10.21105/joss.09531). Content-addressed caching: the first request for a given
-// model source pays the compile; every identical request (all participants) is a
-// cache hit + ~1MB artifact download. Browser calls require the page's origin to
-// be CORS-allowed by the server (see #137); compileToModuleUrl's error message
-// explains the self-hosted docker fallback.
+// The public stan-playground compile server (Ward, Soules & Magland 2026,
+// 10.21105/joss.09531). Browser calls need the page's origin CORS-allowed (#137).
 const DEFAULT_COMPILE_SERVER = "https://stan-wasm.flatironinstitute.org";
 const CONTROLLER_MODES = new Set(["stan", "mock"]);
 
@@ -66,18 +45,8 @@ function resolveDebug(value) {
   return flag != null && !/^(0|false|off|no)$/i.test(flag);
 }
 
-// ---------------------------------------------------------------------------
-// createController
-// ---------------------------------------------------------------------------
-
 /**
  * Create an ADO controller handle for one model + design grid.
- *
- * The handle exposes design accessors for ordinary jsPsych trials
- * (evaluateDesignVariable / designVariable / getDesign), the response boundary
- * (recordResponse, called from the adaptive trial's on_finish), the live
- * posterior (getState), and createTimeline(trialOrTrials, opts) which wraps the
- * user's trials into the adaptive loop.
  *
  * @param {Object} jsPsych - jsPsych instance returned by initJsPsych().
  * @param {Object} config
@@ -109,10 +78,8 @@ function createController(jsPsych, config = {}) {
   if (config.design_grid == null) {
     throw new Error("createController: `design_grid` is required.");
   }
-  // The scheduling guarantee (the composed async on_finish is AWAITED before the
-  // next trial renders) is a jsPsych 8 behavior. peerDependencies are invisible to
-  // script-tag pages, so fail loudly here rather than silently mispair designs and
-  // responses under jsPsych 7.
+  // Scheduling relies on jsPsych 8 awaiting async on_finish; peerDependencies are
+  // invisible to script-tag pages, so check at runtime.
   if (jsPsych && typeof jsPsych.version === "function") {
     const version = String(jsPsych.version());
     const major = Number.parseInt(version, 10);
@@ -125,17 +92,8 @@ function createController(jsPsych, config = {}) {
     }
   }
 
-  // Source models: a model supplied as Stan source instead of committed
-  // artifacts. The prior is derived from the source synchronously (so validation
-  // and first-design selection work unchanged), and compilation kicks off EAGERLY
-  // here — it overlaps welcome/instruction screens, and by the time an
-  // ado.preload() trial runs it has often already resolved. The chain feeds the
-  // Stan controller's model_ready, which the first posterior update awaits.
   const is_source_model = isSourceModel(config.model);
-  // Validate FIRST (buildModelAdapter throws validateModel's actionable messages;
-  // a prior-less source model passes via the source exemption), THEN derive the
-  // prior — parseStanPriors must never see an invalid `params`, where it would die
-  // with a raw TypeError instead of "`params` must be a non-empty array ...".
+  // Validate before deriving the prior so parseStanPriors never sees invalid `params`.
   const adapter = buildModelAdapter(config.model, "createController");
   if (is_source_model && adapter.prior == null) {
     adapter.prior = parseStanPriors(config.model.stanCode, adapter.params);
@@ -147,9 +105,6 @@ function createController(jsPsych, config = {}) {
       return null;
     }
     if (!module_ready) {
-      // prepareModel compiles AND verifies the artifact downloads (returning wasmUrl: null,
-      // the server-hosted main.js fetches its sibling wasm); ensureStanRuntime chains the
-      // worker load onto this. adapter.prior spares prepareModel a re-parse.
       module_ready = prepareModel(
         { ...config.model, prior: adapter.prior },
         {
@@ -157,59 +112,41 @@ function createController(jsPsych, config = {}) {
           authToken: (config.compile && config.compile.authToken) || DEFAULT_TOKEN,
         },
       );
-      // Failures surface via ready()/preload/the first update, not as an unhandled rejection.
-      module_ready.catch(() => {});
+      module_ready.catch(() => {}); // surfaced via ready()/preload/the first update
     }
     return module_ready;
   }
 
-  // The Stan runtime = one shared worker client for the whole handle, created and
-  // model-loaded LAZILY on the first ready()/preload/timeline (never at construction, so
-  // createController stays worker-free for validation-only use). Memoized: practice and
-  // main runs reuse the same worker (a worker fault aborts the current run, so a later
-  // timeline never inherits a dead one); ready()/preload gate on its init, so a green
-  // preload means the worker actually imported the module and instantiated its wasm.
+  // One shared worker per handle, created lazily on the first ready()/preload()/timeline
+  // so createController stays worker-free for validation-only use. Practice and main
+  // timelines reuse it; ready()/preload gate on its init.
   let stan_runtime = null;
   function ensureStanRuntime() {
     if (stan_runtime) {
       return stan_runtime;
     }
-    const client = createStanWorkerClient(); // worker-free until init()
+    const client = createStanWorkerClient();
     const module_source =
-      ensureModuleReady() ?? // source: compile + download; committed: null
+      ensureModuleReady() ??
       Promise.resolve({ moduleUrl: adapter.moduleUrl, wasmUrl: adapter.wasmUrl });
     const ready = module_source.then(({ moduleUrl, wasmUrl }) => client.init(moduleUrl, wasmUrl));
-    ready.catch(() => {}); // surfaced via ready()/preload/first update, not an unhandled rejection
+    ready.catch(() => {}); // surfaced via ready()/preload/the first update
     stan_runtime = { client, ready };
     return stan_runtime;
   }
-  // Normalize the handle-level controller ONCE — this validates config.controller early
-  // and drives both the eager-compile gate and ready(). Per-timeline overrides normalize
-  // separately in createTimeline.
   const handle_controller = normalizeControllerMode(config.controller);
 
-  // Enumerate the candidate designs ONCE per handle; validation, and every
-  // controller built by createTimeline, reuse the enumerated array (enumerating
-  // an already-enumerated array is a pass-through).
   const candidate_designs = enumerateDesigns(config.design_grid);
   validateDesignGridForModel(candidate_designs, adapter, adapter.id);
 
-  // Kick the compile off EAGERLY in the common case so it overlaps welcome/
-  // instruction screens — but only after ALL validation above, so an invalid
-  // config never ships the user's Stan source to the compile server. Mock-mode
-  // handles stay network-free: the mock controller never consumes the WASM, so a
-  // dev loop (or an offline machine) must not die on a compile-server call it
-  // doesn't need. (A per-timeline controller:"stan" override still triggers the
-  // compile lazily below.)
+  // Start the compile eagerly so it overlaps instruction screens — after validation, so
+  // an invalid config never sends Stan source to the server. Mock handles stay offline.
   if (handle_controller !== "mock") {
     ensureModuleReady();
   }
 
-  // The facade state below belongs to the ACTIVE run (one createTimeline call).
-  // Sequential reuse (a practice run then a main run from the same handle) works
-  // because each timeline re-activates itself via on_timeline_start before any of
-  // its trials evaluate parameters; concurrent runs are not supported (jsPsych
-  // runs one timeline at a time).
+  // The state below belongs to the active run (one createTimeline call); each timeline
+  // re-activates itself at on_timeline_start, so sequential reuse (practice -> main) works.
   let active_run = null;
 
   function requireActiveRun(context) {
@@ -255,20 +192,11 @@ function createController(jsPsych, config = {}) {
     },
 
     /**
-     * Resolves once the handle's Stan model is loaded and usable: the worker has imported
-     * the compiled module and instantiated its wasm (after compile + artifact download for
-     * source models). Rejects if that compile, download, or worker load fails.
-     *
-     * Gating mirrors the eager-compile gate: a `controller: "mock"` handle resolves
-     * immediately (no wasm) — unless a per-timeline `controller: "stan"` override has
-     * already built its timeline, in which case the shared runtime exists and
-     * ready()/preload() gate on that worker load too.
-     *
-     * For custom loading UI; ado.preload() consumes it for you.
+     * Resolves once the Stan worker has imported the model and instantiated its wasm
+     * (after compile + download for source models); rejects if any step fails. A mock
+     * handle resolves immediately unless a stan-override timeline already built its runtime.
      */
     ready() {
-      // An existing runtime (e.g. a mock-default handle whose stan-override timeline
-      // was built) is always the readiness truth.
       if (!stan_runtime && handle_controller === "mock") {
         return Promise.resolve();
       }
@@ -276,11 +204,10 @@ function createController(jsPsych, config = {}) {
     },
 
     /**
-     * A jsPsychPreload-style gate trial: shows a message while ado.ready()
-     * resolves, renders the compiler's error message and aborts if it rejects.
-     * Optional — without it the first posterior update simply awaits readiness.
+     * A jsPsychPreload-style gate trial: shows a message while ready() resolves, renders
+     * the error and aborts if it rejects. Optional — without it the first update awaits.
      *
-     * @param {Object} [opts] - { message?, error_message? } (HTML strings).
+     * @param {Object} [opts] - { message?, error_message?, max_load_time? }.
      * @returns {Object} An ordinary jsPsych trial to place before the adaptive timeline.
      */
     preload(opts = {}) {
@@ -288,10 +215,8 @@ function createController(jsPsych, config = {}) {
     },
 
     /**
-     * Record the model outcome for the current adaptive trial. Call exactly once
-     * from the adaptive trial's on_finish, after mapping the plugin's raw response
-     * to the model's outcome coding (binary: 0/1; categorical: 0..K-1;
-     * continuous: a finite number).
+     * Record the model outcome for the current adaptive trial. Call exactly once from the
+     * adaptive trial's on_finish (binary: 0/1; categorical: 0..K-1; continuous: a finite number).
      */
     recordResponse(response) {
       const run = requireActiveRun("recordResponse");
@@ -337,9 +262,6 @@ function createController(jsPsych, config = {}) {
       const stan = { ...DEFAULT_STAN, ...config.stan, ...timeline_config.stan };
       const simulate = timeline_config.simulate ?? config.simulate ?? null;
 
-      // The shared, lazily-loaded worker for the whole handle (memoized). Building a stan
-      // timeline kicks off the load if it hasn't started (e.g. a mock-default handle with
-      // a per-timeline controller:"stan" override); ready()/preload gate on the same init.
       const stan_runtime_for_timeline = controller_mode === "mock" ? null : ensureStanRuntime();
       const adaptive_controller =
         controller_mode === "mock"
@@ -374,8 +296,6 @@ function createController(jsPsych, config = {}) {
               : "stan",
         controller_mode,
         design_strategy: effective_design_strategy,
-        // The controllers read session_id from the start(context) call (the mock
-        // has no constructor arg for it), so it must ride the run_context.
         session_id: timeline_config.session_id ?? config.session_id,
         model_id: adapter.id,
         posterior_display: config.model.posterior_display,
@@ -385,9 +305,8 @@ function createController(jsPsych, config = {}) {
         run_context.simulate_choice = makeSimulatedParticipant(adapter, simulate, response_labels);
       }
 
-      // Per-run response-recording state. recording_open gates recordResponse to
-      // the composed on_finish; a validated response lands on data.__ado_response
-      // for the timeline's finalize step.
+      // recording_open gates recordResponse to the composed on_finish; the validated
+      // response lands on data.__ado_response for the timeline's finalize step.
       let recording_open = false;
       let response_recorded = false;
       let recorded_response;
@@ -413,9 +332,6 @@ function createController(jsPsych, config = {}) {
           response_recorded = true;
         },
       };
-      // Make the handle usable for the run being built (design reads in dynamic
-      // parameters resolve against the most recently created timeline until another
-      // run activates itself at timeline start).
       active_run = run;
 
       const timeline = createAdoTimeline(
@@ -429,8 +345,6 @@ function createController(jsPsych, config = {}) {
           choices: response_trial ? response_trial.choices : undefined,
           describeDesign: timeline_config.describeDesign ?? config.describeDesign,
           getChoiceTrials(ctx) {
-            // The factory path re-normalizes because user code may return anything;
-            // the static path was validated once at createTimeline entry.
             const { trials, response_trial_index } = uses_trial_factory
               ? normalizeControllerTrials(
                   trial_or_trials({ ...ctx, ado }),
@@ -465,10 +379,8 @@ function createController(jsPsych, config = {}) {
                 data.__ado_response = recorded_response;
                 copySimulationAuditFields(data, run_context);
               };
-              // Simulation hook: when a
-              // synthetic participant is configured, supply plugin simulation data drawn
-              // from the model likelihood at the live design. User-authored
-              // simulation_options win.
+              // Synthetic participant: plugin simulation data drawn from the model
+              // likelihood at the live design. User-authored simulation_options win.
               if (run_context.simulate_choice && cloned.simulation_options === undefined) {
                 cloned.simulation_options = () =>
                   makeChoiceSimulationOptions(run_context, ctx.getDesign());
@@ -480,10 +392,6 @@ function createController(jsPsych, config = {}) {
         },
         run_context,
         {
-          // Bind-once accessor handoff: the timeline delivers its live design/state
-          // readers when it starts, and a lightweight final snapshot when it ends
-          // (post-run getState() keeps working — e.g. a debrief screen — while the
-          // controller, grid, and posterior draws become collectable).
           onTimelineStart: (accessors) => {
             get_live_design = accessors.getDesign;
             get_live_state = accessors.getState;
@@ -503,18 +411,10 @@ function createController(jsPsych, config = {}) {
   return ado;
 }
 
-// ---------------------------------------------------------------------------
-// prepareModel (compile-from-source prototyping path)
-// ---------------------------------------------------------------------------
-
 /**
- * Turn a source model spec ({ stanCode, params, designKeys, responseSpace, likelihood,
- * stanData, ... }) into a model package usable with createController, by compiling the
- * Stan source to WASM on a compile server and (when needed) deriving the JS prior from
- * the source. Models that already carry a moduleUrl pass through.
- *
- * Run once at study setup (not per participant); the compile server is content-
- * addressed, so repeat compiles of the same source are cache hits there.
+ * Compile a `stanCode` model spec on a compile server (deriving the JS prior from the
+ * source when omitted) and return a model package usable with createController. Specs
+ * that already carry a moduleUrl pass through. Run once at study setup.
  *
  * @param {Object} spec - Model spec with exactly one of stanCode | moduleUrl.
  * @param {Object} opts
@@ -526,8 +426,6 @@ async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } =
   if (!spec || typeof spec !== "object") {
     throw new Error("prepareModel: spec must be an object.");
   }
-  // Source-shape + no-wasmUrl-on-source, shared with validateModel (the seam rejects a
-  // wasmUrl only on source specs, so a committed { moduleUrl, wasmUrl } spec passes through).
   const problems = validateSourceSpec(spec);
   if (problems.length) {
     throw new Error("prepareModel: " + problems[0]);
@@ -545,10 +443,8 @@ async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } =
   const prior = spec.prior ?? parseStanPriors(stanCode, spec.params);
   const moduleUrl = await compileToModuleUrl(stanCode, compileServer, authToken);
 
-  // Verify the artifact downloads before handing the package out — a dead URL must
-  // fail here, readably, not later as a worker import crash. The body is consumed so
-  // the browser cache-commits it for the worker's import (a bodyless HEAD probe trips
-  // Chrome's aborted-request diagnostics).
+  // Verify the artifact downloads now (a dead URL fails readably instead of as a worker
+  // import crash). Consuming the body lets the browser cache it for the worker's import.
   const res = await fetch(moduleUrl);
   if (!res.ok) {
     throw new Error(
@@ -557,14 +453,9 @@ async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } =
   }
   await res.arrayBuffer();
 
-  // wasmUrl: null — the server-hosted main.js fetches its sibling wasm; no local asset
-  // exists for a bundler to hash, so validateModel must not warn about it.
+  // wasmUrl: null — the server-hosted main.js fetches its sibling wasm (no bundler asset).
   return { ...rest, prior, moduleUrl, wasmUrl: null };
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function normalizeControllerMode(value) {
   if (value == null) {
@@ -607,8 +498,7 @@ function normalizeControllerTrials(trial_or_trials, response_trial_index) {
     }
   }
 
-  // The response trial defaults to the LAST trial of the step (fixation ->
-  // stimulus -> response is the common shape); response_trial_index overrides.
+  // The response trial defaults to the last trial of the step.
   let index = response_trial_index;
   if (index == null) {
     index = trials.length - 1;
@@ -621,9 +511,7 @@ function normalizeControllerTrials(trial_or_trials, response_trial_index) {
   return { trials, response_trial_index: index };
 }
 
-// Build the simulate_choice hook for a synthetic participant: draw a response from
-// the model likelihood at the live design (same seam the recovery tooling uses).
-// response_labels name the sim_p_<label> audit fields on discrete responses.
+// The simulate_choice hook: draw a response from the model likelihood at the live design.
 function makeSimulatedParticipant(adapter, simulate, response_labels) {
   const participant = simulate.participant;
   if (!participant || typeof participant !== "object") {
@@ -653,10 +541,8 @@ const jsPsychADO = {
   createController,
   prepareModel,
   validateModel,
-  // Design-grid axis helpers (see ado/grid.js).
   arange,
   linspace,
-  // Stan data-block builder (see ado/stan_data.js).
   makeStanDataBuilder,
 };
 
@@ -668,8 +554,7 @@ export {
   arange,
   linspace,
   makeStanDataBuilder,
-  // Advanced — exported for power users, NOT part of the stable jsPsychADO façade; may
-  // change without a major version bump while pre-1.0.
+  // Advanced — not part of the stable façade; may change while pre-1.0.
   parseStanPriors,
 };
 export default jsPsychADO;

@@ -1,24 +1,10 @@
-// Generic adaptive-design-optimization (ADO) math, shared by every model.
-//
-// This module is model-agnostic: it never references hyperbolic discounting,
-// k, tau, or any particular response labels. A model supplies a response
-// likelihood and the engine computes mutual information (MI) over a candidate
-// design grid from posterior draws. Binary models may supply scalar
-// responseProb(design, draw) = P(response=1); categorical models supply
-// responseProbs(design, draw) = [p0, p1, ...].
-//
-// Posterior draws are passed as an array of plain objects, one per draw, keyed by
-// parameter name, e.g. [{k: 0.01, tau: 1.2}, ...]. The same shape is produced for
-// prior draws (first trial) and for Stan posterior draws (later trials).
+// Model-agnostic ADO math: mutual information over a design grid from posterior draws,
+// realized information gain, greedy testlet selection, and prior sampling. Draws are
+// arrays of plain objects keyed by parameter name, e.g. [{k: 0.01, tau: 1.2}, ...].
 
 const RESPONSE_PROB_SUM_TOLERANCE = 1e-6;
 
-/**
- * Binary (Bernoulli) entropy in nats.
- *
- * @param {number} p - Probability in [0, 1].
- * @returns {number} Entropy H(p) = -(p ln p + (1-p) ln(1-p)); 0 at the endpoints.
- */
+/** Binary entropy in nats; 0 at the endpoints. */
 function binaryEntropy(p) {
   if (p <= 0 || p >= 1) {
     return 0;
@@ -26,16 +12,8 @@ function binaryEntropy(p) {
   return -(p * Math.log(p) + (1 - p) * Math.log1p(-p));
 }
 
-/**
- * Categorical entropy in nats.
- *
- * @param {Array<number>} probs - Category probabilities.
- * @returns {number} Entropy H(probs) = -sum p log(p).
- */
+/** Categorical entropy in nats. */
 function categoricalEntropy(probs) {
-  // Binary responses are the common case; route them through binaryEntropy so the
-  // engine and that exported helper share one definition (and gain its log1p
-  // precision near the endpoints). The general loop handles 3+ categories.
   if (probs.length === 2) {
     return binaryEntropy(probs[1]);
   }
@@ -48,24 +26,12 @@ function categoricalEntropy(probs) {
   return entropy;
 }
 
-/**
- * Differential entropy of a Gaussian, in nats: 0.5 * ln(2*pi*e*sigma^2). The
- * continuous analogue of binaryEntropy/categoricalEntropy; used as the closed-form
- * conditional entropy of a Gaussian-response model.
- *
- * @param {number} sd - Standard deviation (> 0).
- * @returns {number} Differential entropy in nats.
- */
+/** Differential entropy of a Gaussian in nats: 0.5 * ln(2*pi*e*sigma^2). */
 function gaussianEntropy(sd) {
   return 0.5 * Math.log(2 * Math.PI * Math.E * sd * sd);
 }
 
-/**
- * Coerce a binary scalar or categorical vector into a response-probability vector.
- *
- * @param {number|Array<number>} value - p for binary, or [p0, p1, ...].
- * @returns {Array<number>} Response probabilities in category-index order.
- */
+/** A binary scalar p or a categorical vector -> [p0, p1, ...]. */
 function asResponseProbs(value) {
   if (Array.isArray(value)) {
     return value;
@@ -73,12 +39,7 @@ function asResponseProbs(value) {
   return [1 - value, value];
 }
 
-/**
- * Resolve the response-probability function from a model adapter.
- *
- * @param {Object} model - Model adapter.
- * @returns {Function} (design, draw) -> [p0, p1, ...].
- */
+/** (design, draw) -> [p0, p1, ...] from a discrete model adapter. */
 function getResponseProbsFunction(model) {
   if (model && typeof model.responseProbs === "function") {
     return model.responseProbs;
@@ -89,12 +50,6 @@ function getResponseProbsFunction(model) {
   throw new Error("Model must provide responseProbs(design, draw) or responseProb(design, draw).");
 }
 
-/**
- * Resolve the response-density function from a continuous model adapter.
- *
- * @param {Object} model - Model adapter.
- * @returns {Function} (design, draw, y) -> p(y | theta, d) >= 0.
- */
 function getResponseDensityFunction(model) {
   if (model && typeof model.responseDensity === "function") {
     return model.responseDensity;
@@ -102,13 +57,7 @@ function getResponseDensityFunction(model) {
   throw new Error("Continuous model must provide responseDensity(design, draw, y).");
 }
 
-/**
- * Validate a response-probability vector.
- *
- * @param {number|Array<number>} value - Binary scalar or categorical vector.
- * @param {string} [context] - Error context.
- * @returns {Array<number>} Probabilities in response-index order.
- */
+/** Validate a response-probability vector (finite, nonnegative, sums to 1); returns a copy. */
 function validateResponseProbs(value, context = "response probability") {
   const probs = asResponseProbs(value);
   if (!Array.isArray(probs) || probs.length < 2) {
@@ -131,16 +80,13 @@ function validateResponseProbs(value, context = "response probability") {
 }
 
 /**
- * Expected information gain (mutual information between the response category
- * and the parameters) for one candidate design, estimated from posterior draws.
+ * Mutual information between the response and the parameters for one design:
+ * MI(d) = H(mean_s probs_s) - mean_s H(probs_s), in nats.
  *
- * MI(d) = H(mean_s probs_s) - mean_s H(probs_s).
- *
- * @param {Object} design - Candidate design (e.g. {t_ss, t_ll, r_ss, r_ll}).
- * @param {Array<Object>} draws - Posterior/prior draws, one object per draw.
+ * @param {Object} design
+ * @param {Array<Object>} draws - Posterior/prior draws.
  * @param {Function} responseFn - Model likelihood: scalar p or [p0, p1, ...].
  * @param {?Array<number>|?Float64Array} [weights] - Optional per-draw weights.
- * @returns {number} Estimated mutual information for the design (nats).
  */
 function mutualInfo(design, draws, responseFn, weights = null) {
   const n = draws.length;
@@ -172,14 +118,7 @@ function mutualInfo(design, draws, responseFn, weights = null) {
   return Math.max(0, categoricalEntropy(mean_probs) - cond_entropy / total_weight);
 }
 
-/**
- * Composite Simpson coefficient for node i over an even number of intervals n:
- * 1 at the two endpoints, 4 at odd interior nodes, 2 at even interior nodes.
- *
- * @param {number} i - Node index in [0, n].
- * @param {number} n - Even interval count.
- * @returns {number} The Simpson weight coefficient (1, 2, or 4).
- */
+// Composite Simpson coefficient for node i of n (even) intervals: 1, 4, 2, 4, ..., 1.
 function simpsonCoefficient(i, n) {
   if (i === 0 || i === n) {
     return 1;
@@ -192,14 +131,6 @@ function xLogX(value) {
   return value > 0 ? value * Math.log(value) : 0;
 }
 
-/**
- * Resolve and validate the integration support [lo, hi] for a continuous design.
- *
- * @param {Array<number>|Function} support - [lo, hi] or (design, draws) -> [lo, hi].
- * @param {Object} design - Candidate design.
- * @param {Array<Object>} draws - Posterior/prior draws.
- * @returns {Array<number>} A finite [lo, hi] with lo < hi.
- */
 function resolveContinuousSupport(support, design, draws) {
   const resolved = typeof support === "function" ? support(design, draws) : support;
   if (
@@ -218,34 +149,19 @@ function resolveContinuousSupport(support, design, draws) {
 }
 
 /**
- * Expected information gain for a CONTINUOUS response, estimated by 1-D numerical
- * integration (composite Simpson) of the predictive density over a response mesh.
+ * Mutual information for a CONTINUOUS response by composite-Simpson quadrature of the
+ * predictive density over [lo, hi]: EIG(d) = H(Y | d) - E_theta[H(Y | theta, d)], in nats.
  *
- * Unlike the discrete path (mutualInfo), the response is not enumerable, so the
- * model supplies a DENSITY p(y | design, draw) >= 0 rather than a probability
- * vector. EIG(d) = H(Y | d) - E_theta[ H(Y | theta, d) ], with:
- *   - H(Y | d): entropy of the predictive mixture pbar(y) = mean_s p(y | theta_s, d),
- *     computed by quadrature over the mesh.
- *   - E_theta[H(Y | theta, d)]: the per-draw conditional entropy averaged over draws.
- *     Supply options.conditionalEntropy(design, draw) when it is closed-form (strongly
- *     preferred, e.g. a Gaussian response: 0.5*ln(2*pi*e*sigma^2)); otherwise it is
- *     estimated by quadrature on the same mesh, which assumes the mesh also resolves
- *     each conditional density.
- *
- * The mesh is an integration detail only: the model and the saved data stay
- * continuous, and EIG is returned in nats, directly comparable across designs.
- *
- * @param {Object} design - Candidate design.
- * @param {Array<Object>} draws - Posterior/prior draws, one object per draw.
+ * @param {Object} design
+ * @param {Array<Object>} draws - Posterior/prior draws.
  * @param {Function} densityFn - (design, draw, y) -> p(y | theta, d) >= 0.
  * @param {Object} [options]
  * @param {Array<number>|Function} options.support - [lo, hi] or (design, draws) -> [lo, hi].
- * @param {number} [options.intervals=256] - Even Simpson interval count (mesh resolution).
- * @param {Function} [options.conditionalEntropy] - (design, draw) -> H(Y | theta, d), closed-form.
- * @param {Function} [options.densityFactory] - (design, draw) -> ((y) -> density): an optional
- *   fast path that hoists per-(design, draw) constants (mean, normalizer) out of the node
- *   loop. Must compute the same density as densityFn; falls back to densityFn when omitted.
- * @returns {number} Estimated mutual information for the design (nats).
+ * @param {number} [options.intervals=256] - Even Simpson interval count.
+ * @param {Function} [options.conditionalEntropy] - Closed-form (design, draw) -> H(Y | theta, d);
+ *   otherwise estimated by quadrature on the same mesh.
+ * @param {Function} [options.densityFactory] - (design, draw) -> ((y) -> density) fast path
+ *   that hoists per-draw constants; must equal densityFn.
  */
 function mutualInfoContinuous(design, draws, densityFn, options = {}) {
   const n = draws.length;
@@ -262,9 +178,6 @@ function mutualInfoContinuous(design, draws, densityFn, options = {}) {
   const conditionalEntropyFn =
     typeof options.conditionalEntropy === "function" ? options.conditionalEntropy : null;
 
-  // Optional per-(design, draw) precompute: when the model supplies a densityFactory,
-  // build one y-evaluator per draw ONCE (hoisting the mean/normalizer), then call it at
-  // every node. Without a factory, call densityFn(design, draw, y) directly as before.
   const factory = typeof options.densityFactory === "function" ? options.densityFactory : null;
   let drawFns = null;
   if (factory) {
@@ -275,7 +188,6 @@ function mutualInfoContinuous(design, draws, densityFn, options = {}) {
   }
 
   let marginal_accum = 0;
-  // Only needed for the quadrature fallback when no closed-form conditional entropy is given.
   const conditional_accum = conditionalEntropyFn ? null : new Float64Array(n);
 
   for (let i = 0; i <= intervals; i++) {
@@ -314,16 +226,8 @@ function mutualInfoContinuous(design, draws, densityFn, options = {}) {
   return Math.max(0, marginal_entropy - conditional_entropy);
 }
 
-/**
- * KL(p(theta | y, d) || p(theta)) from per-draw likelihoods of the observed
- * response, via importance weighting. Shared by the discrete and continuous
- * realized-gain estimators: the only difference is whether the per-draw likelihood
- * is a probability (discrete) or a density (continuous); the normalization cancels
- * in the ratio either way.
- *
- * @param {Array<number>} likelihoods - Per-draw likelihood of the observed response.
- * @returns {number} Realized information gain in nats.
- */
+// KL(p(theta | y, d) || p(theta)) from per-draw likelihoods of the observed response via
+// importance weighting. Works for probabilities and densities alike (normalization cancels).
 function realizedGainFromLikelihoods(likelihoods) {
   if (likelihoods.length === 0) {
     return 0;
@@ -345,17 +249,14 @@ function realizedGainFromLikelihoods(likelihoods) {
 }
 
 /**
- * Realized information gain after observing one response to a design.
+ * Realized information gain after observing one discrete response; its expectation over
+ * responses equals the design's mutual information.
  *
- * This is KL(p(theta | y, d) || p(theta)) estimated from the pre-trial
- * posterior/prior draws via likelihood weighting. Its expectation over possible
- * responses equals the mutual information for the design.
- *
- * @param {Object} design - Presented design.
+ * @param {Object} design
  * @param {Array<Object>} draws - Pre-response posterior/prior draws.
  * @param {number} response - Observed outcome index.
- * @param {Function} responseFn - Model likelihood: scalar p or [p0, p1, ...].
- * @returns {number} Realized information gain in nats.
+ * @param {Function} responseFn - Model likelihood.
+ * @returns {number} Nats.
  */
 function realizedInformationGain(design, draws, response, responseFn) {
   const response_index = Number(response);
@@ -382,18 +283,7 @@ function realizedInformationGain(design, draws, response, responseFn) {
   return realizedGainFromLikelihoods(likelihoods);
 }
 
-/**
- * Realized information gain for a CONTINUOUS response. Identical importance-weighted
- * KL estimate as realizedInformationGain, but the per-draw likelihood is the response
- * DENSITY evaluated at the observed real-valued y (rather than a probability indexed
- * by an outcome). The density normalization cancels in the KL ratio.
- *
- * @param {Object} design - Presented design.
- * @param {Array<Object>} draws - Pre-response posterior/prior draws.
- * @param {number} response - Observed real-valued response y.
- * @param {Function} densityFn - (design, draw, y) -> p(y | theta, d) >= 0.
- * @returns {number} Realized information gain in nats.
- */
+/** Realized information gain for a CONTINUOUS response (density at the observed y). */
 function realizedInformationGainContinuous(design, draws, response, densityFn) {
   const y = Number(response);
   if (!Number.isFinite(y)) {
@@ -411,19 +301,8 @@ function realizedInformationGainContinuous(design, draws, response, densityFn) {
   return realizedGainFromLikelihoods(likelihoods);
 }
 
-/**
- * Reweight posterior draws after a fantasized response to one design.
- *
- * This lets selectOptimalDesigns pick a small batch/testlet greedily without
- * repeating the same information target for every item in the batch. The Stan
- * posterior is still only recomputed after the real testlet responses arrive.
- *
- * @param {Object} design - Selected candidate design.
- * @param {Array<Object>} draws - Posterior/prior draws.
- * @param {Float64Array} weights - Per-draw weights, mutated in place.
- * @param {Function} responseFn - Model likelihood.
- * @param {Function} rng - Seeded uniform RNG in [0, 1).
- */
+// Reweight draws after a fantasized response so a testlet's later designs don't repeat
+// the same information target (Stan is only re-run after the real responses arrive).
 function applyFantasyUpdate(design, draws, weights, responseFn, rng) {
   const n = draws.length;
   const draw_probs = new Array(n);
@@ -472,12 +351,8 @@ function applyFantasyUpdate(design, draws, weights, responseFn, rng) {
 }
 
 /**
- * Expand a design grid into the candidate design list scored by mutual information.
- *
- * Accepts either an object of value arrays (Cartesian product, the common case)
- * or an already-curated array of design objects, which is returned as-is. The
- * array form lets a model supply hand-picked designs that are not a clean grid
- * (e.g. numerosity pairs for a dots task) without changing the engine.
+ * Expand a design grid into candidate designs: an object of value arrays (Cartesian
+ * product) or an already-curated array of designs (returned as-is).
  *
  * @param {Object|Array<Object>} grid_design - {t_ss:[...], ...} OR [{...}, {...}].
  * @returns {Array<Object>} Candidate designs.
@@ -502,20 +377,16 @@ function enumerateDesigns(grid_design) {
 }
 
 /**
- * Pick a batch of distinct designs by sequential greedy mutual information.
+ * Pick `count` distinct designs by sequential greedy mutual information, fantasy-updating
+ * the draw weights between picks so a testlet is not `count` copies of one design.
  *
- * count = 1 is the original one-design ADO step. For count > 1, each selected
- * design is fantasy-updated against a frozen posterior before the next design is
- * scored, giving a testlet of non-identical designs without running Stan inside
- * the testlet.
- *
- * @param {Array<Object>} designs - Candidate designs to score.
+ * @param {Array<Object>} designs
  * @param {Array<Object>} draws - Posterior/prior draws.
  * @param {Function} responseFn - Model likelihood.
- * @param {number} [count=1] - Number of designs to return.
+ * @param {number} [count=1]
  * @param {Object} [options]
  * @param {Function} [options.rng] - Required when count > 1.
- * @returns {Array<{design: Object, mutual_info: number}>} Ordered design picks.
+ * @returns {Array<{design: Object, mutual_info: number}>} Ordered picks.
  */
 function selectOptimalDesigns(designs, draws, responseFn, count = 1, options = {}) {
   const n = draws.length;
@@ -558,21 +429,13 @@ function selectOptimalDesigns(designs, draws, responseFn, count = 1, options = {
   return picks;
 }
 
-// Default half-width (in conditional SDs) for auto-deriving the integration support
-// from a continuous model's per-draw response moments. 8 SDs around the extreme
-// component means covers the predictive mixture's mass to ~1e-15 in the tails.
+// Half-width in conditional SDs for the auto-derived integration support (8 SDs covers
+// the predictive mixture's mass to ~1e-15).
 const DEFAULT_SUPPORT_SD_MULTIPLE = 8;
 
 /**
- * Build a (design, draws) -> [lo, hi] integration-support resolver for a continuous
- * model. Priority: an explicit responseSupport ([lo, hi] or a function), else
- * auto-derived from responseMoments(design, draw) -> { mean, sd } as
- * [min(mean - k*sd), max(mean + k*sd)] over the draws. Throws if the model supplies
- * neither, so a continuous model fails fast at setup rather than deep in the engine.
- *
- * @param {Object} model - Continuous model adapter.
- * @param {number} [sdMultiple=8] - Half-width in conditional SDs for the moment path.
- * @returns {Function} (design, draws) -> [lo, hi].
+ * (design, draws) -> [lo, hi] integration support for a continuous model: an explicit
+ * responseSupport, else derived from responseMoments over the draws.
  */
 function makeContinuousSupportResolver(model, sdMultiple = DEFAULT_SUPPORT_SD_MULTIPLE) {
   if (Array.isArray(model.responseSupport)) {
@@ -612,19 +475,6 @@ function makeContinuousSupportResolver(model, sdMultiple = DEFAULT_SUPPORT_SD_MU
   );
 }
 
-/**
- * Pick the MI-optimal design for a CONTINUOUS response (the continuous analogue of
- * selectOptimalDesigns). Returns the same {design, mutual_info} pick shape so the
- * controller is agnostic to response type.
- *
- * Testlet batching (count > 1) is not yet supported for continuous responses: the
- * fantasy update needs a continuous response sampler, which is a follow-up.
- *
- * @param {Array<Object>} designs - Candidate designs to score.
- * @param {Array<Object>} draws - Posterior/prior draws.
- * @param {Function} scoreDesign - (design, draws) => mutual information for the design.
- * @returns {Array<{design: Object, mutual_info: number}>} The single best pick (or []).
- */
 function selectOptimalDesignsContinuous(designs, draws, scoreDesign) {
   let best_design = null;
   let best_mi = -Infinity;
@@ -639,13 +489,8 @@ function selectOptimalDesignsContinuous(designs, draws, scoreDesign) {
 }
 
 /**
- * Build a response-type-agnostic design scorer for a model adapter. Dispatches once,
- * at setup, on responseSpace.type so the controller resolves a single scorer and
- * never branches on response type. Both branches expose the same three methods.
- *
- * @param {Object} model - Model adapter (discrete: responseProb/responseProbs;
- *   continuous: responseDensity plus responseMoments or responseSupport).
- * @returns {{mutualInfo: Function, selectOptimalDesigns: Function, realizedInformationGain: Function}}
+ * A response-type-agnostic scorer for a model adapter: { mutualInfo, selectOptimalDesigns,
+ * realizedInformationGain }, dispatching once on responseSpace.type.
  */
 function createDesignScorer(model) {
   const type = model && model.responseSpace && model.responseSpace.type;
@@ -657,8 +502,6 @@ function createDesignScorer(model) {
       typeof model.responseDensityFactory === "function" ? model.responseDensityFactory : undefined;
     const supportFn = makeContinuousSupportResolver(model);
     const intervals = model.responseSpace.intervals;
-    // Single owner of the per-design MI options, reused by the mutualInfo method and
-    // the selection loop so the support/conditionalEntropy/intervals wiring lives once.
     const scoreDesign = (design, draws) =>
       mutualInfoContinuous(design, draws, densityFn, {
         support: supportFn(design, draws),
@@ -690,13 +533,7 @@ function createDesignScorer(model) {
   };
 }
 
-/**
- * Posterior mean and SD for each parameter, from draws.
- *
- * @param {Array<Object>} draws - Draws, one object per draw.
- * @param {Array<string>} params - Parameter names to summarize (e.g. ["k", "tau"]).
- * @returns {{post_mean: Object, post_sd: Object}} Means and sample SDs keyed by param.
- */
+/** Posterior mean and sample SD per parameter. */
 function summarizeDraws(draws, params) {
   const n = draws.length;
   const post_mean = {};
@@ -718,12 +555,7 @@ function summarizeDraws(draws, params) {
   return { post_mean, post_sd };
 }
 
-/**
- * Draw a standard-normal variate from a uniform RNG via Box-Muller.
- *
- * @param {Function} rng - Returns numbers in [0, 1).
- * @returns {number} A standard-normal sample.
- */
+/** Standard-normal variate from a uniform RNG (Box-Muller). */
 function standardNormal(rng) {
   let u1 = rng();
   const u2 = rng();
@@ -733,13 +565,6 @@ function standardNormal(rng) {
   return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
-/**
- * Sample one parameter value from a prior specification.
- *
- * @param {Object} spec - {dist: "lognormal"|"normal"|"halfnormal", ...params}.
- * @param {Function} rng - Seeded uniform RNG.
- * @returns {number} A prior sample.
- */
 function samplePriorValue(spec, rng) {
   const z = standardNormal(rng);
   switch (spec.dist) {
@@ -755,13 +580,13 @@ function samplePriorValue(spec, rng) {
 }
 
 /**
- * Draw n samples from the model prior, used to choose the first design before any
- * data exist (the Stan model uses int<lower=1> N and cannot sample the prior).
+ * Draw n samples from the model prior (used to choose the first design; the Stan model
+ * needs N >= 1 and cannot sample the prior).
  *
  * @param {Object} prior - {param: {dist, ...}} for each parameter.
- * @param {number} n - Number of draws.
- * @param {Function} rng - Seeded uniform RNG (reproducible).
- * @returns {Array<Object>} Prior draws in the same shape as posterior draws.
+ * @param {number} n
+ * @param {Function} rng - Seeded uniform RNG.
+ * @returns {Array<Object>} Draws in the same shape as posterior draws.
  */
 function samplePriorDraws(prior, n, rng) {
   const params = Object.keys(prior);

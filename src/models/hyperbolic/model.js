@@ -1,26 +1,8 @@
-// Hyperbolic discounting model package (Mazur, 1987).
-//
-// This adapter is the SINGLE SOURCE OF TRUTH for the model likelihood in JS. The
-// simulated participant (ado/ado_simulation.js) and the ADO mutual-information
-// engine (ado/mi_engine.js) both call responseProb from here, and it must match
-// the likelihood in hyperbolic.stan. The prior block below must match the priors
-// in hyperbolic.stan. The compiled main.js / main.wasm are produced from
-// hyperbolic.stan by the stan-playground compile server (see models/README.md).
-//
-// Adding a new model = copy this folder, write the new <model>.stan, compile it,
-// and edit params/prior/stanData/responseProb. Task presentation and design
-// grids live in experiment/demo code (see demos/delay_discounting*).
-//
-// The compiled artifacts are kept under their downloaded names (main.js + main.wasm)
-// because the emscripten glue in main.js hardcodes its sibling "main.wasm"; the
-// model folder namespaces them, so do not rename them.
+// Hyperbolic discounting model package (Mazur, 1987). responseProb is the single JS
+// likelihood used by the MI engine and the simulator; it and `prior` must match
+// hyperbolic.stan, from which main.js/main.wasm are compiled (see models/README.md).
 
-/**
- * Numerically stable logistic (inverse-logit) transform.
- *
- * @param {number} value - Real-valued input.
- * @returns {number} 1 / (1 + exp(-value)) in [0, 1].
- */
+/** Numerically stable logistic (inverse-logit). */
 function logistic(value) {
   if (value >= 0) {
     return 1 / (1 + Math.exp(-value));
@@ -29,26 +11,12 @@ function logistic(value) {
   return exp_value / (1 + exp_value);
 }
 
-/**
- * Hyperbolically discounted subjective value: V = R / (1 + k*t).
- *
- * @param {number} reward - Objective reward amount.
- * @param {number} delay - Delay until reward.
- * @param {number} k - Discount rate.
- * @returns {number} Discounted subjective value.
- */
+/** Hyperbolically discounted subjective value: V = R / (1 + k*t). */
 function getHyperbolicValue(reward, delay, k) {
   return reward / (1 + k * delay);
 }
 
-/**
- * P(choose larger-later) for one design under one parameter draw. Matches the
- * likelihood in hyperbolic.stan: bernoulli_logit(tau * (v_ll - v_ss)).
- *
- * @param {Object} design - {t_ss, t_ll, r_ss, r_ll}.
- * @param {Object} params - {k, tau}.
- * @returns {number} P(response = 1 = LL).
- */
+/** P(choose larger-later): bernoulli_logit(tau * (v_ll - v_ss)), as in hyperbolic.stan. */
 function responseProb(design, params) {
   const v_ss = getHyperbolicValue(design.r_ss, design.t_ss, params.k);
   const v_ll = getHyperbolicValue(design.r_ll, design.t_ll, params.k);
@@ -60,13 +28,7 @@ function responseProbs(design, params) {
   return [1 - p_ll, p_ll];
 }
 
-/**
- * Optional simulator audit fields: the hyperbolically discounted subjective values.
- *
- * @param {Object} design - {t_ss, t_ll, r_ss, r_ll}.
- * @param {Object} params - {k}.
- * @returns {{sim_v_ss: number, sim_v_ll: number}}
- */
+/** Simulator audit fields: the discounted subjective values. */
 function simulationData(design, params) {
   return {
     sim_v_ss: getHyperbolicValue(design.r_ss, design.t_ss, params.k),
@@ -74,10 +36,7 @@ function simulationData(design, params) {
   };
 }
 
-// Stan `data` block, declared as a 1:1 mirror of hyperbolic.stan. The framework
-// generates the buildData(trials) reshape (N + per-column maps + y) from this — see
-// ado/stan_data.js. Each design column is copied; "response" is the participant's
-// choice (binary 0/1 here, so no +1).
+// Mirrors the hyperbolic.stan data block (see ado/stan_data.js).
 const stanData = {
   t_ss: "t_ss",
   t_ll: "t_ll",
@@ -85,14 +44,6 @@ const stanData = {
   r_ll: "r_ll",
   y: "response",
 };
-
-// ---------------------------------------------------------------------------
-// Presentation: how a delay-discounting design is shown and answered.
-//
-// The generic timeline consumes this through the single-button convenience path
-// (makeStimulus + button_html + keymap + prompt). The accompanying experiment
-// page supplies the .dd-option-card CSS used by the markup below.
-// ---------------------------------------------------------------------------
 
 const hyperbolicModel = {
   id: "hyperbolic",
@@ -104,17 +55,12 @@ const hyperbolicModel = {
     tau: { dist: "lognormal", meanlog: 0, sdlog: 1 },
   },
   posterior_display: {
-    // y_min/y_max are preferred fallback ranges; lower_bound is the true Stan constraint.
     k: { label: "k", y_min: 0, y_max: 0.2, lower_bound: 0, min_y_span: 0.05 },
     tau: { label: "τ", y_min: 0, y_max: 5, lower_bound: 0, min_y_span: 0.5 },
   },
-  // Absolute URL of the compiled emscripten module, resolved next to this file so
-  // a Web Worker can dynamic-import() it regardless of the page's <base href>.
   moduleUrl: new URL("./main.js", import.meta.url).href,
-  // Statically referenced so bundlers (Vite/webpack) emit the .wasm as an asset
-  // and resolve its final URL; the worker passes this to emscripten's locateFile
-  // (see ado/stan_worker.js) so the wasm loads after bundling, not just from a
-  // static server. Without it, a bundled main.js would 404 on its sibling wasm.
+  // Statically referenced so bundlers emit/hash the wasm; the worker routes it through
+  // emscripten's locateFile (#57).
   wasmUrl: new URL("./main.wasm", import.meta.url).href,
   stanData,
   responseProb,

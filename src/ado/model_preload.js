@@ -1,30 +1,17 @@
-// The model-preload trial: a jsPsychPreload-style gate on ado.ready(). ado.preload()
-// returns one ordinary jsPsych trial built on the tiny self-contained plugin below
-// (no plugin dependency): it shows a message until the model is loaded — compiled and
-// downloaded for stanCode models, then imported and its wasm instantiated by the Stan
-// worker (committed models too) — then ends. A failure renders the actual error
-// message (a stanc syntax error is something the author needs to READ) and aborts
-// the experiment visibly.
-//
-// The trial is optional sugar: without it the run still works — the first posterior
-// update awaits readiness — the participant just waits after trial 1 instead.
+// The model-preload trial: a jsPsychPreload-style gate on ado.ready(), built on a tiny
+// self-contained plugin. Shows a message until the model is loaded (compiled and
+// downloaded for stanCode models, then imported and its wasm instantiated by the worker);
+// on failure renders the actual error (e.g. a stanc syntax error) and aborts.
 
 import { escapeHtml, abortExperimentWithHtml } from "./abort_experiment.js";
 
 /**
- * A minimal jsPsych plugin that resolves a promise before ending the trial.
- * Class-per-call so each instance closes over its own ready()/labels without
- * threading functions through jsPsych's parameter system.
- *
- * @param {Function} ready - () => Promise resolving when the model is compiled and downloaded.
+ * @param {Function} ready - () => Promise resolving when the model is loaded.
  * @param {Object} opts
  * @param {string} [opts.message] - HTML shown while waiting.
- * @param {string} [opts.error_message] - HTML heading shown above a compile error.
- * @param {?number} [opts.max_load_time] - Milliseconds to wait before treating the
- *   readiness chain as failed (like jsPsychPreload's max_load_time; default null =
- *   wait indefinitely; 0 = fail unless the model is already ready). A stalled compile
- *   server then aborts visibly instead of leaving the participant on the spinner
- *   forever.
+ * @param {string} [opts.error_message] - HTML heading shown above the error.
+ * @param {?number} [opts.max_load_time] - Milliseconds before the gate fails (like
+ *   jsPsychPreload's max_load_time; default null = wait indefinitely).
  * @returns {Function} A jsPsych plugin class for the trial's `type`.
  */
 function makeModelPreloadPlugin(ready, opts = {}) {
@@ -38,9 +25,7 @@ function makeModelPreloadPlugin(ready, opts = {}) {
       version: "1.0.0",
       parameters: {},
       data: {
-        /** Whether the model became ready. */
         ado_preload_ok: { type: undefined },
-        /** Milliseconds spent waiting on the readiness chain. */
         ado_preload_ms: { type: undefined },
       },
     };
@@ -59,8 +44,7 @@ function makeModelPreloadPlugin(ready, opts = {}) {
       const elapsed = () => Math.round(performance.now() - started_at);
 
       let timeout_id = null;
-      // `!= null`, not truthy: max_load_time 0 means "fail unless already ready",
-      // never "wait forever".
+      // `!= null`: max_load_time 0 means "fail unless already ready", not "wait forever".
       const gated =
         max_load_time != null
           ? Promise.race([

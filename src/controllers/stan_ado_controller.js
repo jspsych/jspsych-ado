@@ -1,8 +1,7 @@
-// The live, in-browser adaptive controller: the only implementation of the start/update
-// controller contract that does real inference. It accumulates trials, samples the Stan
-// posterior off the main thread (via the Web Worker client), summarizes the draws, and
-// picks the MI-optimal next design (or a random one under the recovery baseline). The
-// timeline and the mock controller share its contract; nothing here is task-specific.
+// The in-browser adaptive controller: accumulates trials, samples the Stan posterior off
+// the main thread via the shared worker client, summarizes the draws, and picks the
+// MI-optimal next design (or a random one under the recovery baseline). Same
+// start/update contract as the mock controller.
 
 import {
   createDesignScorer,
@@ -14,38 +13,24 @@ import { createSeededRng } from "../ado/ado_simulation.js";
 import { maxPossibleEig, makeStoppingEvaluator } from "../ado/stopping.js";
 import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
 
-// Number of prior draws used to pick the first design (before any data exist).
+// Prior draws used to pick the first design (before any data exist).
 const PRIOR_DRAWS = 2000;
 
 /**
- * Create a fully in-browser, model-agnostic adaptive controller.
- *
- * It satisfies the same contract as the mock controller (start/update
- * returning the next design/testlet, posterior summaries, and optional
- * design-selection diagnostics), but does
- * the work locally: Stan (via a Web Worker + WASM) infers the posterior over the
- * model parameters from the accumulated choices, and the generic MI engine picks
- * the next design. No Python, no network.
- *
  * @param {Object} options
- * @param {Object} options.model - Model adapter (params, prior, moduleUrl, buildData, responseProb/responseProbs).
- * @param {Object} options.worker_client - Shared, handle-owned Stan worker client; this
- *   controller only calls sample() on it (its init was kicked off by the handle).
- * @param {Promise} options.worker_ready - Resolves once the worker has loaded the model;
- *   the first update() awaits it before sampling. Rejects on compile/download/load failure.
- * @param {Object} options.grid_design - Candidate design grid for MI optimization.
+ * @param {Object} options.model - Model adapter (params, prior, buildData, responseProbs/responseDensity, ...).
+ * @param {Object} options.worker_client - Shared, handle-owned Stan worker client (sample() only).
+ * @param {Promise} options.worker_ready - Resolves once the worker has loaded the model; the first
+ *   update() awaits it. Rejects on compile/download/load failure.
+ * @param {Object} options.grid_design - Candidate design grid.
  * @param {Object} [options.stan] - Sampler settings {num_chains, num_warmup, num_samples, seed}.
  * @param {string} [options.session_id] - Session identifier saved into the data.
- * @param {number} [options.n_trials] - Total choice trials; lets the final update skip
- *   the unused next-design search. Omit to always compute a next design.
- * @param {string} [options.design_strategy="ado"] - "ado" for MI-selected
- *   designs, "random" for a recovery/dev baseline sampled from the same grid.
- * @param {?number} [options.design_seed] - Optional seed for prior/random design
- *   selection. Defaults to stan.seed so existing runs stay reproducible.
+ * @param {number} [options.n_trials] - Total choice trials (lets the final update skip the design search).
+ * @param {string} [options.design_strategy="ado"] - "ado" (MI-selected) or "random" (baseline).
+ * @param {?number} [options.design_seed] - Seed for prior/random design selection (defaults to stan.seed).
  * @param {number} [options.testlet_size=1] - Choice trials shown between Stan refits.
+ * @param {Object} [options.stopping] - Adaptive stopping config.
  * @returns {Object} Controller with sync start(context) and async update(trial_data).
- *   Results include next_designs plus aligned next_design_metrics, where
- *   mutual_info is available for MI-selected ADO designs and null for random.
  */
 function createStanAdoController({
   model,
@@ -83,11 +68,7 @@ function createStanAdoController({
     throw new Error("createStanAdoController: testlet_size must be a positive integer");
   }
 
-  // The candidate design grid is constant, so enumerate it once. An empty grid
-  // (a dimension with no values) would make every design selection return null.
   const designs = enumerateDesigns(grid_design);
-  // One response-type-agnostic scorer (discrete vs continuous dispatch lives in the
-  // engine); fails fast here if a continuous model lacks responseDensity/support.
   const scorer = createDesignScorer(model);
   if (designs.length === 0) {
     throw new Error(
@@ -104,12 +85,8 @@ function createStanAdoController({
   const design_rng = createSeededRng(design_seed ?? sample_config.seed);
   const debug_draw_rng = createSeededRng((design_seed ?? sample_config.seed) + 1);
 
-  // Adaptive stopping. EIG stopping is ADO-ONLY: the metric is the grid-max
-  // EIG of the next design (max_mutual_info), which only equals the best available
-  // next trial under design_strategy "ado". Under "random" we deliberately do NOT
-  // compute the grid-max EIG (random exists as a cheap baseline), so eig_fraction
-  // stopping is ignored there — only the max_trials cap applies. max_trials defaults
-  // to n_trials, so with no stopping config the run is fixed-length.
+  // EIG stopping is ADO-only: the metric is the grid-max EIG of the next design, which
+  // is only computed under design_strategy "ado". Under "random" only max_trials applies.
   const max_possible_eig = maxPossibleEig(model.responseSpace);
   const stopper = makeStoppingEvaluator({
     stopping,
@@ -123,9 +100,6 @@ function createStanAdoController({
         'design_strategy="random" (EIG stopping is ADO-only); only max_trials applies.',
     );
   } else if (stopper.config.eig_fraction != null && max_possible_eig == null) {
-    // No finite maximum EIG to normalize the fraction against (e.g. a continuous
-    // response, whose ln(K) is undefined), so EIG-fraction stopping is inert and the
-    // run is fixed-length via max_trials.
     console.warn(
       "createStanAdoController: eig_fraction stopping is inert because this response " +
         "space has no finite maximum EIG; only max_trials applies.",
@@ -134,14 +108,7 @@ function createStanAdoController({
 
   let current_design_draws = null;
 
-  /**
-   * Sample the posterior given the accumulated trials and return draws as an
-   * array of per-draw parameter objects (the shape the MI engine expects).
-   */
   async function samplePosterior(sampleTrials) {
-    // The Web Worker transport (single in-flight slot) is owned by the handle and shared
-    // across this handle's timelines; this controller only calls sample() — the worker's
-    // init was kicked off by the handle and awaited (as worker_ready) before we get here.
     const result = await worker_client.sample({
       data: model.buildData(sampleTrials),
       params: model.params,
@@ -163,12 +130,6 @@ function createStanAdoController({
     return draws;
   }
 
-  /**
-   * Draw one candidate design from the enumerated grid with replacement.
-   *
-   * This is used only for the recovery/dev baseline. It keeps the inference
-   * path identical to the MI controller, while replacing the design policy.
-   */
   function sampleRandomDesign() {
     const index = Math.floor(design_rng() * designs.length);
     return designs[index];
@@ -224,12 +185,6 @@ function createStanAdoController({
     });
   }
 
-  /**
-   * Select the next design under the configured policy.
-   *
-   * The "random" policy intentionally ignores posterior draws for design
-   * selection but still receives them so this helper has one call shape.
-   */
   function selectDesignsWithMetrics(draws, count) {
     if (count <= 0) {
       return {
@@ -264,13 +219,7 @@ function createStanAdoController({
   const nextBlockSize = makeBlockSizer(stopper, testlet_size);
 
   return {
-    /**
-     * Reset run state and choose the first design from JS prior draws. The worker's model
-     * load is handle-owned (the first update() awaits it), so the first design — which only
-     * needs prior draws — is available synchronously without waiting on the worker.
-     *
-     * @returns {Object} Initial ADO state (null posteriors).
-     */
+    /** Reset run state and choose the first design from JS prior draws (no worker needed). */
     start: function () {
       trials.length = 0;
       stopper.reset();
@@ -278,11 +227,8 @@ function createStanAdoController({
       const block_size = nextBlockSize(trials.length);
       let prior = null;
       if (block_size > 0) {
-        // ADO uses the prior draws to choose the first design. Random ignores the
-        // draws for selection, but keeps a separate prior sample so realized IG
-        // for the first response can still be computed without perturbing the
-        // random design sequence. selectDesignsWithMetrics applies the configured
-        // policy (ado vs random) internally, so both strategies share this one call.
+        // Random keeps a separate prior sample so the first response's realized IG is
+        // computable without perturbing the random design sequence.
         const prior_rng = design_strategy === "random" ? debug_draw_rng : design_rng;
         prior = samplePriorDraws(model.prior, PRIOR_DRAWS, prior_rng);
       }
@@ -297,11 +243,7 @@ function createStanAdoController({
         next_design_metrics: selection.next_design_metrics,
         selection_time_ms: selection.selection_time_ms,
         max_mutual_info: selection.max_mutual_info,
-        // The first design is chosen from the PRIOR, not a real refit, so pass eig=null
-        // here: do NOT feed its EIG into the stopping de-bounce streak. Otherwise a
-        // sub-threshold prior EIG with the default min_trials=0 pre-increments the
-        // streak, firing EIG stopping one real trial too early. The mock controller
-        // already passes null here.
+        // eig=null: the prior-chosen first design must not feed the stopping streak.
         ...stopper.evaluate(trials.length, null),
         post_mean: null,
         post_sd: null,
@@ -313,16 +255,13 @@ function createStanAdoController({
     },
 
     /**
-     * Add the latest choice/testlet, re-infer the posterior with Stan, and pick
-     * the next MI-optimal design/testlet.
+     * Add the latest choice/testlet, re-infer the posterior, and pick the next design(s).
      *
      * @param {Object|Array<Object>} trial_data - jsPsych choice row(s) with ado_design and choice.
      * @returns {Promise<Object>} Updated ADO state with posterior summaries.
      */
     update: async function (trial_data) {
       const started_at = performance.now();
-      // The worker's model load is handle-owned; await it before sampling (a load failure
-      // rejects here AND at ready()/preload, surfacing as a visible experiment abort).
       await worker_ready;
 
       const rows = Array.isArray(trial_data) ? trial_data : [trial_data];
@@ -330,17 +269,14 @@ function createStanAdoController({
       const realized_information_gain = sumFinite(realized_information_gains);
       const new_trials = rows.map((row) => ({ ...row.ado_design, choice: row.choice }));
 
-      // Sample on the accumulated trials PLUS the new rows, but commit the new rows to
-      // `trials` only after sampling succeeds. A rejected sample (in-flight guard,
-      // worker failure, or empty draws) must not leave a phantom trial behind, which
-      // would corrupt every later posterior fit.
+      // Commit the new rows only after sampling succeeds, so a rejected sample never
+      // leaves a phantom trial that would corrupt every later fit.
       const draws = await samplePosterior(trials.concat(new_trials));
       trials.push(...new_trials);
       current_design_draws = draws;
       const { post_mean, post_sd } = summarizeDraws(draws, model.params);
 
-      // The design produced after the final choice is never shown, so skip the
-      // ~1M-evaluation MI scan on the last update.
+      // block_size is 0 after the final choice, skipping the unused MI scan.
       const block_size = nextBlockSize(trials.length);
       const selection = selectDesignsWithMetrics(draws, block_size);
 
@@ -358,7 +294,6 @@ function createStanAdoController({
         posterior_draws: draws,
         realized_information_gain,
         realized_information_gains,
-        // Reuse the latency field to report local sampling+MI time (ms).
         api_latency_ms: Math.round(performance.now() - started_at),
       };
     },

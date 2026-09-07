@@ -448,10 +448,6 @@ test("validateSourceSpec: source-shape + no-wasmUrl-on-source matrix", () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// Code-review regression fixes (PR #145 final review)
-// ---------------------------------------------------------------------------
-
 test("createController: a source model missing params fails with the validation message, not a TypeError", () => {
   assert.throws(
     () =>

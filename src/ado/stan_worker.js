@@ -1,34 +1,19 @@
-// Generic Stan sampling Web Worker (one file for any model).
-//
-// Runs NUTS off the main thread so the page never freezes between trials. The
-// controller posts {type:"init", moduleUrl} once, then {type:"sample", data,
-// params, sampleConfig} per trial; the worker replies with only the requested
-// parameter columns to keep transfers small. Pattern follows stan-playground's
-// StanModelWorker.ts.
+// Generic Stan sampling Web Worker: {type:"init", moduleUrl, wasmUrl} once, then
+// {type:"sample", data, params, sampleConfig} per trial; replies with only the requested
+// parameter columns. One request at a time, so replies are matched by type.
 
 import StanModel from "../../core/tinystan/index.mjs";
 
 let modelPromise = null;
 
-// The controller issues one request at a time and matches replies by type, so no
-// message ids are needed.
 self.onmessage = async function (event) {
   const message = event.data;
 
   try {
     if (message.type === "init") {
-      // Dynamic-import the committed emscripten module by absolute URL, then hand
-      // its default export (createModule) to tinystan. Load is memoized. The no-op
-      // print callback swallows Stan's per-iteration stdout so the console stays
-      // clean across the per-trial sampling calls.
-      //
-      // The import is marked ignore for BOTH bundlers so Vite/webpack leave it as a
-      // runtime import of the URL the controller passed (not a build-time rewrite).
-      // When the model adapter supplies a wasmUrl (the bundler-emitted .wasm asset
-      // URL), inject it via emscripten's locateFile so the wasm resolves after
-      // bundling — a bundled main.js would otherwise fetch a same-name sibling the
-      // bundler has renamed/hashed. With no wasmUrl (static-served, no bundler),
-      // main.js resolves its sibling main.wasm as before.
+      // The import is marked ignore for both bundlers so it stays a runtime import of the
+      // URL passed in. wasmUrl (the bundler-emitted asset) is injected via emscripten's
+      // locateFile; without it main.js resolves its sibling main.wasm (#57).
       const overrides = message.wasmUrl
         ? { locateFile: (path) => (path.endsWith(".wasm") ? message.wasmUrl : path) }
         : {};
@@ -36,7 +21,7 @@ self.onmessage = async function (event) {
         (module) =>
           StanModel.load(
             (options) => module.default({ ...options, ...overrides }),
-            () => {},
+            () => {}, // swallow Stan's per-iteration stdout
           ),
       );
       await modelPromise;
@@ -51,8 +36,6 @@ self.onmessage = async function (event) {
       const model = await modelPromise;
       const fit = model.sample({ data: message.data, ...message.sampleConfig });
 
-      // Return only the requested parameter columns (e.g. k, tau), not the full
-      // sampler/transformed/generated-quantities output.
       const draws = {};
       for (const param of message.params) {
         const index = fit.paramNames.indexOf(param);

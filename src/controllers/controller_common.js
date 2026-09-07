@@ -1,28 +1,13 @@
-// Scaffolding shared by the stan and mock controllers, kept here so the two stay
-// contract-identical: both emit the same null-metric shape for non-MI designs and walk
-// the same testlet/stopping budget.
+// Shared by the Stan and mock controllers so the two stay contract-identical.
 
-/**
- * Per-design "no mutual information available" metrics, for designs chosen without an MI
- * scan (the mock controller, and the Stan controller's random-design baseline).
- *
- * @param {number} count - Number of designs in the testlet.
- * @returns {Array<{mutual_info: null}>} An array of length `count`.
- */
+/** `count` metrics of { mutual_info: null } (designs chosen without an MI scan). */
 function nullDesignMetrics(count) {
   return Array.from({ length: count }, () => ({ mutual_info: null }));
 }
 
 /**
- * Build the "how many designs does the next testlet need" function for a controller.
- *
- * The effective trial cap is the stopping max_trials (which already falls back to
- * n_trials), so the controller supplies a design for every node the timeline can run —
- * so `stopping: { max_trials > n_trials }` cannot underflow the design queue.
- *
- * @param {Object} stopper - A makeStoppingEvaluator() result (reads stopper.config.max_trials).
- * @param {number} testlet_size - Choice trials shown between refits.
- * @returns {(from_index: number) => number} nextBlockSize(from_index).
+ * nextBlockSize(from_index): how many designs the next testlet needs, capped by the
+ * stopping max_trials so `stopping: { max_trials > n_trials }` cannot underflow the queue.
  */
 function makeBlockSizer(stopper, testlet_size) {
   return function nextBlockSize(from_index) {

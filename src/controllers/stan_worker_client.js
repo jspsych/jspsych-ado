@@ -1,21 +1,13 @@
-// Web Worker transport for the in-browser Stan controller.
-//
-// Owns the worker lifecycle and a SINGLE in-flight request slot: requests are strictly
-// sequential (one init, then one awaited sample per trial), so one slot is enough. The
-// controller above it only sees init()/sample() promises and never touches the worker,
-// postMessage, or the onmessage/onerror plumbing. The worker runs ../ado/stan_worker.js,
-// which dynamic-imports the compiled model and samples via tinystan.
+// Web Worker transport for the Stan controller: owns the worker and a single in-flight
+// request slot (requests are strictly sequential: one init, then one awaited sample per
+// trial). The worker runs ../ado/stan_worker.js.
 
 /**
- * Create a Stan Web Worker client.
- *
  * @returns {{ init: (moduleUrl: string, wasmUrl: ?string) => Promise<Object>,
  *             sample: (req: {data: Object, params: string[], sampleConfig: Object}) => Promise<Object> }}
  */
 function createStanWorkerClient() {
   let worker = null;
-  // Requests are strictly sequential (init, then one awaited sample per trial),
-  // so a single in-flight slot is enough.
   let pending = null;
 
   function settlePending(settle) {
@@ -40,12 +32,8 @@ function createStanWorkerClient() {
         message.type === "error" ? p.reject(new Error(message.error)) : p.resolve(message),
       );
     };
-    // Worker-script-level failures (bad module path / 404 / parse error in the
-    // worker or its imports) fire onerror and never post a message, so the pending
-    // request would otherwise hang forever. Terminate and drop the dead worker (so
-    // its thread/WASM instance isn't leaked), then reject the in-flight request with
-    // a clear error; any later send() fails fast rather than null-dereferencing the
-    // worker.
+    // Script-level failures (bad module path, parse error) fire onerror and never post a
+    // message; terminate the dead worker and reject the in-flight request.
     worker.onerror = function (event) {
       if (worker) {
         worker.terminate();
@@ -65,16 +53,11 @@ function createStanWorkerClient() {
   }
 
   function send(message) {
-    // Requests are strictly sequential; a concurrent send would clobber the single
-    // pending slot and orphan the first promise, so fail loudly instead.
     if (pending) {
       return Promise.reject(
         new Error("Stan controller received a request while one was already in flight"),
       );
     }
-    // The worker is created in init() via ensureWorker(); if it died (onerror/
-    // onmessageerror nulled it), fail with a clear message instead of dereferencing
-    // null.
     if (!worker) {
       return Promise.reject(new Error("Stan worker is unavailable (it failed to load earlier)."));
     }

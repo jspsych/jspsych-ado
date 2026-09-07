@@ -1,34 +1,22 @@
-// Numeric helpers for building design-grid axes (the candidate values an MI design
-// search ranges over). These replace per-task `range()` helpers that disagreed on
-// whether the endpoint was inclusive — the two semantics now have two clearly named
-// functions, mirroring numpy:
-//
-//   arange(start, stop, step) — HALF-OPEN [start, stop): stop is EXCLUDED   (np.arange)
-//   linspace(start, stop, num) — INCLUSIVE [start, stop]: num points        (np.linspace)
-//
-// Both round to 10 decimals (matching the prior helpers) so floating-point step
-// accumulation produces clean values (e.g. 12.5, 25, 37.5, ...).
+// Design-grid axis helpers mirroring numpy: arange is half-open [start, stop), linspace is
+// inclusive [start, stop]. Values round to 10 decimals so step accumulation stays clean.
 
 const round10 = (value) => Number(value.toFixed(10));
 
 /**
- * Evenly spaced values over a half-open interval [start, stop), stepping by `step`.
- * The stop is never included — arange(12.5, 800, 12.5) ends at 787.5, not 800.
+ * Evenly spaced values over [start, stop), stepping by `step` (stop excluded).
  *
- * @param {number} start - First value.
+ * @param {number} start
  * @param {number} stop - Exclusive upper bound.
  * @param {number} [step=1] - Spacing (> 0).
- * @returns {number[]} Values start, start+step, ... up to but excluding stop.
+ * @returns {number[]}
  */
 function arange(start, stop, step = 1) {
   if (!(step > 0)) {
     throw new Error(`arange(${start}, ${stop}, ${step}): step must be a positive number.`);
   }
-  // Compute the count up front from the rounded ratio, then derive each value from
-  // `start` (not an accumulator). This avoids two float traps: (a) accumulation
-  // drift across many steps, and (b) the half-open contract being broken when the
-  // raw accumulator undershoots `stop` by an epsilon (e.g. 0.9999999999999999 < 1)
-  // and the rounded value then snaps onto the excluded endpoint.
+  // Derive each value from `start` (not an accumulator) so float drift can't snap the
+  // last value onto the excluded endpoint.
   const count = Math.max(0, Math.ceil(round10((stop - start) / step)));
   const values = [];
   for (let i = 0; i < count; i++) {
@@ -38,13 +26,12 @@ function arange(start, stop, step = 1) {
 }
 
 /**
- * `num` evenly spaced values over the closed interval [start, stop] — both endpoints
- * included. linspace(4, 48, 12) gives [4, 8, ..., 48].
+ * `num` evenly spaced values over [start, stop], both endpoints included.
  *
- * @param {number} start - First value (included).
- * @param {number} stop - Last value (included).
- * @param {number} num - Number of points (integer >= 1). num === 1 returns [start].
- * @returns {number[]} The `num` evenly spaced values.
+ * @param {number} start
+ * @param {number} stop
+ * @param {number} num - Integer >= 1; num === 1 returns [start].
+ * @returns {number[]}
  */
 function linspace(start, stop, num) {
   if (!Number.isInteger(num) || num < 1) {
