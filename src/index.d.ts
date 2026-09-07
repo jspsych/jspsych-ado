@@ -258,10 +258,7 @@ export interface ValidationResult {
 }
 
 /** Validate a model package's shape (optionally probing the likelihood at a sample design/draw). */
-export function validateModel(
-  model: unknown,
-  opts?: { sampleDesign?: Design; sampleDraw?: Draw },
-): ValidationResult;
+export function validateModel(model: unknown): ValidationResult;
 
 /** Half-open design-grid axis [start, stop) with the given step. */
 export function arange(start: number, stop: number, step?: number): number[];

@@ -23,11 +23,6 @@ function responseProb(design, params) {
   return logistic(params.tau * (v_ll - v_ss));
 }
 
-function responseProbs(design, params) {
-  const p_ll = responseProb(design, params);
-  return [1 - p_ll, p_ll];
-}
-
 /** Simulator audit fields: the discounted subjective values. */
 function simulationData(design, params) {
   return {
@@ -64,7 +59,6 @@ const hyperbolicModel = {
   wasmUrl: new URL("./main.wasm", import.meta.url).href,
   stanData,
   responseProb,
-  responseProbs,
   simulationData,
 };
 

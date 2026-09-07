@@ -131,16 +131,16 @@ function probeContinuousDensity(model, design, draw) {
   return null;
 }
 
-function validateResponseSpace(responseSpace, context) {
+function validateResponseSpace(responseSpace) {
   if (!responseSpace || typeof responseSpace.type !== "string") {
-    return `${context}: responseSpace.type must be a string.`;
+    return "responseSpace.type must be a string.";
   }
   if (responseSpace.type === "binary") {
     return null;
   }
   if (responseSpace.type === "categorical") {
     if (!Number.isInteger(responseSpace.n_categories) || responseSpace.n_categories < 2) {
-      return `${context}: categorical responseSpace needs integer n_categories >= 2.`;
+      return "categorical responseSpace needs integer n_categories >= 2.";
     }
     return null;
   }
@@ -149,11 +149,11 @@ function validateResponseSpace(responseSpace, context) {
       responseSpace.intervals != null &&
       (!Number.isInteger(responseSpace.intervals) || responseSpace.intervals < 2)
     ) {
-      return `${context}: continuous responseSpace intervals must be an integer >= 2.`;
+      return "continuous responseSpace intervals must be an integer >= 2.";
     }
     return null;
   }
-  return `${context}: responseSpace type "${responseSpace.type}" is not supported.`;
+  return `responseSpace type "${responseSpace.type}" is not supported.`;
 }
 
 function findUndefined(value, path = "data") {
@@ -263,26 +263,16 @@ function validateDesignGridForModel(grid_design, model, modelName) {
  * Validate a model package (the shape under models/<name>/model.js).
  *
  * @param {Object} model - The model package default export.
- * @param {Object} [opts]
- * @param {Object} [opts.sampleDesign] - A design to probe the likelihood with.
- * @param {Object} [opts.sampleDraw] - A parameter draw to probe the likelihood with.
  * @returns {{valid: boolean, problems: Array<{level: "error"|"warn", message: string}>}}
  */
-function validateModel(model, opts = {}) {
+function validateModel(model) {
   const problems = [];
   const err = (message) => problems.push({ level: "error", message });
   const warn = (message) => problems.push({ level: "warn", message });
 
   if (!model || typeof model !== "object") {
-    return {
-      valid: false,
-      problems: [
-        {
-          level: "error",
-          message: "validateModel: model must be an object (the model package default export).",
-        },
-      ],
-    };
+    err("validateModel: model must be an object (the model package default export).");
+    return { valid: false, problems };
   }
 
   if (typeof model.id !== "string" || !model.id) err("`id` must be a non-empty string.");
@@ -310,7 +300,7 @@ function validateModel(model, opts = {}) {
   if (!model.responseSpace || typeof model.responseSpace.type !== "string") {
     err("`responseSpace.type` must be a string.");
   } else {
-    const response_space_error = validateResponseSpace(model.responseSpace, "validateModel");
+    const response_space_error = validateResponseSpace(model.responseSpace);
     if (response_space_error) {
       err(response_space_error);
     }
@@ -366,40 +356,6 @@ function validateModel(model, opts = {}) {
     err(
       "`prior` must be an object mapping each parameter to a {dist, ...} spec matching the .stan priors.",
     );
-  }
-
-  if (
-    opts.sampleDesign &&
-    isContinuous(model.responseSpace) &&
-    typeof model.responseDensity === "function"
-  ) {
-    try {
-      const probe_error = probeContinuousDensity(model, opts.sampleDesign, opts.sampleDraw || {});
-      if (probe_error) {
-        err(probe_error + ".");
-      }
-    } catch (e) {
-      err(`response density threw on the sample design: ${String((e && e.message) || e)}.`);
-    }
-  } else if (
-    opts.sampleDesign &&
-    (typeof model.responseProb === "function" || typeof model.responseProbs === "function")
-  ) {
-    try {
-      const responseProbs = getResponseProbsFunction(model);
-      const probs = validateResponseProbs(
-        responseProbs(opts.sampleDesign, opts.sampleDraw || {}),
-        "validateModel",
-      );
-      const response_count = getResponseCount(model.responseSpace);
-      if (response_count != null && probs.length !== response_count) {
-        err(
-          `response likelihood returned ${probs.length} probabilities; expected ${response_count}.`,
-        );
-      }
-    } catch (e) {
-      err(`response likelihood threw on the sample design: ${String((e && e.message) || e)}.`);
-    }
   }
 
   const valid = !problems.some((pr) => pr.level === "error");

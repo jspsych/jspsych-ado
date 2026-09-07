@@ -3,7 +3,7 @@
 // downloaded for stanCode models, then imported and its wasm instantiated by the worker);
 // on failure renders the actual error (e.g. a stanc syntax error) and aborts.
 
-import { escapeHtml, abortExperimentWithHtml } from "./abort_experiment.js";
+import { escapeHtml } from "./escape_html.js";
 
 /**
  * @param {Function} ready - () => Promise resolving when the model is loaded.
@@ -77,7 +77,7 @@ function makeModelPreloadPlugin(ready, opts = {}) {
               `<pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;` +
               `border-radius:6px;padding:0.75rem;font-size:0.8rem;color:#7f1d1d;">` +
               `${escapeHtml(detail)}</pre></div>`;
-            abortExperimentWithHtml(this.jsPsych, html, {
+            this.jsPsych.abortExperiment(html, {
               ado_event: "error",
               ado_error: detail,
               ado_preload_ok: false,

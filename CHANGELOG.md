@@ -145,6 +145,11 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
 - `labelsToConfig` and `buildModelAdapter` from the package entry (test-only
   conveniences); `posterior_display.upper_bound` (no model used it); the console ASCII
   posterior histograms in the `?debug=1` log (the tables and on-page charts remain).
+- The `ado_mode` data column: it duplicated `controller_mode` + `design_strategy`, which
+  are recorded on the same row. `validateModel`'s optional `{ sampleDesign, sampleDraw }`
+  probe (the design-grid validation already probes the likelihood). The hand-written
+  `responseProbs` on the binary model packages: the engine derives `[1 - p, p]` from
+  `responseProb` itself.
 
 ### Internal
 

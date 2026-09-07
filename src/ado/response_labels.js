@@ -10,16 +10,6 @@ function labelsToConfig(labels) {
   return labels;
 }
 
-function countLabels(labels) {
-  if (Array.isArray(labels)) {
-    return labels.length;
-  }
-  if (labels && typeof labels === "object") {
-    return Object.keys(labels).length;
-  }
-  return null;
-}
-
 /**
  * Resolve outcome labels. Explicit labels must match the response count (hard error);
  * labels inferred from a button trial's static `choices` are best-effort (a keyboard
@@ -35,16 +25,10 @@ function resolveResponseLabels(explicit_labels, response_trial, responseSpace) {
     return explicit_labels != null ? labelsToConfig(explicit_labels) : null;
   }
   const response_count = getResponseCount(responseSpace);
-  const numeric_labels = () =>
-    response_count != null
-      ? Object.fromEntries(
-          Array.from({ length: response_count }, (_value, index) => [index, String(index)]),
-        )
-      : {};
 
   if (explicit_labels != null) {
     const labels = labelsToConfig(explicit_labels);
-    const label_count = countLabels(labels);
+    const label_count = Object.keys(labels ?? {}).length;
     if (response_count != null && label_count !== response_count) {
       throw new Error(
         `ado.createTimeline: response_labels has ${label_count} entries; expected ${response_count}.`,
@@ -63,7 +47,9 @@ function resolveResponseLabels(explicit_labels, response_trial, responseSpace) {
         `plugin choices are UI, not outcome coding). Pass response_labels to name the outcomes.`,
     );
   }
-  return numeric_labels();
+  return response_count != null
+    ? Object.fromEntries(Array.from({ length: response_count }, (_, i) => [i, String(i)]))
+    : {};
 }
 
 export { resolveResponseLabels, labelsToConfig };

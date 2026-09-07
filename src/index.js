@@ -13,7 +13,6 @@ import {
   simulateCategoricalChoice,
   simulateContinuousResponse,
 } from "./ado/ado_simulation.js";
-import { makeChoiceSimulationOptions, copySimulationAuditFields } from "./ado/simulation_hooks.js";
 import { makeStanDataBuilder } from "./ado/stan_data.js";
 import { makeModelPreloadPlugin } from "./ado/model_preload.js";
 import {
@@ -34,7 +33,6 @@ const DEFAULT_TOKEN = "1234";
 // The public stan-playground compile server (Ward, Soules & Magland 2026,
 // 10.21105/joss.09531). Browser calls need the page's origin CORS-allowed (#137).
 const DEFAULT_COMPILE_SERVER = "https://stan-wasm.flatironinstitute.org";
-const CONTROLLER_MODES = new Set(["stan", "mock"]);
 
 /** `debug` option -> boolean; "url" (the default) honors ?debug[=1] on the page URL. */
 function resolveDebug(value) {
@@ -271,6 +269,7 @@ function createController(jsPsych, config = {}) {
               n_trials,
               testlet_size,
               stopping,
+              session_id: timeline_config.session_id ?? config.session_id,
             })
           : createStanAdoController({
               model: adapter,
@@ -288,34 +287,26 @@ function createController(jsPsych, config = {}) {
 
       const run_context = {
         debug,
-        ado_mode:
-          controller_mode === "mock"
-            ? "mock"
-            : effective_design_strategy === "random"
-              ? "random"
-              : "stan",
         controller_mode,
         design_strategy: effective_design_strategy,
-        session_id: timeline_config.session_id ?? config.session_id,
         model_id: adapter.id,
         posterior_display: config.model.posterior_display,
       };
-      if (simulate) {
-        run_context.simulation_mode = simulate.mode ?? "data-only";
-        run_context.simulate_choice = makeSimulatedParticipant(adapter, simulate, response_labels);
-      }
+      const simulate_choice = simulate
+        ? makeSimulatedParticipant(adapter, simulate, response_labels)
+        : null;
+      let pending_simulation_data = null;
 
       // recording_open gates recordResponse to the composed on_finish; the validated
       // response lands on data.__ado_response for the timeline's finalize step.
       let recording_open = false;
       let response_recorded = false;
       let recorded_response;
-      let get_live_design = null;
-      let get_live_state = null;
+      let accessors = null; // { getDesign, getState } handed over by the timeline
 
       const run = {
-        getDesign: () => (get_live_design ? get_live_design() : null),
-        getState: () => (get_live_state ? get_live_state() : null),
+        getDesign: () => accessors?.getDesign() ?? null,
+        getState: () => accessors?.getState() ?? null,
         recordResponse(response) {
           if (!recording_open) {
             throw new Error(
@@ -377,13 +368,20 @@ function createController(jsPsych, config = {}) {
                   );
                 }
                 data.__ado_response = recorded_response;
-                copySimulationAuditFields(data, run_context);
+                for (const [key, value] of Object.entries(pending_simulation_data ?? {})) {
+                  if (key.startsWith("sim_") && data[key] === undefined) {
+                    data[key] = value;
+                  }
+                }
+                pending_simulation_data = null;
               };
               // Synthetic participant: plugin simulation data drawn from the model
               // likelihood at the live design. User-authored simulation_options win.
-              if (run_context.simulate_choice && cloned.simulation_options === undefined) {
-                cloned.simulation_options = () =>
-                  makeChoiceSimulationOptions(run_context, ctx.getDesign());
+              if (simulate_choice && cloned.simulation_options === undefined) {
+                cloned.simulation_options = () => {
+                  pending_simulation_data = simulate_choice(ctx.getDesign());
+                  return { data: pending_simulation_data };
+                };
               }
               cloned.__ado_is_response = true;
               return cloned;
@@ -392,14 +390,12 @@ function createController(jsPsych, config = {}) {
         },
         run_context,
         {
-          onTimelineStart: (accessors) => {
-            get_live_design = accessors.getDesign;
-            get_live_state = accessors.getState;
+          onTimelineStart: (live) => {
+            accessors = live;
             active_run = run;
           },
-          onTimelineFinish: (final_accessors) => {
-            get_live_design = final_accessors.getDesign;
-            get_live_state = final_accessors.getState;
+          onTimelineFinish: (final) => {
+            accessors = final;
           },
         },
       );
@@ -461,7 +457,7 @@ function normalizeControllerMode(value) {
   if (value == null) {
     return "stan";
   }
-  if (!CONTROLLER_MODES.has(value)) {
+  if (!["stan", "mock"].includes(value)) {
     throw new Error(`createController: controller must be "stan" or "mock", got "${value}".`);
   }
   return value;
@@ -527,7 +523,7 @@ function makeSimulatedParticipant(adapter, simulate, response_labels) {
   const rng = createSeededRng(simulate.seed ?? 8675309);
   const simulation_config = {
     params: participant,
-    rt: { choice: simulate.rt_ms ?? (simulate.rt && simulate.rt.choice) ?? 500 },
+    rt: { choice: simulate.rt_ms ?? 500 },
   };
   return (design) => {
     const sim = isContinuous(adapter.responseSpace)

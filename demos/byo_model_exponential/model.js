@@ -49,11 +49,6 @@ function responseProb(design, params) {
   return logistic(params.tau * (v_ll - v_ss));
 }
 
-function responseProbs(design, params) {
-  const p_ll = responseProb(design, params);
-  return [1 - p_ll, p_ll];
-}
-
 /**
  * Optional simulator audit fields: the exponentially discounted subjective values.
  *
@@ -98,9 +93,8 @@ const exponentialModel = {
   wasmUrl: new URL("./compiled/main.wasm", import.meta.url).href,
   stanData,
   responseProb,
-  responseProbs,
   simulationData,
 };
 
 export default exponentialModel;
-export { responseProb, getExponentialValue, logistic, stanData, responseProbs, simulationData };
+export { responseProb, getExponentialValue, logistic, stanData, simulationData };

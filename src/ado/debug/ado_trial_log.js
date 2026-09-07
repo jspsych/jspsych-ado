@@ -19,22 +19,17 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
   if (!run_context.debug) {
     return;
   }
-
-  try {
-    if (typeof console === "undefined") {
-      return;
-    }
-
-    const next_design = ado_result.next_design;
-    const post_mean = ado_result.post_mean || {};
-    const post_sd = ado_result.post_sd || {};
-    const total_trials = config && config.n_trials ? config.n_trials : "?";
-    const mode_label =
-      run_context.controller_mode === "stan" && run_context.design_strategy
-        ? `${run_context.controller_mode}/${run_context.design_strategy}`
-        : run_context.controller_mode || run_context.ado_mode;
-    const label = `ADO update ${trial_data.trial_number}/${total_trials} | ${mode_label} | response: ${trial_data.choice_label}`;
-    const summary = [
+  const next_design = ado_result.next_design;
+  const post_mean = ado_result.post_mean || {};
+  const post_sd = ado_result.post_sd || {};
+  const total_trials = config && config.n_trials ? config.n_trials : "?";
+  const mode_label =
+    run_context.controller_mode === "stan" && run_context.design_strategy
+      ? `${run_context.controller_mode}/${run_context.design_strategy}`
+      : run_context.controller_mode;
+  const label = `ADO update ${trial_data.trial_number}/${total_trials} | ${mode_label} | response: ${trial_data.choice_label}`;
+  console.log(
+    [
       `${label} | latency: ${formatDebugLatency(ado_result.api_latency_ms)}`,
       `Design selection: ${formatDebugLatency(ado_result.selection_time_ms)} | max MI: ${formatDebugNumber(ado_result.max_mutual_info)}`,
       "",
@@ -55,42 +50,27 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
             ...describeDesign(next_design, config).map((line) => "  " + line),
           ].join("\n")
         : "Next ADO design: (final trial; none)",
-    ].join("\n");
+    ].join("\n"),
+  );
 
-    console.log(summary);
-
-    if (console.groupCollapsed && console.table && console.groupEnd) {
-      console.groupCollapsed(`${label} details`);
-      const design_rows = [
-        { when: "presented", mutual_info: trial_data.ado_mutual_info, ...trial_data.ado_design },
-      ];
-      const next_designs = ado_result.next_designs || (next_design ? [next_design] : []);
-      const next_metrics = Array.isArray(ado_result.next_design_metrics)
-        ? ado_result.next_design_metrics
-        : [];
-      if (next_designs.length) {
-        next_designs.forEach(function (design, index) {
-          const mi = next_metrics[index]?.mutual_info;
-          design_rows.push({
-            when: "next " + (index + 1),
-            mutual_info: isNum(mi) ? mi : null,
-            ...design,
-          });
-        });
-      }
-      console.table(design_rows);
-      console.table(
-        Object.keys(post_mean).map((param) => ({
-          parameter: param,
-          mean: post_mean[param],
-          sd: post_sd[param],
-        })),
-      );
-      console.groupEnd();
-    }
-  } catch (error) {
-    console.warn("ADO debug logging failed", error);
-  }
+  console.groupCollapsed(`${label} details`);
+  const next_metrics = ado_result.next_design_metrics || [];
+  console.table([
+    { when: "presented", mutual_info: trial_data.ado_mutual_info, ...trial_data.ado_design },
+    ...(ado_result.next_designs || []).map((design, index) => ({
+      when: "next " + (index + 1),
+      mutual_info: isNum(next_metrics[index]?.mutual_info) ? next_metrics[index].mutual_info : null,
+      ...design,
+    })),
+  ]);
+  console.table(
+    Object.keys(post_mean).map((param) => ({
+      parameter: param,
+      mean: post_mean[param],
+      sd: post_sd[param],
+    })),
+  );
+  console.groupEnd();
 }
 
 export { logAdoTrial };

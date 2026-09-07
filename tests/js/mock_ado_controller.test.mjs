@@ -7,9 +7,10 @@ test("mock controller does not emit Stan-only quantitative debug metrics", async
   const controller = createMockAdoController({
     grid_design: { a: [1, 2], b: [3] },
     params: ["theta"],
+    session_id: "mock-test",
   });
 
-  const start = await controller.start({ session_id: "mock-test" });
+  const start = await controller.start();
   assert.equal(start.session_id, "mock-test");
   assert.equal(start.posterior_draws, undefined);
   assert.equal(start.realized_information_gain, undefined);

@@ -8,7 +8,7 @@
 // queue advances at the END of each adaptive step, never in on_start.
 
 import { normalizeStoppingConfig } from "./stopping.js";
-import { escapeHtml, abortExperimentWithHtml } from "./abort_experiment.js";
+import { escapeHtml } from "./escape_html.js";
 
 // Lazy-loaded so a production bundler splits the debug UI into a chunk participants
 // running without ?debug never download.
@@ -99,24 +99,12 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
       '<p style="color: #9ca3af; font-size: 0.85rem;">' +
       escapeHtml(message) +
       "</p>";
-    abortExperimentWithHtml(jsPsych, html, { ado_event: "error", ado_error: message });
-  }
-
-  function designsFromResult(result) {
-    if (result.next_designs && result.next_designs.length) {
-      return result.next_designs.slice();
-    }
-    return result.next_design != null ? [result.next_design] : [];
+    jsPsych.abortExperiment(html, { ado_event: "error", ado_error: message });
   }
 
   function setDesignQueue(result) {
     ado_state = result;
-    if (testlet_size > 1 && !result.next_designs) {
-      throw new Error(
-        "Adaptive controller did not return next_designs; testlet_size > 1 requires a batch-aware controller.",
-      );
-    }
-    design_queue = designsFromResult(result);
+    design_queue = result.next_designs.slice();
     design_metric_queue = metricsFromResult(result, design_queue.length);
     current_design = design_queue.shift() ?? null;
     current_design_metric = design_metric_queue.shift() ?? null;
@@ -137,7 +125,6 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
     data.ado_session_id = result.session_id;
     data.ado_trial_index = result.trial_index;
     data.ado_testlet_size = batch_length;
-    data.ado_mode = run_context.ado_mode;
     data.controller_mode = run_context.controller_mode;
     data.design_strategy = run_context.design_strategy;
     data.ado_next_design = result.next_design;
@@ -229,7 +216,7 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
           const result = await adaptive_controller.update(payload);
           setDesignQueue(result);
           stopped = Boolean(result.should_stop);
-          const next_designs = designsFromResult(result);
+          const next_designs = result.next_designs.slice();
           const next_design_metrics = metricsFromResult(result, next_designs.length);
           for (const row of batch) {
             copyPosteriorFields(row, result);
@@ -322,12 +309,10 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
           failExperiment(error);
           throw error;
         }
-        if (typeof hooks.onTimelineStart === "function") {
-          hooks.onTimelineStart({
-            getDesign: () => current_design,
-            getState: () => ado_state,
-          });
-        }
+        hooks.onTimelineStart?.({
+          getDesign: () => current_design,
+          getState: () => ado_state,
+        });
       },
       // Hands the facade a final snapshot without the draw arrays so post-run getState()
       // keeps working while the controller and draws become collectable.
@@ -339,14 +324,12 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
               console.warn("ADO debug debrief unavailable:", error);
             });
         }
-        if (typeof hooks.onTimelineFinish === "function") {
-          const final_state = ado_state ? { ...ado_state, posterior_draws: null } : null;
-          const final_design = current_design;
-          hooks.onTimelineFinish({
-            getDesign: () => final_design,
-            getState: () => final_state,
-          });
-        }
+        const final_state = ado_state ? { ...ado_state, posterior_draws: null } : null;
+        const final_design = current_design;
+        hooks.onTimelineFinish?.({
+          getDesign: () => final_design,
+          getState: () => final_state,
+        });
       },
     },
   ];

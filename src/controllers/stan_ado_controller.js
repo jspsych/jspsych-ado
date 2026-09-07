@@ -152,28 +152,7 @@ function createStanAdoController({
     }));
   }
 
-  function maxMutualInfo(metrics) {
-    let max_mi = null;
-    for (const metric of metrics) {
-      const mi = metric && metric.mutual_info;
-      if (typeof mi === "number" && Number.isFinite(mi)) {
-        max_mi = max_mi == null ? mi : Math.max(max_mi, mi);
-      }
-    }
-    return max_mi;
-  }
-
-  function sumFinite(values) {
-    let total = 0;
-    let count = 0;
-    for (const value of values) {
-      if (typeof value === "number" && Number.isFinite(value)) {
-        total += value;
-        count += 1;
-      }
-    }
-    return count ? total : null;
-  }
+  const finite = (values) => values.filter(Number.isFinite);
 
   function computeRealizedInformationGains(rows) {
     if (!current_design_draws || current_design_draws.length === 0) {
@@ -205,7 +184,8 @@ function createStanAdoController({
       const picks = scorer.selectOptimalDesigns(designs, draws, count, { rng: design_rng });
       next_designs = picks.map((pick) => pick.design);
       next_design_metrics = picks.map((pick) => ({ mutual_info: pick.mutual_info }));
-      max_mutual_info = maxMutualInfo(next_design_metrics);
+      const mis = finite(picks.map((pick) => pick.mutual_info));
+      max_mutual_info = mis.length ? Math.max(...mis) : null;
     }
 
     return {
@@ -266,7 +246,8 @@ function createStanAdoController({
 
       const rows = Array.isArray(trial_data) ? trial_data : [trial_data];
       const realized_information_gains = computeRealizedInformationGains(rows);
-      const realized_information_gain = sumFinite(realized_information_gains);
+      const gains = finite(realized_information_gains);
+      const realized_information_gain = gains.length ? gains.reduce((a, b) => a + b, 0) : null;
       const new_trials = rows.map((row) => ({ ...row.ado_design, choice: row.choice }));
 
       // Commit the new rows only after sampling succeeds, so a rejected sample never

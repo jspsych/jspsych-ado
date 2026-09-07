@@ -2,6 +2,8 @@
 // eig_fraction * ln(K) (the maximum achievable EIG for a K-category response), gated by
 // min_trials / max_trials and de-bounced by `consecutive` (EIG is a Monte-Carlo estimate).
 
+import { getResponseCount } from "../validation.js";
+
 function toNonNegativeInteger(value, fallback) {
   return Number.isInteger(value) && value >= 0 ? value : fallback;
 }
@@ -43,20 +45,8 @@ function normalizeStoppingConfig(stopping, default_max_trials = null) {
 
 /** Maximum achievable EIG (nats) = ln(K), or null when K is undefined (e.g. continuous). */
 function maxPossibleEig(responseSpace) {
-  if (!responseSpace) {
-    return null;
-  }
-  if (responseSpace.type === "binary") {
-    return Math.log(2);
-  }
-  if (
-    responseSpace.type === "categorical" &&
-    Number.isInteger(responseSpace.n_categories) &&
-    responseSpace.n_categories >= 2
-  ) {
-    return Math.log(responseSpace.n_categories);
-  }
-  return null;
+  const k = getResponseCount(responseSpace);
+  return k ? Math.log(k) : null;
 }
 
 /**

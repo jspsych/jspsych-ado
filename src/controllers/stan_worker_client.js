@@ -19,6 +19,14 @@ function createStanWorkerClient() {
     settle(current);
   }
 
+  // Script-level failures fire onerror/onmessageerror and never post a message: terminate
+  // the dead worker and reject the in-flight request.
+  function fail(message) {
+    worker?.terminate();
+    worker = null;
+    settlePending((p) => p.reject(new Error(message)));
+  }
+
   function ensureWorker() {
     if (worker) {
       return;
@@ -32,24 +40,9 @@ function createStanWorkerClient() {
         message.type === "error" ? p.reject(new Error(message.error)) : p.resolve(message),
       );
     };
-    // Script-level failures (bad module path, parse error) fire onerror and never post a
-    // message; terminate the dead worker and reject the in-flight request.
-    worker.onerror = function (event) {
-      if (worker) {
-        worker.terminate();
-      }
-      worker = null;
-      settlePending((p) =>
-        p.reject(new Error("Stan worker failed to load: " + (event.message || "worker error"))),
-      );
-    };
-    worker.onmessageerror = function () {
-      if (worker) {
-        worker.terminate();
-      }
-      worker = null;
-      settlePending((p) => p.reject(new Error("Stan worker message could not be deserialized")));
-    };
+    worker.onerror = (event) =>
+      fail("Stan worker failed to load: " + (event.message || "worker error"));
+    worker.onmessageerror = () => fail("Stan worker message could not be deserialized");
   }
 
   function send(message) {

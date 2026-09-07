@@ -31,11 +31,6 @@ function responseProb(design, params) {
   return normalCdf(delta / sigma_delta);
 }
 
-function responseProbs(design, params) {
-  const p_correct = responseProb(design, params);
-  return [1 - p_correct, p_correct];
-}
-
 /** Simulator audit fields: the larger/smaller numerosity. */
 function simulationData(design) {
   const { n_large, n_small } = numerosities(design);
@@ -64,7 +59,6 @@ const weberDotsModel = {
   wasmUrl: new URL("./main.wasm", import.meta.url).href,
   stanData,
   responseProb,
-  responseProbs,
   simulationData,
 };
 
