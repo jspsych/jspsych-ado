@@ -2,14 +2,14 @@
 //
 // The compiled model glue (main.js) and tinystan are built with `-sENVIRONMENT=web`:
 // they expect a browser `window` and fetch `main.wasm` via `fetch()`. The recovery/parity
-// smokes run in plain Node and bypass the Web Worker, so they need (1) a minimal `window`
+// tests run in plain Node and bypass the Web Worker, so they need (1) a minimal `window`
 // global and (2) a `fetch` that resolves the `file:` URL the glue requests
 // (`new URL("./main.wasm", import.meta.url)`) by reading the file off disk. Importing this
 // module installs both as a side effect; static imports run before the importing module's
 // top-level `await import(...)`, so the shim is in place before any glue loads. Non-`file:`
 // URLs fall through to the real fetch.
 //
-// NOTE: locate_file.smoke.mjs intentionally does NOT use this — it installs its own fetch to
+// NOTE: locate_file.mjs intentionally does NOT use this — it installs its own fetch to
 // exercise the bundler `locateFile` path (serve a hashed wasm, 404 the unhashed sibling).
 import { readFile } from "node:fs/promises";
 

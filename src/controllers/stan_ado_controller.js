@@ -12,7 +12,7 @@ import {
 } from "../ado/mi_engine.js";
 import { createSeededRng } from "../ado/ado_simulation.js";
 import { maxPossibleEig, makeStoppingEvaluator } from "../ado/stopping.js";
-import { nullDesignMetrics, makeBlockSizer, now } from "./controller_common.js";
+import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
 
 // Number of prior draws used to pick the first design (before any data exist).
 const PRIOR_DRAWS = 2000;
@@ -239,7 +239,7 @@ function createStanAdoController({
         max_mutual_info: null,
       };
     }
-    const selection_started_at = now();
+    const selection_started_at = performance.now();
     let next_designs = [];
     let next_design_metrics = [];
     let max_mutual_info = null;
@@ -256,7 +256,7 @@ function createStanAdoController({
     return {
       next_designs,
       next_design_metrics,
-      selection_time_ms: now() - selection_started_at,
+      selection_time_ms: performance.now() - selection_started_at,
       max_mutual_info,
     };
   }
@@ -320,7 +320,7 @@ function createStanAdoController({
      * @returns {Promise<Object>} Updated ADO state with posterior summaries.
      */
     update: async function (trial_data) {
-      const started_at = now();
+      const started_at = performance.now();
       // The worker's model load is handle-owned; await it before sampling (a load failure
       // rejects here AND at ready()/preload, surfacing as a visible experiment abort).
       await worker_ready;
@@ -359,7 +359,7 @@ function createStanAdoController({
         realized_information_gain,
         realized_information_gains,
         // Reuse the latency field to report local sampling+MI time (ms).
-        api_latency_ms: Math.round(now() - started_at),
+        api_latency_ms: Math.round(performance.now() - started_at),
       };
     },
   };

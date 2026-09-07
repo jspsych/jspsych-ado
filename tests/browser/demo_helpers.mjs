@@ -1,7 +1,94 @@
+// Shared driver for the headless browser tests: one static server + one puppeteer
+// page per test, PASS/FAIL notes, and the console/page-error/failed-request
+// diagnostics every test asserts on.
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import puppeteer from "puppeteer";
+import { startStaticServer } from "./static_server.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BENIGN = [/favicon\.ico$/];
 
 function isBenign(url) {
   return BENIGN.some((re) => re.test(url));
+}
+
+/**
+ * Run one test: serve the repo, open a page, hand `body({ page, base, note })` the
+ * controls, then assert the diagnostics were clean and exit non-zero on any failure.
+ *
+ * @param {string} label - Printed name.
+ * @param {Function} body - async ({ page, base, note }) => void.
+ * @param {Object} [opts] - { routes }: static_server pre-route hook (mock endpoints).
+ */
+async function runBrowserTest(label, body, { routes } = {}) {
+  const server = await startStaticServer(ROOT, 0, routes);
+  const browser = await puppeteer.launch({
+    headless: true,
+    protocolTimeout: 600000,
+    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+  });
+  let failures = 0;
+  const note = (ok, msg) => {
+    console.log(`  ${ok ? "PASS" : "FAIL"}: ${msg}`);
+    if (!ok) failures++;
+  };
+  try {
+    const page = await browser.newPage();
+    const diagnostics = attachDiagnostics(page);
+    console.log(`\n[${label}] ${server.url}`);
+    await body({ page, base: server.url, note });
+    for (const [key, what] of [
+      ["consoleErrors", "console errors"],
+      ["pageErrors", "uncaught page errors"],
+      ["failedReqs", "unexpected failed requests"],
+    ]) {
+      const list = diagnostics[key];
+      note(
+        list.length === 0,
+        `no ${what}` + (list.length ? ` -> ${list.slice(0, 3).join(" | ")}` : ""),
+      );
+    }
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+  console.log(
+    failures === 0 ? `\n${label}: all checks passed` : `\n${label}: ${failures} check(s) failed`,
+  );
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+/** Number of adaptive choice rows recorded so far. */
+function countAdaptiveRows(page) {
+  return page.evaluate(() => {
+    const jp = window.jsPsych;
+    if (!jp || !jp.data) return 0;
+    return jp.data
+      .get()
+      .values()
+      .filter((row) => row && row.ado_design && Object.prototype.hasOwnProperty.call(row, "choice"))
+      .length;
+  });
+}
+
+/** Presence of the three debug panels + the body text, for end-screen assertions. */
+function debugUiState(page) {
+  return page.evaluate(() => ({
+    text: document.body.innerText,
+    hasDebugDebrief: Boolean(document.getElementById("ado-debug-debrief-panel")),
+    hasLivePosterior: Boolean(document.getElementById("ado-live-posterior-chart")),
+    hasInfoGainPanel: Boolean(document.getElementById("ado-info-gain-debug-panel")),
+  }));
+}
+
+/** The four end-screen debug-UI notes every ?debug=1 demo test makes. */
+async function noteDebugEndScreen(page, note) {
+  const ui = await debugUiState(page);
+  note(ui.hasDebugDebrief, "debug debrief panel is rendered by the ADO timeline");
+  note(ui.text.includes("Estimated parameters"), "debug debrief shows posterior summary");
+  note(!ui.hasLivePosterior, "live posterior panel is removed on the end screen");
+  note(!ui.hasInfoGainPanel, "information-gain debug panel is removed on the end screen");
 }
 
 function attachDiagnostics(page) {
@@ -35,22 +122,7 @@ async function clickInstructionPages(page, pageCount = 3) {
 }
 
 async function answerAdaptiveButtonTrials(page, trialCount, chooseIndex = (i) => i % 2) {
-  const initialRows = await page.evaluate(() => {
-    const jp = window.jsPsych;
-    if (!jp || !jp.data) return 0;
-    return jp.data
-      .get()
-      .values()
-      .filter(
-        (row) =>
-          row &&
-          typeof row === "object" &&
-          row.ado_design &&
-          Object.prototype.hasOwnProperty.call(row, "choice"),
-      ).length;
-  });
-
-  for (let i = initialRows; i < trialCount; i++) {
+  for (let i = await countAdaptiveRows(page); i < trialCount; i++) {
     await page.waitForFunction(
       () => {
         const dataChoiceButtons = Array.from(
@@ -84,22 +156,7 @@ async function answerAdaptiveKeyTrials(
   trialCount,
   chooseKey = (i) => (i % 2 === 0 ? "b" : "y"),
 ) {
-  const initialRows = await page.evaluate(() => {
-    const jp = window.jsPsych;
-    if (!jp || !jp.data) return 0;
-    return jp.data
-      .get()
-      .values()
-      .filter(
-        (row) =>
-          row &&
-          typeof row === "object" &&
-          row.ado_design &&
-          Object.prototype.hasOwnProperty.call(row, "choice"),
-      ).length;
-  });
-
-  for (let i = initialRows; i < trialCount; i++) {
+  for (let i = await countAdaptiveRows(page); i < trialCount; i++) {
     await page.waitForFunction(
       () => {
         return (
@@ -217,9 +274,11 @@ async function collectDemoResult(page, expectedRows) {
 }
 
 export {
+  runBrowserTest,
   answerAdaptiveButtonTrials,
   answerAdaptiveKeyTrials,
-  attachDiagnostics,
   clickInstructionPages,
   collectDemoResult,
+  countAdaptiveRows,
+  noteDebugEndScreen,
 };

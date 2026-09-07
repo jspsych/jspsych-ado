@@ -25,24 +25,24 @@ import { createStanWorkerClient } from "./controllers/stan_worker_client.js";
 import { createAdoTimeline, normalizeTestletSize } from "./ado/ado_timeline.js";
 import { enumerateDesigns } from "./ado/mi_engine.js";
 import { arange, linspace } from "./ado/grid.js";
-import { makeStanDataBuilder } from "./ado/stan_data.js";
 import {
   createSeededRng,
   simulateCategoricalChoice,
   simulateContinuousResponse,
 } from "./ado/ado_simulation.js";
 import { makeChoiceSimulationOptions, copySimulationAuditFields } from "./ado/simulation_hooks.js";
+import { makeStanDataBuilder } from "./ado/stan_data.js";
 import { makeModelPreloadPlugin } from "./ado/model_preload.js";
 import {
-  validateModel,
+  buildModelAdapter,
   validateSourceSpec,
+  validateModel,
   validateDesignGridForModel,
   getResponseCount,
   isContinuous,
   isSourceModel,
 } from "./validation.js";
-import { resolveResponseLabels, labelsToConfig } from "./ado/response_labels.js";
-import { resolveDebug } from "./ado/debug_flag.js";
+import { resolveResponseLabels } from "./ado/response_labels.js";
 import { parseStanPriors, compileToModuleUrl } from "./models/stan_source.js";
 
 const DEFAULT_STAN = { num_chains: 2, num_warmup: 500, num_samples: 500, seed: 123 };
@@ -56,7 +56,15 @@ const DEFAULT_TOKEN = "1234";
 // explains the self-hosted docker fallback.
 const DEFAULT_COMPILE_SERVER = "https://stan-wasm.flatironinstitute.org";
 const CONTROLLER_MODES = new Set(["stan", "mock"]);
-const _compileCache = new Map(); // `${server}\n${stanCode}` -> moduleUrl (per page session)
+
+/** `debug` option -> boolean; "url" (the default) honors ?debug[=1] on the page URL. */
+function resolveDebug(value) {
+  if (value !== "url") {
+    return Boolean(value);
+  }
+  const flag = new URLSearchParams(globalThis.location?.search ?? "").get("debug");
+  return flag != null && !/^(0|false|off|no)$/i.test(flag);
+}
 
 // ---------------------------------------------------------------------------
 // createController
@@ -124,22 +132,14 @@ function createController(jsPsych, config = {}) {
   // ado.preload() trial runs it has often already resolved. The chain feeds the
   // Stan controller's model_ready, which the first posterior update awaits.
   const is_source_model = isSourceModel(config.model);
-  // stanUrl is a prepareModel-only input: createController is synchronous and cannot fetch
-  // it into source for the prior derivation / eager compile below. Fail actionably here
-  // instead of surfacing later as a Stan-init crash on an undefined module.
-  if (config.model && config.model.stanUrl && !config.model.stanCode && !config.model.moduleUrl) {
-    throw new Error(
-      "createController: a stanUrl-only model must be compiled with prepareModel first " +
-        "(createController needs inline stanCode or a committed moduleUrl). " +
-        "Pass the awaited prepareModel(...) result as `model`.",
-    );
+  // Validate FIRST (buildModelAdapter throws validateModel's actionable messages;
+  // a prior-less source model passes via the source exemption), THEN derive the
+  // prior — parseStanPriors must never see an invalid `params`, where it would die
+  // with a raw TypeError instead of "`params` must be a non-empty array ...".
+  const adapter = buildModelAdapter(config.model, "createController");
+  if (is_source_model && adapter.prior == null) {
+    adapter.prior = parseStanPriors(config.model.stanCode, adapter.params);
   }
-  const enriched_model =
-    is_source_model && config.model.prior == null
-      ? { ...config.model, prior: parseStanPriors(config.model.stanCode, config.model.params) }
-      : config.model;
-
-  const adapter = buildModelAdapter(enriched_model, "createController");
 
   let module_ready = null;
   function ensureModuleReady() {
@@ -147,28 +147,17 @@ function createController(jsPsych, config = {}) {
       return null;
     }
     if (!module_ready) {
-      module_ready = prepareModel(enriched_model, {
-        compileServer: (config.compile && config.compile.server) || DEFAULT_COMPILE_SERVER,
-        authToken: (config.compile && config.compile.authToken) || DEFAULT_TOKEN,
-      }).then(async (prepared) => {
-        // This step compiles + downloads the glue; ensureStanRuntime chains the worker
-        // import + wasm-load (client.init) onto it, so ready()/preload cover the full
-        // load. The body is consumed so the browser can cache/revalidate it for that
-        // import (an unread body may never be cache-committed; a bodyless HEAD probe
-        // trips Chrome's aborted-request diagnostics). wasmUrl stays null: the
-        // server-hosted main.js fetches its sibling wasm.
-        const res = await fetch(prepared.moduleUrl);
-        if (!res.ok) {
-          throw new Error(
-            `prepareModel: the compiled model could not be downloaded from ` +
-              `${prepared.moduleUrl} (${res.status}).`,
-          );
-        }
-        await res.arrayBuffer(); // consume so the response is cacheable
-        return { moduleUrl: prepared.moduleUrl, wasmUrl: null };
-      });
-      // Failures surface through ado.ready() / the preload trial / the first
-      // update — not as an unhandled rejection at page load.
+      // prepareModel compiles AND verifies the artifact downloads (returning wasmUrl: null,
+      // the server-hosted main.js fetches its sibling wasm); ensureStanRuntime chains the
+      // worker load onto this. adapter.prior spares prepareModel a re-parse.
+      module_ready = prepareModel(
+        { ...config.model, prior: adapter.prior },
+        {
+          compileServer: (config.compile && config.compile.server) || DEFAULT_COMPILE_SERVER,
+          authToken: (config.compile && config.compile.authToken) || DEFAULT_TOKEN,
+        },
+      );
+      // Failures surface via ready()/preload/the first update, not as an unhandled rejection.
       module_ready.catch(() => {});
     }
     return module_ready;
@@ -199,20 +188,22 @@ function createController(jsPsych, config = {}) {
   // separately in createTimeline.
   const handle_controller = normalizeControllerMode(config.controller);
 
-  // Kick the compile off EAGERLY in the common case so it overlaps welcome/
-  // instruction screens. Mock-mode handles stay network-free: the mock controller
-  // never consumes the WASM, so a dev loop (or an offline machine) must not die
-  // on a compile-server call it doesn't need. (A per-timeline controller:"stan"
-  // override still triggers the compile lazily below.)
-  if (handle_controller !== "mock") {
-    ensureModuleReady();
-  }
-
   // Enumerate the candidate designs ONCE per handle; validation, and every
   // controller built by createTimeline, reuse the enumerated array (enumerating
   // an already-enumerated array is a pass-through).
   const candidate_designs = enumerateDesigns(config.design_grid);
   validateDesignGridForModel(candidate_designs, adapter, adapter.id);
+
+  // Kick the compile off EAGERLY in the common case so it overlaps welcome/
+  // instruction screens — but only after ALL validation above, so an invalid
+  // config never ships the user's Stan source to the compile server. Mock-mode
+  // handles stay network-free: the mock controller never consumes the WASM, so a
+  // dev loop (or an offline machine) must not die on a compile-server call it
+  // doesn't need. (A per-timeline controller:"stan" override still triggers the
+  // compile lazily below.)
+  if (handle_controller !== "mock") {
+    ensureModuleReady();
+  }
 
   // The facade state below belongs to the ACTIVE run (one createTimeline call).
   // Sequential reuse (a practice run then a main run from the same handle) works
@@ -268,16 +259,17 @@ function createController(jsPsych, config = {}) {
      * the compiled module and instantiated its wasm (after compile + artifact download for
      * source models). Rejects if that compile, download, or worker load fails.
      *
-     * Reflects the handle-level controller, mirroring the eager-compile gate: a
-     * `controller: "mock"` handle resolves immediately (no wasm). A per-timeline
-     * `controller: "stan"` override on a mock-default handle is NOT gated here — that
-     * timeline's worker loads when it is built (the first update awaits it), so put such an
-     * override on a stan-default handle if you want preload() to cover it.
+     * Gating mirrors the eager-compile gate: a `controller: "mock"` handle resolves
+     * immediately (no wasm) — unless a per-timeline `controller: "stan"` override has
+     * already built its timeline, in which case the shared runtime exists and
+     * ready()/preload() gate on that worker load too.
      *
      * For custom loading UI; ado.preload() consumes it for you.
      */
     ready() {
-      if (handle_controller === "mock") {
+      // An existing runtime (e.g. a mock-default handle whose stan-override timeline
+      // was built) is always the readiness truth.
+      if (!stan_runtime && handle_controller === "mock") {
         return Promise.resolve();
       }
       return ensureStanRuntime().ready.then(() => undefined);
@@ -516,15 +508,15 @@ function createController(jsPsych, config = {}) {
 // ---------------------------------------------------------------------------
 
 /**
- * Turn a source model spec ({ stanCode | stanUrl, params, designKeys, responseSpace,
- * likelihood, stanData, ... }) into a model package usable with createController, by
- * compiling the Stan source to WASM on a compile server and (when needed) deriving
- * the JS prior from the source. Models that already carry a moduleUrl pass through.
+ * Turn a source model spec ({ stanCode, params, designKeys, responseSpace, likelihood,
+ * stanData, ... }) into a model package usable with createController, by compiling the
+ * Stan source to WASM on a compile server and (when needed) deriving the JS prior from
+ * the source. Models that already carry a moduleUrl pass through.
  *
- * Run once at study setup (not per participant). Compiled module URLs are cached
- * by server + source within the page session.
+ * Run once at study setup (not per participant); the compile server is content-
+ * addressed, so repeat compiles of the same source are cache hits there.
  *
- * @param {Object} spec - Model spec with exactly one of stanCode | stanUrl | moduleUrl.
+ * @param {Object} spec - Model spec with exactly one of stanCode | moduleUrl.
  * @param {Object} opts
  * @param {string} opts.compileServer - Base URL of a Stan-to-WASM compile server.
  * @param {string} [opts.authToken] - Bearer token for the compile endpoint.
@@ -549,28 +541,25 @@ async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } =
     );
   }
 
-  let stanCode = spec.stanCode;
-  if (!stanCode && spec.stanUrl) {
-    const res = await fetch(spec.stanUrl);
-    if (!res.ok) {
-      throw new Error(`prepareModel: could not fetch stanUrl (${res.status}).`);
-    }
-    stanCode = await res.text();
-  }
-
+  const { stanCode, ...rest } = spec;
   const prior = spec.prior ?? parseStanPriors(stanCode, spec.params);
+  const moduleUrl = await compileToModuleUrl(stanCode, compileServer, authToken);
 
-  // Key the cache by server AND source so the same .stan compiled against a
-  // different server doesn't return the first server's stale module URL.
-  const cacheKey = `${(compileServer || "").replace(/\/+$/, "")}\n${stanCode}`;
-  let moduleUrl = _compileCache.get(cacheKey);
-  if (!moduleUrl) {
-    moduleUrl = await compileToModuleUrl(stanCode, compileServer, authToken);
-    _compileCache.set(cacheKey, moduleUrl);
+  // Verify the artifact downloads before handing the package out — a dead URL must
+  // fail here, readably, not later as a worker import crash. The body is consumed so
+  // the browser cache-commits it for the worker's import (a bodyless HEAD probe trips
+  // Chrome's aborted-request diagnostics).
+  const res = await fetch(moduleUrl);
+  if (!res.ok) {
+    throw new Error(
+      `prepareModel: the compiled model could not be downloaded from ${moduleUrl} (${res.status}).`,
+    );
   }
+  await res.arrayBuffer();
 
-  const { stanCode: _code, stanUrl: _url, ...rest } = spec;
-  return { ...rest, prior, moduleUrl };
+  // wasmUrl: null — the server-hosted main.js fetches its sibling wasm; no local asset
+  // exists for a bundler to hash, so validateModel must not warn about it.
+  return { ...rest, prior, moduleUrl, wasmUrl: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -585,64 +574,6 @@ function normalizeControllerMode(value) {
     throw new Error(`createController: controller must be "stan" or "mock", got "${value}".`);
   }
   return value;
-}
-
-// Validate a model package and adapt it to the shape the engine/controllers
-// consume (resolved buildData, derived responseProbs, forwarded hooks).
-function buildModelAdapter(model, context) {
-  const { valid, problems } = validateModel(model);
-  const errors = problems.filter((p) => p.level === "error");
-  if (errors.length) {
-    throw new Error(
-      `${context}("${model && model.id ? model.id : "<model>"}"): invalid model package:\n  - ` +
-        errors.map((e) => e.message).join("\n  - "),
-    );
-  }
-  for (const w of problems.filter((p) => p.level === "warn")) {
-    console.warn(`${context}("${model.id}"): ${w.message}`);
-  }
-  if (!valid) {
-    throw new Error(`${context}("${model.id}"): invalid model package.`);
-  }
-
-  const { responseProb, responseProbs, toStanData, buildData, stanData } = model;
-  const adaptedBuildData = buildData
-    ? buildData
-    : toStanData
-      ? (trials) =>
-          toStanData(trials.map(({ choice, ...design }) => ({ design, response: choice })))
-      : makeStanDataBuilder({ stanData, responseSpace: model.responseSpace });
-
-  return {
-    id: model.id,
-    params: model.params,
-    prior: model.prior,
-    moduleUrl: model.moduleUrl,
-    wasmUrl: model.wasmUrl ?? null, // forwarded to the worker's locateFile (#57)
-    designKeys: model.designKeys,
-    responseSpace: model.responseSpace,
-    buildData: adaptedBuildData,
-    responseProb,
-    responseProbs:
-      responseProbs ||
-      (typeof responseProb === "function"
-        ? (design, draw) => {
-            const p = responseProb(design, draw);
-            return [1 - p, p];
-          }
-        : null),
-    // Continuous-response adapter fields (undefined for discrete models). The
-    // engine's createDesignScorer reads these when responseSpace.type === "continuous".
-    responseDensity: model.responseDensity,
-    responseDensityFactory: model.responseDensityFactory,
-    conditionalEntropy: model.conditionalEntropy,
-    responseMoments: model.responseMoments,
-    responseSupport: model.responseSupport,
-    responseSampler: model.responseSampler,
-    // Optional simulation audit hooks (the simulator reads these off the adapter).
-    simulationData: model.simulationData,
-    subjectiveValues: model.subjectiveValues,
-  };
 }
 
 function validateRecordedResponse(response, responseSpace) {
@@ -737,10 +668,8 @@ export {
   arange,
   linspace,
   makeStanDataBuilder,
-  // Advanced / internal — exported for power users and the test suite, NOT part of the
-  // stable jsPsychADO façade; may change without a major version bump while pre-1.0.
+  // Advanced — exported for power users, NOT part of the stable jsPsychADO façade; may
+  // change without a major version bump while pre-1.0.
   parseStanPriors,
-  labelsToConfig,
-  buildModelAdapter,
 };
 export default jsPsychADO;

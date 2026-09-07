@@ -114,9 +114,9 @@ Changes should pass the relevant layer(s):
 
 - `npm test` — Node unit tests (engine, models, controllers, stopping, timeline, URL
   parsing). The fast inner loop; no WASM.
-- `npm run test:smoke` — real-WASM parameter-recovery smokes that load the web-only
+- `npm run test:wasm` — real-WASM parameter-recovery tests that load the web-only
   WASM in Node and **bypass the Web Worker**.
-- `npm run test:browser` — Puppeteer end-to-end smokes that exercise the real Web
+- `npm run test:browser` — Puppeteer end-to-end tests that exercise the real Web
   Worker path on the demo pages.
 - `npm run test:bundler` — a Vite build of a small experiment; verifies `.wasm` asset
   emission and `wasmUrl` routing.

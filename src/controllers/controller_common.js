@@ -10,11 +10,7 @@
  * @returns {Array<{mutual_info: null}>} An array of length `count`.
  */
 function nullDesignMetrics(count) {
-  const metrics = [];
-  for (let i = 0; i < count; i++) {
-    metrics.push({ mutual_info: null });
-  }
-  return metrics;
+  return Array.from({ length: count }, () => ({ mutual_info: null }));
 }
 
 /**
@@ -36,9 +32,4 @@ function makeBlockSizer(stopper, testlet_size) {
   };
 }
 
-/** Monotonic-ish timestamp in ms (performance.now when available, else Date.now). */
-function now() {
-  return typeof performance !== "undefined" ? performance.now() : Date.now();
-}
-
-export { nullDesignMetrics, makeBlockSizer, now };
+export { nullDesignMetrics, makeBlockSizer };

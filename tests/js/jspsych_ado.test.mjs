@@ -2,12 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createAdoTimeline } from "../../src/ado/ado_timeline.js";
-import {
-  createController,
-  labelsToConfig,
-  parseStanPriors,
-  validateModel,
-} from "../../src/index.js";
+import { createController, parseStanPriors, validateModel } from "../../src/index.js";
+import { labelsToConfig } from "../../src/ado/response_labels.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -68,6 +64,14 @@ model {
   beta ~ normal(0, 2);
 }
 `;
+
+test("parseStanPriors: rejects a non-identifier parameter name instead of matching the wrong statement", () => {
+  // Unvalidated, "k*" would build \bk*\s*~ and match the FIRST sampling statement
+  // (typically the likelihood), silently deriving a nonsense prior; "k(" would throw
+  // a cryptic RegExp SyntaxError.
+  assert.throws(() => parseStanPriors(STAN_CODE, ["k*"]), /not a valid Stan parameter name/);
+  assert.throws(() => parseStanPriors(STAN_CODE, ["k("]), /not a valid Stan parameter name/);
+});
 
 test("parseStanPriors: derives lognormal / normal / half-normal specs", () => {
   const prior = parseStanPriors(STAN_CODE, ["k", "tau", "beta"]);
@@ -773,9 +777,9 @@ test("session_id reaches the mock controller (contract parity with stan)", async
   assert.equal(rows[0].ado_session_id, "P-0042");
 });
 
-test("simulate: model audit hooks (subjectiveValues, labeled probabilities) reach the row", async () => {
+test("simulate: model audit hooks (simulationData, labeled probabilities) reach the row", async () => {
   const model = makeModel({
-    subjectiveValues: (design, params) => ({ v_gap: design.r_ll - design.r_ss - params.k }),
+    simulationData: (design, params) => ({ sim_v_gap: design.r_ll - design.r_ss - params.k }),
   });
   const ado = createController(makeJsPsych(), {
     model,
@@ -796,7 +800,7 @@ test("simulate: model audit hooks (subjectiveValues, labeled probabilities) reac
   frag[0].on_timeline_start();
   const t1 = frag[0].timeline[0].timeline[0];
   const sim = t1.simulation_options();
-  assert.equal(typeof sim.data.sim_v_gap, "number", "subjectiveValues audit field present");
+  assert.equal(typeof sim.data.sim_v_gap, "number", "simulationData audit field present");
   assert.equal(typeof sim.data.sim_p_ss, "number", "probability fields named by inferred labels");
   assert.equal(typeof sim.data.sim_p_ll, "number");
 });

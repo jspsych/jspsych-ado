@@ -6,7 +6,7 @@ import {
   samplePriorDraws,
   validateResponseProbs,
 } from "./ado/mi_engine.js";
-import { validateStanDataSpec } from "./ado/stan_data.js";
+import { makeStanDataBuilder, validateStanDataSpec } from "./ado/stan_data.js";
 
 // Model / design-grid validation for the jsPsychADO façade.
 //
@@ -68,19 +68,14 @@ function isSourceModel(model) {
   );
 }
 
-// The no-wasmUrl-on-source rule: one message shared by validateModel and prepareModel.
-const WASM_URL_ON_SOURCE_MESSAGE =
-  "`wasmUrl` must not be set on a source model (stanCode/stanUrl) — the compile " +
-  "server's main.js fetches its own sibling wasm, and a leftover local wasmUrl would " +
-  "pair the server-compiled glue with a stale local binary. Remove wasmUrl.";
+// The two ways a model names its compilation source (exactly one must be present).
+const SOURCE_KEYS = ["moduleUrl", "stanCode"];
 
 // Validate the SOURCE-SHAPE contract shared by prepareModel and validateModel: exactly one
-// of `moduleUrl` | `stanUrl` | `stanCode`, and no `wasmUrl` on a source (stanCode/stanUrl)
-// spec — a committed `moduleUrl` spec MAY carry wasmUrl (local bundler-hashed wasm). Pure
-// and synchronous (no fetch/compile); returns problem-message strings so each caller adapts
-// to its idiom (validateModel pushes them via err(); prepareModel throws the first). This is
-// stanUrl-AWARE, unlike isSourceModel — which stays stanCode-only because createController
-// derives the prior from inline source synchronously and cannot fetch a stanUrl.
+// of `moduleUrl` | `stanCode`, and no `wasmUrl` on a source (stanCode) spec — a committed
+// `moduleUrl` spec MAY carry wasmUrl (local bundler-hashed wasm). Pure and synchronous;
+// returns problem-message strings so each caller adapts to its idiom (validateModel pushes
+// them via err(); prepareModel throws the first).
 function validateSourceSpec(spec) {
   const problems = [];
   if (!spec || typeof spec !== "object") {
@@ -88,21 +83,38 @@ function validateSourceSpec(spec) {
     return problems;
   }
   const has = (key) => typeof spec[key] === "string" && !!spec[key];
-  const sources = ["moduleUrl", "stanUrl", "stanCode"].filter(has);
+  // A present-but-non-string URL field (a URL object where `.href` was meant) must
+  // say so: counted as "absent" it would misreport "provide exactly one of ...", and
+  // a URL-object wasmUrl survives to worker postMessage, dying as a DataCloneError.
+  for (const key of [...SOURCE_KEYS, "wasmUrl"]) {
+    if (spec[key] != null && typeof spec[key] !== "string") {
+      problems.push(
+        `\`${key}\` must be a string (got ${typeof spec[key]}); for URLs pass ` +
+          `new URL(...).href, not the URL object.`,
+      );
+    }
+  }
+  if (problems.length) {
+    return problems;
+  }
+  const sources = SOURCE_KEYS.filter(has);
   if (sources.length === 0) {
     problems.push(
-      "provide exactly one of `moduleUrl`, `stanUrl`, or `stanCode` — committed compiled " +
-        'artifacts (e.g. new URL("./main.js", import.meta.url).href), a Stan-source URL, ' +
-        "or inline Stan source (compiled at preload time).",
+      "provide exactly one of `moduleUrl` or `stanCode` — committed compiled artifacts " +
+        '(e.g. new URL("./main.js", import.meta.url).href) or inline Stan source ' +
+        "(compiled at preload time).",
     );
   } else if (sources.length > 1) {
     problems.push(
-      "provide exactly one of `moduleUrl`, `stanUrl`, or `stanCode`, not both " +
-        "(ambiguous compilation source).",
+      "provide exactly one of `moduleUrl` or `stanCode`, not both (ambiguous compilation source).",
     );
   }
-  if ((has("stanCode") || has("stanUrl")) && spec.wasmUrl != null) {
-    problems.push(WASM_URL_ON_SOURCE_MESSAGE);
+  if (has("stanCode") && spec.wasmUrl != null) {
+    problems.push(
+      "`wasmUrl` must not be set on a source model (stanCode) — the compile server's " +
+        "main.js fetches its own sibling wasm, and a leftover local wasmUrl would pair the " +
+        "server-compiled glue with a stale local binary. Remove wasmUrl.",
+    );
   }
   return problems;
 }
@@ -312,22 +324,22 @@ function validateModel(model, opts = {}) {
     err("`params` must be a non-empty array of parameter-name strings.");
   }
   // A model supplies EITHER committed artifacts (moduleUrl, the production path) OR Stan
-  // source (stanCode/stanUrl, compiled at preload time). Source-shape + no-wasmUrl-on-source
-  // is validated by the seam shared with prepareModel (stanUrl-aware).
+  // source (stanCode, compiled at preload time). Source-shape + no-wasmUrl-on-source is
+  // validated by the seam shared with prepareModel.
   const has_moduleUrl = typeof model.moduleUrl === "string" && model.moduleUrl;
-  const has_stanCode = typeof model.stanCode === "string" && model.stanCode;
-  const has_stanUrl = typeof model.stanUrl === "string" && model.stanUrl;
   for (const problem of validateSourceSpec(model)) {
     err(problem);
   }
   // Not required (static-served deployments work without it), but a bundler
   // (Vite/webpack) hashes main.wasm, so without wasmUrl the model 404s its wasm
-  // at runtime in a bundled build (#57). Source models skip this: the
-  // server-hosted main.js fetches its own sibling main.wasm.
-  if (has_moduleUrl && (typeof model.wasmUrl !== "string" || !model.wasmUrl)) {
+  // at runtime in a bundled build (#57). An explicit `wasmUrl: null` opts out: the
+  // artifacts are server-hosted (prepareModel sets it), so main.js fetches its own
+  // sibling wasm and there is no local asset for a bundler to rename.
+  if (has_moduleUrl && model.wasmUrl === undefined) {
     warn(
       '`wasmUrl` is not set (e.g. new URL("./main.wasm", import.meta.url).href). ' +
-        "Static-served deployments still work, but bundlers (Vite/webpack) hash main.wasm, so the model would 404 its wasm at runtime (#57).",
+        "Static-served deployments still work, but bundlers (Vite/webpack) hash main.wasm, so the " +
+        "model would 404 its wasm at runtime (#57). Set `wasmUrl: null` for server-hosted artifacts.",
     );
   }
   if (!Array.isArray(model.designKeys) || model.designKeys.length === 0) {
@@ -342,11 +354,11 @@ function validateModel(model, opts = {}) {
     }
   }
   // Stan data plumbing: a declarative stanData map (preferred) OR a hand-written
-  // buildData/toStanData escape hatch. Validate the map's shape when present.
+  // buildData escape hatch. Validate the map's shape when present.
   if (model.stanData != null) {
     for (const p of validateStanDataSpec(model.stanData)) err(p);
-  } else if (typeof model.buildData !== "function" && typeof model.toStanData !== "function") {
-    err("provide a `stanData` map (preferred), or `buildData(trials)`, or `toStanData(rows)`.");
+  } else if (typeof model.buildData !== "function") {
+    err("provide a `stanData` map (preferred) or `buildData(trials)`.");
   }
   if (isContinuous(model.responseSpace)) {
     for (const p of continuousModelProblems(model)) err(p);
@@ -359,11 +371,6 @@ function validateModel(model, opts = {}) {
     typeof model.responseProbs !== "function"
   ) {
     err("`responseProb(design, draw)` or `responseProbs(design, draw)` must be a function.");
-  }
-  if (typeof model.choiceProbLL === "function") {
-    err(
-      "`choiceProbLL` has been replaced by `responseProb` for binary models or `responseProbs` for categorical models.",
-    );
   }
   for (const k of TASK_ONLY_FIELDS) {
     if (model[k] != null) {
@@ -396,10 +403,9 @@ function validateModel(model, opts = {}) {
         );
       }
     }
-  } else if (params && (model.prior != null || !(has_stanCode || has_stanUrl))) {
+  } else if (params && (model.prior != null || !isSourceModel(model))) {
     // A present-but-non-object prior is always an error; an ABSENT prior is fine only
-    // for source models (stanCode/stanUrl): the facade derives it from inline source,
-    // and prepareModel derives it from a fetched stanUrl.
+    // for source models (stanCode): the facade derives it from the source.
     err(
       "`prior` must be an object mapping each parameter to a {dist, ...} spec matching the .stan priors.",
     );
@@ -444,7 +450,36 @@ function validateModel(model, opts = {}) {
   return { valid, problems };
 }
 
+// Validate a model package and adapt it to the shape the engine/controllers
+// consume (resolved buildData, derived responseProbs, forwarded hooks).
+function buildModelAdapter(model, context) {
+  const { problems } = validateModel(model);
+  const errors = problems.filter((p) => p.level === "error");
+  if (errors.length) {
+    throw new Error(
+      `${context}("${model && model.id ? model.id : "<model>"}"): invalid model package:\n  - ` +
+        errors.map((e) => e.message).join("\n  - "),
+    );
+  }
+  for (const w of problems.filter((p) => p.level === "warn")) {
+    console.warn(`${context}("${model.id}"): ${w.message}`);
+  }
+  // validateModel already rejected task-owned / run-policy fields, so the package can
+  // pass through whole; only the engine-facing derived fields are filled in.
+  return {
+    ...model,
+    wasmUrl: model.wasmUrl ?? null, // forwarded to the worker's locateFile (#57)
+    buildData:
+      model.buildData ??
+      makeStanDataBuilder({ stanData: model.stanData, responseSpace: model.responseSpace }),
+    // Discrete models always expose a probability VECTOR to the engine/simulator
+    // (binary responseProb is wrapped); continuous models expose a density instead.
+    responseProbs: isContinuous(model.responseSpace) ? undefined : getResponseProbsFunction(model),
+  };
+}
+
 export {
+  buildModelAdapter,
   isContinuous,
   isSourceModel,
   validateSourceSpec,

@@ -119,28 +119,6 @@ test("a rejecting controller.update() aborts the experiment with an error row, n
   });
 });
 
-test("falls back to endExperiment when abortExperiment is unavailable", async () => {
-  await quietConsoleError(async () => {
-    let ended = null;
-    const jsPsych = {
-      endExperiment: (html, data) => {
-        ended = { html, data };
-      },
-    };
-    const controller = {
-      start: () => START_RESULT,
-      update: async () => {
-        throw new Error("boom");
-      },
-    };
-    const fragment = createAdoTimeline(jsPsych, controller, TIMELINE_CONFIG, { debug: false });
-    fragment[0].on_timeline_start();
-    const trial = fragment[0].timeline[0].timeline[0];
-    await assert.rejects(() => trial.on_finish({}), /boom/);
-    assert.ok(ended, "endExperiment was called as the fallback");
-  });
-});
-
 test("a design-queue underflow at trial start aborts instead of rendering a null design", async () => {
   await quietConsoleError(async () => {
     let aborted = null;
@@ -163,5 +141,33 @@ test("a design-queue underflow at trial start aborts instead of rendering a null
     if (second.on_start) second.on_start(second);
     assert.ok(aborted, "underflow aborts the run");
     assert.match(aborted.data.ado_error, /underflow/);
+  });
+});
+
+test("failExperiment escapes the error message in the abort HTML", async () => {
+  await quietConsoleError(async () => {
+    let aborted = null;
+    const jsPsych = {
+      abortExperiment: (html, data) => {
+        aborted = { html, data };
+      },
+    };
+    const controller = {
+      start: () => START_RESULT,
+      update: async () => {
+        throw new Error("<script>alert(1)</script> exploded");
+      },
+    };
+    const fragment = createAdoTimeline(jsPsych, controller, TIMELINE_CONFIG, { debug: false });
+    fragment[0].on_timeline_start();
+    const trial = fragment[0].timeline[0].timeline[0];
+
+    const data = {};
+    await assert.rejects(() => trial.on_finish(data), /exploded/);
+    assert.ok(aborted, "abortExperiment was called");
+    assert.ok(!aborted.html.includes("<script>"), "raw tags must not reach the abort HTML");
+    assert.match(aborted.html, /&lt;script&gt;/);
+    // The recorded data field keeps the raw message for analysis.
+    assert.match(aborted.data.ado_error, /<script>/);
   });
 });

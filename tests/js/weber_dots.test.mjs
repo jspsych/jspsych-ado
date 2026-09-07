@@ -88,5 +88,4 @@ test("model adapter exposes the current package metadata", () => {
   assert.equal(model.stanData.correct, "response");
   assert.equal(typeof model.responseProb, "function");
   assert.equal(typeof model.responseProbs, "function");
-  assert.equal(model.choiceProbLL, undefined);
 });

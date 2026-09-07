@@ -22,19 +22,16 @@ const SIM_CONFIG = {
 
 const TEST_MODEL = {
   responseProbs: () => [0.8, 0.2],
-  subjectiveValues: () => ({
-    v_ss: 100,
-    v_ll: 80,
-  }),
+  simulationData: () => ({ sim_v_ss: 100, sim_v_ll: 80 }),
 };
 
 function fixedRng(value) {
   return () => value;
 }
 
-test("simulateCategoricalChoice (binary): cumulative sampling + both sim_* model hooks", () => {
-  // response_labels name the sim_p_<label> fields; the model's subjectiveValues hook
-  // (design-level) contributes sim_v_*. Both hooks now run inside simulateCategoricalChoice.
+test("simulateCategoricalChoice (binary): cumulative sampling + the sim_* model hook", () => {
+  // response_labels name the sim_p_<label> fields; the model's simulationData hook
+  // contributes sim_v_*.
   const ss_choice = simulateCategoricalChoice(DESIGN, SIM_CONFIG, fixedRng(0.1), TEST_MODEL, {
     response_labels: { 0: "SS", 1: "LL" },
   });

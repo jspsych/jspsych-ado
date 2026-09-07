@@ -5,7 +5,7 @@
 // error-prone hand-written buildData(trials) — N = trials.length, map each design
 // column to an array, map the response to y (with a +1 for 1-indexed categoricals) —
 // which is boilerplate and a common source of silent shape bugs. (A hand-written
-// buildData/toStanData remains an escape hatch for ragged or derived columns.)
+// buildData remains an escape hatch for ragged or derived columns.)
 //
 // The map is keyed by Stan data-block variable name; each value is one of:
 //   "<trialKey>"               -> trials.map(t => t[trialKey])            (copy a column)
@@ -17,7 +17,7 @@
 //
 // The map is a 1:1 mirror of the .stan data block, NOT a computation DSL — derived or
 // ragged columns still belong in a hand-written buildData (or the .stan transformed
-// block). buildData/toStanData remain supported and take precedence.
+// block). buildData remains supported and takes precedence.
 
 const RESPONSE = "response";
 

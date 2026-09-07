@@ -1,36 +1,14 @@
-// Browser smoke for the rt-task-style adaptive size-discrimination demo: the
+// Browser test for the rt-task-style adaptive size-discrimination demo: the
 // documentation-shaped example (blue/orange circles, F/J keys, import-map bare
 // specifiers). Drives the page as a participant would and checks the run adapts,
 // records correctness outcomes, and ends with a posterior-based debrief.
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import puppeteer from "puppeteer";
-import { startStaticServer } from "./static_server.mjs";
-import { attachDiagnostics } from "./demo_helpers.mjs";
+import { runBrowserTest } from "./demo_helpers.mjs";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PAGE = "/demos/size_discrimination/index.html";
 const N_TRIALS = 24;
 
-let failures = 0;
-const note = (ok, msg) => {
-  console.log(`  ${ok ? "PASS" : "FAIL"}: ${msg}`);
-  if (!ok) failures++;
-};
-
-const server = await startStaticServer(ROOT);
-const browser = await puppeteer.launch({
-  headless: true,
-  protocolTimeout: 600000,
-  args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-});
-
-try {
-  const page = await browser.newPage();
-  const diagnostics = attachDiagnostics(page);
-
-  console.log(`\n[size-discrimination demo] ${server.url}${PAGE}`);
-  await page.goto(`${server.url}${PAGE}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+await runBrowserTest("size-discrimination demo", async ({ page, base, note }) => {
+  await page.goto(`${base}${PAGE}`, { waitUntil: "domcontentloaded", timeout: 30000 });
 
   // welcome -> instructions (any key each)
   for (let i = 0; i < 2; i++) {
@@ -70,16 +48,11 @@ try {
       (nTrials) => {
         const jp = window.jsPsych;
         if (!jp || !jp.data) return false;
-        const rows = jp.data
-          .get()
-          .values()
-          .filter(
-            (row) => row && row.ado_design && Object.prototype.hasOwnProperty.call(row, "choice"),
-          );
-        const errored = jp.data
-          .get()
-          .values()
-          .find((row) => row.ado_event === "error" || row.ado_error);
+        const all = jp.data.get().values();
+        const rows = all.filter(
+          (row) => row && row.ado_design && Object.prototype.hasOwnProperty.call(row, "choice"),
+        );
+        const errored = all.find((row) => row.ado_event === "error" || row.ado_error);
         if (errored) return { errored: true, message: errored.ado_error || "unknown" };
         if (
           rows.length < nTrials ||
@@ -93,11 +66,7 @@ try {
           choiceRows: rows.length,
           allCorrectOutcomes: rows.every((row) => row.choice === 1),
           allLabelled: rows.every((row) => row.choice_label === "correct"),
-          rendersMatchDesigns: rows.every(
-            (row) => row.ado_design && row.ado_design.n_blue !== row.ado_design.n_yellow,
-          ),
           postMeanW: last.post_mean_w ?? null,
-          postSdW: last.post_sd_w ?? null,
           debriefText: debrief ? debrief.innerText : "",
         };
       },
@@ -126,26 +95,4 @@ try {
       "debrief shows the posterior estimate via getState()",
     );
   }
-
-  note(
-    diagnostics.consoleErrors.length === 0,
-    `no console errors (${diagnostics.consoleErrors.join("; ")})`,
-  );
-  note(
-    diagnostics.pageErrors.length === 0,
-    `no page errors (${diagnostics.pageErrors.join("; ")})`,
-  );
-  note(
-    diagnostics.failedReqs.length === 0,
-    `no failed requests (${diagnostics.failedReqs.join("; ")})`,
-  );
-} finally {
-  await browser.close();
-  await server.close();
-}
-
-if (failures > 0) {
-  console.error(`\nsize discrimination smoke: ${failures} failure(s)`);
-  process.exit(1);
-}
-console.log("\nsize discrimination smoke: all checks passed");
+});

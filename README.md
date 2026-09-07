@@ -34,8 +34,12 @@ Your experiment is ordinary jsPsych code — read the ADO-selected design in you
 record the outcome in `on_finish`:
 
 ```js
+import { initJsPsych } from "jspsych";
+import htmlButtonResponse from "@jspsych/plugin-html-button-response";
 import { jsPsychADO } from "jspsych-ado";
 import hyperbolic from "jspsych-ado/models/hyperbolic/model.js";
+
+const jsPsych = initJsPsych();
 
 const ado = jsPsychADO.createController(jsPsych, {
   model: hyperbolic,
@@ -55,7 +59,7 @@ jsPsych.run([...ado.createTimeline(trial)]); // wraps your trial into the adapti
 ```
 
 `createTimeline` awaits each model update before the next trial renders. Full API and
-bundler setup are in the **[usage guide](docs/usage.md)**.
+bundler setup are in the **[usage guide](https://github.com/jspsych/jspsych-ado/blob/main/docs/usage.md)**.
 
 To try the bundled demos, serve the repo statically and open one (add `?debug=1` for live
 posterior charts) — e.g. `demos/delay_discounting_tutorial/index.html`. Install:
@@ -63,7 +67,7 @@ posterior charts) — e.g. `demos/delay_discounting_tutorial/index.html`. Instal
 
 ## Documentation
 
-- **[Usage guide](docs/usage.md)** — API, bundler setup, adaptive stopping, internals.
+- **[Usage guide](https://github.com/jspsych/jspsych-ado/blob/main/docs/usage.md)** — API, bundler setup, adaptive stopping, internals.
 - **[Demos](demos/README.md)** — guided tour + bring-your-own-task/model.
 - **[Models](src/models/README.md)** — authoring and compiling a model.
 - **[Changelog](CHANGELOG.md)** · **[Releasing](RELEASING.md)**

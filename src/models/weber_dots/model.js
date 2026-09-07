@@ -64,14 +64,14 @@ function responseProbs(design, params) {
 }
 
 /**
- * Optional model-specific diagnostics for simulation audit fields.
+ * Optional simulator audit fields: the larger/smaller numerosity of the design.
  *
  * @param {Object} design - {n_blue, n_yellow}.
- * @param {Object} params - Unused; kept for the model-adapter signature.
- * @returns {{n_large: number, n_small: number}}
+ * @returns {{sim_n_large: number, sim_n_small: number}}
  */
-function subjectiveValues(design, params) {
-  return numerosities(design);
+function simulationData(design) {
+  const { n_large, n_small } = numerosities(design);
+  return { sim_n_large: n_large, sim_n_small: n_small };
 }
 
 // Stan `data` block, mirroring weber_dots.stan. The framework generates
@@ -102,7 +102,7 @@ const weberDotsModel = {
   stanData,
   responseProb,
   responseProbs,
-  subjectiveValues,
+  simulationData,
 };
 
 export default weberDotsModel;

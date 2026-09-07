@@ -1,19 +1,15 @@
-// The model-preload trial: the jsPsychPreload-style gate for compile-from-source
-// models. ado.preload() returns one ordinary jsPsych trial built on the tiny
-// self-contained plugin below (no plugin dependency): it shows a message while the
-// model's compile → download → readiness chain resolves, then ends. A compile
-// failure renders the compiler's actual error message (a stanc syntax error is
-// something the author needs to READ) and aborts the experiment visibly.
+// The model-preload trial: a jsPsychPreload-style gate on ado.ready(). ado.preload()
+// returns one ordinary jsPsych trial built on the tiny self-contained plugin below
+// (no plugin dependency): it shows a message until the model is loaded — compiled and
+// downloaded for stanCode models, then imported and its wasm instantiated by the Stan
+// worker (committed models too) — then ends. A failure renders the actual error
+// message (a stanc syntax error is something the author needs to READ) and aborts
+// the experiment visibly.
 //
 // The trial is optional sugar: without it the run still works — the first posterior
 // update awaits readiness — the participant just waits after trial 1 instead.
 
-import { now } from "../controllers/controller_common.js";
-
-/** Escape text for embedding in the error <pre> block. */
-function escapeHtml(text) {
-  return String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+import { escapeHtml, abortExperimentWithHtml } from "./abort_experiment.js";
 
 /**
  * A minimal jsPsych plugin that resolves a promise before ending the trial.
@@ -26,8 +22,9 @@ function escapeHtml(text) {
  * @param {string} [opts.error_message] - HTML heading shown above a compile error.
  * @param {?number} [opts.max_load_time] - Milliseconds to wait before treating the
  *   readiness chain as failed (like jsPsychPreload's max_load_time; default null =
- *   wait indefinitely). A stalled compile server then aborts visibly instead of
- *   leaving the participant on the spinner forever.
+ *   wait indefinitely; 0 = fail unless the model is already ready). A stalled compile
+ *   server then aborts visibly instead of leaving the participant on the spinner
+ *   forever.
  * @returns {Function} A jsPsych plugin class for the trial's `type`.
  */
 function makeModelPreloadPlugin(ready, opts = {}) {
@@ -53,32 +50,35 @@ function makeModelPreloadPlugin(ready, opts = {}) {
     }
 
     trial(display_element) {
-      const started_at = now();
+      const started_at = performance.now();
       display_element.innerHTML =
         `<div style="text-align:center;">${message}` +
         `<div style="margin-top:0.75rem;color:#9ca3af;font-size:0.85rem;">` +
         `This can take a moment the first time a model is compiled.</div></div>`;
 
-      const elapsed = () => Math.round(now() - started_at);
+      const elapsed = () => Math.round(performance.now() - started_at);
 
       let timeout_id = null;
-      const gated = max_load_time
-        ? Promise.race([
-            ready(),
-            new Promise((_resolve, reject) => {
-              timeout_id = setTimeout(
-                () =>
-                  reject(
-                    new Error(
-                      `The model was not ready within ${max_load_time} ms ` +
-                        `(compile server unreachable or still compiling).`,
+      // `!= null`, not truthy: max_load_time 0 means "fail unless already ready",
+      // never "wait forever".
+      const gated =
+        max_load_time != null
+          ? Promise.race([
+              ready(),
+              new Promise((_resolve, reject) => {
+                timeout_id = setTimeout(
+                  () =>
+                    reject(
+                      new Error(
+                        `The model was not ready within ${max_load_time} ms ` +
+                          `(compile server unreachable or still compiling).`,
+                      ),
                     ),
-                  ),
-                max_load_time,
-              );
-            }),
-          ])
-        : ready();
+                  max_load_time,
+                );
+              }),
+            ])
+          : ready();
 
       gated
         .finally(() => clearTimeout(timeout_id))
@@ -93,16 +93,12 @@ function makeModelPreloadPlugin(ready, opts = {}) {
               `<pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;` +
               `border-radius:6px;padding:0.75rem;font-size:0.8rem;color:#7f1d1d;">` +
               `${escapeHtml(detail)}</pre></div>`;
-            if (typeof this.jsPsych.abortExperiment === "function") {
-              this.jsPsych.abortExperiment(html, {
-                ado_event: "error",
-                ado_error: detail,
-                ado_preload_ok: false,
-                ado_preload_ms: elapsed(),
-              });
-            } else {
-              display_element.innerHTML = html;
-            }
+            abortExperimentWithHtml(this.jsPsych, html, {
+              ado_event: "error",
+              ado_error: detail,
+              ado_preload_ok: false,
+              ado_preload_ms: elapsed(),
+            });
           },
         );
     }

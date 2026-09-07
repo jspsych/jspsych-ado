@@ -14,15 +14,8 @@
  * @returns {Object} jsPsych simulation_options object for the choice trial.
  */
 function makeChoiceSimulationOptions(run_context, design) {
-  if (!run_context.simulation_mode || !run_context.simulate_choice) {
-    return {};
-  }
-
-  const simulation_data = run_context.simulate_choice(design);
-  run_context.pending_simulation_data = simulation_data;
-  return {
-    data: simulation_data,
-  };
+  run_context.pending_simulation_data = run_context.simulate_choice(design);
+  return { data: run_context.pending_simulation_data };
 }
 
 /**

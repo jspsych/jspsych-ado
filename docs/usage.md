@@ -64,10 +64,11 @@ the halberda demo builds a canvas task this way.
   loop; `options` can override `n_trials`, `stopping`, `testlet_size`, `controller`,
   `design_strategy`, `debug`, `response_labels`, `simulate`, ….
 - `ado.getState()` — the live posterior summaries and selection diagnostics.
-- `ado.preload(opts)` / `ado.ready()` — for models supplied as `stanCode`, a
-  jsPsychPreload-style gate trial (and the underlying promise) that waits for the
-  model to be compiled on a compile server and downloaded; committed-artifact models
-  resolve immediately. See
+- `ado.preload(opts)` / `ado.ready()` — a jsPsychPreload-style gate trial (and the
+  underlying promise) that waits until the model is fully **loadable**: compiled on a
+  compile server and downloaded (for `stanCode` models), then imported and its wasm
+  instantiated by the Stan worker (committed models too — a broken artifact fails the
+  gate rather than the first trial). Mock handles resolve immediately. See
   [`demos/byo_model_exponential/from_source.html`](../demos/byo_model_exponential/from_source.html).
 - `prepareModel(spec, { compileServer })` — compile a Stan-source model spec into a model
   package yourself (the lower-level path `stanCode` models use internally).
@@ -118,11 +119,11 @@ drove the decision is the grid-max MI in `ado_max_mutual_info`.
 response, posterior mean/sd for the active parameters, the next selected design, and the
 local sampling time — with a collapsed details group of tables in DevTools.
 
-With the Stan controller it also renders posterior draw histograms, an on-page
-information-gain panel, and a dismissible posterior debrief overlay at the end. The panel
+With the Stan controller it also renders an on-page information-gain panel and a
+dismissible posterior debrief overlay at the end. The panel
 plots the mutual information of the design actually selected each trial, plus realized
 information gain after the response. (The fast `controller: "mock"` path skips these
-quantitative metrics; it exists for timeline/UI smoke testing without WASM.)
+quantitative metrics; it exists for timeline/UI testing without WASM.)
 
 ## How it works
 
@@ -161,17 +162,17 @@ walkthroughs, see the bring-your-own-task and bring-your-own-model demos in
 
 ```bash
 npm test               # unit tests: MI engine, model adapters, façade, controller/timeline paths
-npm run test:smoke     # real-WASM recovery smoke (hyperbolic)
-npm run test:browser   # headless Worker/WASM browser smokes (puppeteer)
+npm run test:wasm      # real-WASM recovery + parity tests (bypass the Worker)
+npm run test:browser   # headless Worker/WASM browser tests (puppeteer)
 npm run test:bundler   # npm pack -> Vite build -> headless: hashed WASM loads
 npm run typecheck      # tsc over the shipped .d.ts + type tests
 npm run patch:wasm     # re-apply the bundler-safety glue patch after recompiling a model
 ```
 
-CI additionally runs the per-model recovery smokes plus a **likelihood-parity** smoke, an
-**adaptive-stopping** smoke, and a **wasm-locateFile** smoke (each a
-`node tests/js/*.smoke.mjs`). The parity smoke is a correctness guard: every `.stan`
-exposes its per-trial choice probability as a generated quantity, so the smoke checks the
+CI additionally runs the per-model recovery tests plus a **likelihood-parity** test, an
+**adaptive-stopping** test, and a **wasm-locateFile** test (each a
+`node tests/wasm/*.mjs`). The parity test is a correctness guard: every `.stan`
+exposes its per-trial choice probability as a generated quantity, so the test checks the
 JS `responseProb`/`responseProbs` (used by the MI engine **and** the simulator) against
 the compiled Stan likelihood draw-for-draw — if the two ever diverged, ADO would optimize
 designs against the wrong model.

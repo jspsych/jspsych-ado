@@ -1,6 +1,6 @@
 // Model-agnostic mock ADO controller. Satisfies the same start/update contract as
 // the in-browser Stan controller, but without WASM — for fast timeline/UI work and
-// browser smoke tests. It knows nothing about any specific task: designs are drawn
+// browser test tests. It knows nothing about any specific task: designs are drawn
 // from the candidate grid via the generic engine, and mock posteriors are emitted
 // for whatever parameter names the model declares. Selection diagnostics are
 // reported as null so mock runs never imply real information-gain estimates.

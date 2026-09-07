@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   unit:
-    name: Unit tests + Stan recovery smoke (node ${{ matrix.node }})
+    name: Unit tests + Stan recovery test (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -27,22 +27,22 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Unit tests (MI engine, model adapter, facade)
         run: node --test tests/js/*.test.mjs
-      - name: Stan recovery smoke - hyperbolic (real WASM via fetch shim)
-        run: node tests/js/stan_recovery.smoke.mjs
-      - name: Stan recovery smoke - weber dots (real WASM via fetch shim)
-        run: node tests/js/weber_recovery.smoke.mjs
-      - name: locateFile runtime smoke (emscripten honors the #57 glue patch)
-        run: node tests/js/locate_file.smoke.mjs
-      - name: Adaptive-stopping recovery smoke (real WASM EIG stopping, #21)
-        run: node tests/js/stopping_recovery.smoke.mjs
-      - name: Recovery smoke - 3-param categorical line-length (real WASM, #87)
-        run: node tests/js/line_length_3ifc_recovery.smoke.mjs
-      - name: Recovery smoke - exponential discounting (real WASM, demo model)
-        run: node tests/js/exponential_recovery.smoke.mjs
-      - name: Recovery smoke - magnitude estimation (continuous, real WASM, #114)
-        run: node tests/js/magnitude_estimation_recovery.smoke.mjs
-      - name: Likelihood parity smoke (JS responseProb == compiled Stan, all models)
-        run: node tests/js/likelihood_parity.smoke.mjs
+      - name: Stan recovery test - hyperbolic (real WASM via fetch shim)
+        run: node tests/wasm/hyperbolic_recovery.mjs
+      - name: Stan recovery test - weber dots (real WASM via fetch shim)
+        run: node tests/wasm/weber_recovery.mjs
+      - name: locateFile runtime test (emscripten honors the #57 glue patch)
+        run: node tests/wasm/locate_file.mjs
+      - name: Adaptive-stopping recovery test (real WASM EIG stopping, #21)
+        run: node tests/wasm/stopping_recovery.mjs
+      - name: Recovery test - 3-param categorical line-length (real WASM, #87)
+        run: node tests/wasm/line_length_3ifc_recovery.mjs
+      - name: Recovery test - exponential discounting (real WASM, demo model)
+        run: node tests/wasm/exponential_recovery.mjs
+      - name: Recovery test - magnitude estimation (continuous, real WASM, #114)
+        run: node tests/wasm/magnitude_estimation_recovery.mjs
+      - name: Likelihood parity test (JS responseProb == compiled Stan, all models)
+        run: node tests/wasm/likelihood_parity.mjs
 
   static:
     name: Format + type checks
@@ -61,7 +61,7 @@ jobs:
         run: npm run typecheck
 
   browser:
-    name: Headless Worker/WASM smoke
+    name: Browser end-to-end (Worker/WASM)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -71,11 +71,11 @@ jobs:
           cache: "npm"
       - name: Install dev deps (puppeteer + Chromium)
         run: npm ci
-      - name: Headless browser smokes (delay discounting + line length)
+      - name: Headless browser tests (delay discounting + line length)
         run: npm run test:browser
 
   bundler:
-    name: Bundler smoke (npm pack -> Vite build -> headless WASM)
+    name: Bundler build (npm pack -> Vite build -> headless WASM)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -88,6 +88,6 @@ jobs:
       # Packs the library, installs the tarball into tests/bundler/fixture, runs a
       # real Vite production build, and headlessly confirms the hashed WASM loads
       # through the public API — the only check that exercises the #57 fix under a
-      # real bundler (node tests bypass the Worker; browser smokes serve raw source).
-      - name: Bundler consumer smoke (Vite + hashed WASM)
+      # real bundler (node tests bypass the Worker; browser tests serve raw source).
+      - name: Bundler consumer build (Vite + hashed WASM)
         run: npm run test:bundler

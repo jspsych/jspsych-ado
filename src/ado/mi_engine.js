@@ -558,21 +558,6 @@ function selectOptimalDesigns(designs, draws, responseFn, count = 1, options = {
   return picks;
 }
 
-/**
- * Pick the design that maximizes mutual information (the ADO step). Takes an
- * already-enumerated design list so callers can enumerate the constant grid once
- * (see enumerateDesigns).
- *
- * @param {Array<Object>} designs - Candidate designs to score.
- * @param {Array<Object>} draws - Posterior/prior draws.
- * @param {Function} responseFn - Model likelihood.
- * @returns {{design: Object, mutual_info: number}} Best design and its MI.
- */
-function selectOptimalDesign(designs, draws, responseFn) {
-  const picks = selectOptimalDesigns(designs, draws, responseFn, 1);
-  return picks[0] || { design: null, mutual_info: -Infinity };
-}
-
 // Default half-width (in conditional SDs) for auto-deriving the integration support
 // from a continuous model's per-draw response moments. 8 SDs around the extreme
 // component means covers the predictive mixture's mass to ~1e-15 in the tails.
@@ -638,19 +623,9 @@ function makeContinuousSupportResolver(model, sdMultiple = DEFAULT_SUPPORT_SD_MU
  * @param {Array<Object>} designs - Candidate designs to score.
  * @param {Array<Object>} draws - Posterior/prior draws.
  * @param {Function} scoreDesign - (design, draws) => mutual information for the design.
- * @param {number} [count=1] - Number of designs to return (only 1 supported).
  * @returns {Array<{design: Object, mutual_info: number}>} The single best pick (or []).
  */
-function selectOptimalDesignsContinuous(designs, draws, scoreDesign, count = 1) {
-  const k = Math.min(count, designs.length);
-  if (k > 1) {
-    throw new Error(
-      "selectOptimalDesignsContinuous: testlet batching (count > 1) is not yet supported for continuous responses.",
-    );
-  }
-  if (k <= 0) {
-    return [];
-  }
+function selectOptimalDesignsContinuous(designs, draws, scoreDesign) {
   let best_design = null;
   let best_mi = -Infinity;
   for (const design of designs) {
@@ -693,8 +668,14 @@ function createDesignScorer(model) {
       });
     return {
       mutualInfo: scoreDesign,
-      selectOptimalDesigns: (designs, draws, count = 1) =>
-        selectOptimalDesignsContinuous(designs, draws, scoreDesign, count),
+      selectOptimalDesigns: (designs, draws, count = 1) => {
+        if (count > 1) {
+          throw new Error(
+            "createDesignScorer: testlet batching (count > 1) is not yet supported for continuous responses.",
+          );
+        }
+        return selectOptimalDesignsContinuous(designs, draws, scoreDesign);
+      },
       realizedInformationGain: (design, draws, response) =>
         realizedInformationGainContinuous(design, draws, response, densityFn),
     };
@@ -810,7 +791,6 @@ export {
   realizedInformationGainContinuous,
   validateResponseProbs,
   samplePriorDraws,
-  selectOptimalDesign,
   selectOptimalDesigns,
   standardNormal,
   summarizeDraws,

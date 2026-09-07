@@ -1,6 +1,6 @@
 // Tiny dependency-free static file server for browser tests. Serves a directory
 // with the content-types ES modules + WebAssembly need. Used by the headless
-// browser smoke (and handy for local manual testing).
+// browser test (and handy for local manual testing).
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -24,7 +24,7 @@ const TYPES = {
  * @param {string} root - Absolute directory to serve.
  * @param {number} [port=0] - Port (0 = ephemeral, recommended for tests).
  * @param {Function} [handleRoute] - Optional async (req, res) => boolean pre-route
- *   hook; return true when the request was handled (lets a smoke add API endpoints
+ *   hook; return true when the request was handled (lets a test add API endpoints
  *   — e.g. a mock compile server — without re-implementing the file serving).
  * @returns {Promise<{url: string, port: number, close: () => Promise<void>}>}
  */

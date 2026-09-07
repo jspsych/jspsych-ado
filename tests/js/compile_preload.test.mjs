@@ -20,9 +20,8 @@ model {
 
 const DESIGN_GRID = { t_ss: [0], t_ll: [1, 2, 3], r_ss: [100, 150], r_ll: [200] };
 
-// `variant` appends a comment line to the Stan source: the session _compileCache is
-// keyed on server+source, so tests that need an un-cached (or failing) compile must
-// use a source no earlier test compiled.
+// `variant` appends a comment line to the Stan source so each test compiles a distinct
+// source (the fake server logs every POST).
 function makeSourceModel({ variant, ...overrides } = {}) {
   return {
     id: "source_hyperbolic",
@@ -38,7 +37,7 @@ function makeSourceModel({ variant, ...overrides } = {}) {
 }
 
 // Fake compile server: counts POSTs, hands out a content-addressed-ish model id.
-function installFakeCompileServer({ fail = null } = {}) {
+function installFakeCompileServer({ fail = null, artifactFail = null } = {}) {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
@@ -48,6 +47,10 @@ function installFakeCompileServer({ fail = null } = {}) {
         return { ok: false, status: 400, text: async () => fail, json: async () => null };
       }
       return { ok: true, json: async () => ({ model_id: "fake-hash" }), text: async () => "" };
+    }
+    if (artifactFail != null) {
+      // Compile succeeds but the artifact download fails (e.g. server evicted it).
+      return { ok: false, status: artifactFail, text: async () => "evicted" };
     }
     if (/\/download\/fake-hash\/main\.js$/.test(String(url))) {
       // The readiness chain downloads + consumes the artifact to verify it.
@@ -189,8 +192,6 @@ test("compile failure: preload renders the compiler's message and aborts; ready(
   });
   try {
     const jsPsych = makeJsPsych();
-    // Distinct source + server: the session compile cache is keyed on both, and
-    // earlier tests already cached STAN_CODE against the default server.
     const ado = createController(jsPsych, {
       model: makeSourceModel({ id: "src_fail", variant: "fail" }),
       design_grid: DESIGN_GRID,
@@ -236,7 +237,7 @@ test("worker load failure: ado.ready() rejects and preload aborts (compile OK, w
   }
 });
 
-test("committed models: ready() resolves immediately and preload is a no-op gate", async () => {
+test("mock handles: ready() resolves immediately and preload is a no-op gate", async () => {
   const jsPsych = makeJsPsych();
   const ado = createController(jsPsych, {
     model: makeSourceModel({
@@ -257,23 +258,6 @@ test("committed models: ready() resolves immediately and preload is a no-op gate
   plugin.trial({ innerHTML: "" });
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(jsPsych.finished.ado_preload_ok, true);
-});
-
-test("session compile cache: two handles over the same source + server share one compile", async () => {
-  const server = installFakeCompileServer();
-  const restoreWorker = installFakeWorker();
-  try {
-    const model = makeSourceModel({ id: "src_cached", variant: "cache" });
-    const a = createController(makeJsPsych(), { model, design_grid: DESIGN_GRID });
-    await a.ready();
-    const b = createController(makeJsPsych(), { model, design_grid: DESIGN_GRID });
-    await b.ready();
-    const compile_calls = server.calls.filter((c) => c.url.endsWith("/compile"));
-    assert.equal(compile_calls.length, 1, "second handle hit the session cache");
-  } finally {
-    restoreWorker();
-    server.restore();
-  }
 });
 
 test("controller reuse (stan): two timelines from one handle share a single worker init", async () => {
@@ -388,13 +372,7 @@ test("mock-mode handles never contact the compile server; ready() resolves immed
 });
 
 test("ready() rejects when the compiled artifact cannot be downloaded", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init = {}) => {
-    if (String(url).endsWith("/compile")) {
-      return { ok: true, json: async () => ({ model_id: "gone" }), text: async () => "" };
-    }
-    return { ok: false, status: 410, text: async () => "evicted" }; // artifact GET fails
-  };
+  const server = installFakeCompileServer({ artifactFail: 410 });
   try {
     const ado = createController(makeJsPsych(), {
       model: makeSourceModel({ id: "src_evicted", variant: "evicted" }),
@@ -402,7 +380,7 @@ test("ready() rejects when the compiled artifact cannot be downloaded", async ()
     });
     await assert.rejects(() => ado.ready(), /could not be downloaded.*410/s);
   } finally {
-    globalThis.fetch = originalFetch;
+    server.restore();
   }
 });
 
@@ -452,50 +430,174 @@ test("validateSourceSpec: source-shape + no-wasmUrl-on-source matrix", () => {
 
   // exactly one source (empty string is treated as absent — truthy presence)
   ok({ stanCode: "x" });
-  ok({ stanUrl: "https://x/m.stan" });
   ok({ moduleUrl: "https://x/main.js" });
   bad({}, /provide exactly one/);
-  bad({ stanCode: "x", stanUrl: "https://x/m.stan" }, /not both/);
+  bad({ stanCode: "x", moduleUrl: "https://x/main.js" }, /not both/);
   bad({ stanCode: "" }, /provide exactly one/);
 
   // wasmUrl: rejected on a source spec, allowed on a committed (moduleUrl) spec
   bad({ stanCode: "x", wasmUrl: "https://old/main.wasm" }, /must not be set on a source model/);
-  bad(
-    { stanUrl: "https://x/m.stan", wasmUrl: "https://old/main.wasm" },
-    /must not be set on a source model/,
-  );
   ok({ moduleUrl: "https://x/main.js", wasmUrl: "https://x/main.wasm" });
-});
 
-// Pre-existing stanUrl blind spots in validateModel, now fixed via the shared seam.
-test("validateModel: a prior-less stanUrl source spec is a valid package (first-class source)", () => {
-  // Pre-refactor this was invalid on two counts: the shape was misread as "neither
-  // moduleUrl nor stanCode", and an absent prior was exempted only for stanCode. Both are
-  // fixed — a stanUrl model derives its prior via prepareModel just like inline stanCode.
-  const { valid, problems } = validateModel(
-    makeSourceModel({ stanCode: undefined, stanUrl: "https://x.test/model.stan" }),
+  // URL objects (forgot .href) name the real problem — a URL-object wasmUrl would
+  // otherwise die later in worker postMessage with a cryptic DataCloneError.
+  bad({ moduleUrl: new URL("https://x/main.js") }, /`moduleUrl` must be a string/);
+  bad(
+    { moduleUrl: "https://x/main.js", wasmUrl: new URL("https://x/main.wasm") },
+    /`wasmUrl` must be a string/,
   );
-  assert.equal(valid, true, JSON.stringify(problems));
 });
 
-test("validateModel: rejects a wasmUrl on a stanUrl source spec (previously slipped through)", () => {
-  const { problems } = validateModel(
-    makeSourceModel({
-      stanCode: undefined,
-      stanUrl: "https://x.test/model.stan",
-      wasmUrl: "https://old.test/main.wasm",
-    }),
-  );
-  assert.ok(problems.some((p) => /wasmUrl.*must not be set on a source model/.test(p.message)));
-});
+// ---------------------------------------------------------------------------
+// Code-review regression fixes (PR #145 final review)
+// ---------------------------------------------------------------------------
 
-test("createController: a stanUrl-only model is rejected with an actionable message", () => {
+test("createController: a source model missing params fails with the validation message, not a TypeError", () => {
   assert.throws(
     () =>
       createController(makeJsPsych(), {
-        model: makeSourceModel({ stanCode: undefined, stanUrl: "https://x.test/model.stan" }),
+        model: makeSourceModel({ params: undefined }),
         design_grid: DESIGN_GRID,
       }),
-    /stanUrl-only model must be compiled with prepareModel/,
+    /`params` must be a non-empty array/,
   );
+});
+
+test("createController: an invalid design grid never ships the Stan source to the compile server", () => {
+  const server = installFakeCompileServer();
+  try {
+    assert.throws(
+      () =>
+        createController(makeJsPsych(), {
+          model: makeSourceModel({ id: "src_badgrid", variant: "badgrid" }),
+          design_grid: { t_ss: [], t_ll: [1], r_ss: [100], r_ll: [800] },
+        }),
+      /design_grid/,
+    );
+    assert.equal(
+      server.calls.filter((c) => c.url.endsWith("/compile")).length,
+      0,
+      "no compile POST before validation passed",
+    );
+  } finally {
+    server.restore();
+  }
+});
+
+test("prepareModel: verifies the artifact downloads before handing the package out", async () => {
+  const server = installFakeCompileServer({ artifactFail: 410 });
+  try {
+    await assert.rejects(
+      () =>
+        prepareModel(
+          { stanCode: "parameters { real mm; } model { mm ~ normal(0, 1); }", params: ["mm"] },
+          { compileServer: "https://compile.example" },
+        ),
+      /could not be downloaded.*410/s,
+    );
+  } finally {
+    server.restore();
+  }
+});
+
+test("preload max_load_time: 0 means fail-unless-ready, not wait-forever", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () => new Promise(() => {}); // compile stalls forever
+  try {
+    const jsPsych = makeJsPsych();
+    const ado = createController(jsPsych, {
+      model: makeSourceModel({ id: "src_zero", variant: "zero" }),
+      design_grid: DESIGN_GRID,
+    });
+    const trial = ado.preload({ max_load_time: 0 });
+    new trial.type(jsPsych).trial({ innerHTML: "" });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.ok(jsPsych.aborted, "the gate failed immediately instead of spinning forever");
+    assert.match(jsPsych.aborted.data.ado_error, /not ready within 0 ms/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("prepareModel: missing params on a source spec fails readably, not with a TypeError", async () => {
+  await assert.rejects(
+    () =>
+      prepareModel(
+        { stanCode: "parameters { real q; } model { q ~ normal(0, 1); }" },
+        { compileServer: "https://compile.example" },
+      ),
+    /`params` must be a non-empty array/,
+  );
+});
+
+test("a URL-object source names the real problem instead of 'provide exactly one'", async () => {
+  const url_like = new URL("https://example.test/main.js");
+  assert.ok(
+    validateSourceSpec({ moduleUrl: url_like }).some((m) => /`moduleUrl` must be a string/.test(m)),
+  );
+  await assert.rejects(
+    () => prepareModel({ moduleUrl: url_like, params: ["k"] }, {}),
+    /`moduleUrl` must be a string/,
+  );
+});
+
+test("ready() gates on a per-timeline stan override once its timeline is built (mock-default handle)", async () => {
+  const messages = [];
+  const restoreWorker = installFakeWorker({ capture: messages });
+  try {
+    const ado = createController(makeJsPsych(), {
+      model: makeSourceModel({
+        id: "committed_override",
+        stanCode: undefined,
+        moduleUrl: "https://example.test/override/main.js",
+        wasmUrl: "https://example.test/override/main.wasm",
+        prior: {
+          k: { dist: "lognormal", meanlog: -4, sdlog: 2 },
+          tau: { dist: "lognormal", meanlog: 0, sdlog: 1 },
+        },
+      }),
+      design_grid: DESIGN_GRID,
+      controller: "mock",
+    });
+    const trial = {
+      type: "html-button-response",
+      stimulus: () => `${ado.evaluateDesignVariable("t_ll")}`,
+      choices: ["SS", "LL"],
+      on_finish: (d) => ado.recordResponse(d.response),
+    };
+    ado.createTimeline(trial, { controller: "stan", debug: false }); // build only, never run
+    await ado.ready(); // gated on the override's worker load, not the mock short-circuit
+    assert.equal(messages.filter((m) => m.type === "init").length, 1);
+  } finally {
+    restoreWorker();
+  }
+});
+
+test("prepareModel -> createController: no bundler wasmUrl warning for server-hosted artifacts", async () => {
+  // The #57 warning is for LOCAL committed artifacts a bundler could rename. A compile-server
+  // package has no local wasm, so prepareModel marks it (wasmUrl: null) and validation stays quiet.
+  const server = installFakeCompileServer();
+  const restoreWorker = installFakeWorker();
+  const warnings = [];
+  const original_warn = console.warn;
+  console.warn = (msg) => warnings.push(String(msg));
+  try {
+    const model = await prepareModel(makeSourceModel({ id: "src_prepared", variant: "prepared" }), {
+      compileServer: "https://compile.example",
+    });
+    assert.equal(model.wasmUrl, null);
+    createController(makeJsPsych(), { model, design_grid: DESIGN_GRID });
+    assert.deepEqual(
+      warnings.filter((w) => /wasmUrl/.test(w)),
+      [],
+      "no wasmUrl warning for a prepareModel result",
+    );
+    // A committed model that omits wasmUrl entirely still warns.
+    const { problems } = validateModel({ ...model, wasmUrl: undefined });
+    assert.ok(problems.some((p) => /wasmUrl.*is not set/.test(p.message)));
+  } finally {
+    console.warn = original_warn;
+    restoreWorker();
+    server.restore();
+  }
 });

@@ -1,17 +1,17 @@
-// Real Stan WASM recovery smoke for the 3-parameter categorical model
+// Real Stan WASM recovery test for the 3-parameter categorical model
 // (line_length_discrimination_3ifc: sensitivity, bias_b, bias_c; 3-outcome). This
-// is the >2-param case: the browser smoke only asserts posteriors POPULATE,
+// is the >2-param case: the browser test only asserts posteriors POPULATE,
 // so this is the only check that the three parameters are RECOVERED within
 // tolerance off the browser. Checks:
 //   1. recovery        - all three params recovered within tolerance at N trials
 //   2. sensitivity ordering - recovered sensitivity rises with the true value
 //   3. precision-vs-trials  - sensitivity posterior SD shrinks with more trials
 //
-// Like the other recovery smokes it loads the web-only WASM in node by shimming
+// Like the other recovery tests it loads the web-only WASM in node by shimming
 // `fetch` for file: URLs and bypasses the Web Worker, so it is NOT part of
 // `node --test`. All seeds are fixed.
 //
-// Run: node tests/js/line_length_3ifc_recovery.smoke.mjs
+// Run: node tests/wasm/line_length_3ifc_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 
@@ -19,7 +19,7 @@ const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 const lll = (await import("../../src/models/line_length_discrimination_3ifc/model.js")).default;
 const {
   enumerateDesigns,
-  selectOptimalDesign,
+  selectOptimalDesigns,
   summarizeDraws,
   samplePriorDraws,
   getResponseProbsFunction,
@@ -51,7 +51,7 @@ function runRecovery(trueParams, seed, nTrials) {
   const sim_rng = createSeededRng(seed + 1);
   const sim_config = { params: trueParams, rt: { choice: 0 } };
 
-  let { design } = selectOptimalDesign(
+  let [{ design }] = selectOptimalDesigns(
     designs,
     samplePriorDraws(lll.prior, 2000, prior_rng),
     responseProbs,
@@ -81,7 +81,7 @@ function runRecovery(trueParams, seed, nTrials) {
     }
 
     summary = summarizeDraws(draws, lll.params);
-    ({ design } = selectOptimalDesign(designs, draws, responseProbs));
+    [{ design }] = selectOptimalDesigns(designs, draws, responseProbs);
   }
   return summary;
 }

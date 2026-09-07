@@ -94,7 +94,14 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
 ### Changed
 
 - Raised the minimum Node to `>=20` (was `>=18`); CI now runs the unit suite + recovery
-  smokes on a 20.x/22.x matrix instead of only Node 22.
+  tests on a 20.x/22.x matrix instead of only Node 22.
+- `validateModel` no longer warns about a missing `wasmUrl` when it is explicitly
+  `null`: that is the opt-out for server-hosted artifacts (whose `main.js` fetches its
+  sibling wasm), and `prepareModel` sets it, so the documented
+  `prepareModel(...)` → `createController(...)` workflow is warning-free.
+- Test tiers are named by what they check: `npm run test:wasm` (was `test:smoke`) runs
+  all real-WASM recovery/parity tests under `tests/wasm/`; the browser tests live at
+  `tests/browser/<demo>.mjs`.
 - Narrowed the package `exports` to the supported public surface: the façade (`.`),
   `./models/*`, and `./package.json`. The `./ado/*`, `./controllers/*`, and
   `./core/tinystan/*` subpaths are no longer importable — they were internal
@@ -127,38 +134,48 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
   (`lineLengthDiscriminationModel`, `magnitudeEstimationModel`) were removed. Access
   them as `model.responseProb` etc. Standalone math helpers (`logistic`, `normalCdf`,
   `softmax`, `normalPdf`, …) remain named exports.
+- `stanUrl` as a model source. A source model is inline `stanCode`; fetch a `.stan` file
+  yourself (`await (await fetch(url)).text()`) before calling `prepareModel`.
+- `toStanData(rows)` — `buildData(trials)` is the one hand-written escape hatch over a
+  declarative `stanData` map.
+- The `subjectiveValues` simulation hook: `simulationData(design, params, probs, response)`
+  is the one audit hook and returns fully-named `sim_*` fields (the shipped models now
+  return `sim_v_ss`/`sim_v_ll` and `sim_n_large`/`sim_n_small` from it — the recorded
+  columns are unchanged).
+- `labelsToConfig` and `buildModelAdapter` from the package entry (test-only
+  conveniences); `posterior_display.upper_bound` (no model used it); the console ASCII
+  posterior histograms in the `?debug=1` log (the tables and on-page charts remain).
 
 ### Internal
 
-- Source-model validation is unified behind one `stanUrl`-aware `validateSourceSpec`
-  seam shared by `validateModel` and `prepareModel` (a single canonical
-  no-`wasmUrl`-on-source message instead of three drifting copies). This fixes two
-  latent `stanUrl` gaps in the public `validateModel`: a `{stanUrl}` spec was misread
-  as "neither `moduleUrl` nor `stanCode`", and `{stanUrl, wasmUrl}` slipped past the
-  wasmUrl rule. `createController` now rejects a `stanUrl`-only model with an
-  actionable "compile with `prepareModel` first" message (it derives priors
-  synchronously and cannot fetch a URL).
+- Source-model validation is unified behind one `validateSourceSpec` seam shared by
+  `validateModel` and `prepareModel` (exactly one of `moduleUrl` | `stanCode`, no
+  `wasmUrl` on a source spec, URL objects rejected with a pointer to `.href`).
+- `prepareModel` verifies the compiled artifact downloads before returning, and no
+  longer memoizes compiles per page (the compile server is content-addressed).
+- Eager source compilation now starts only after model/grid validation, so an invalid
+  configuration never sends Stan source to the compile server.
 - The Stan Web Worker is now owned by the controller **handle** — one shared,
   lazily-loaded worker created on first `ready()`/`preload()`/timeline — rather than
   one per timeline. `createController` stays worker-free until readiness is awaited,
   and a handle's practice→main timelines reuse the same worker (inited once).
 - Restructured large modules into cohesive units with unchanged public behavior:
-  `ado_timeline.js` → `ado/debug/{ado_trial_log,posterior_convergence_charts}.js`
-  (plus, later in this cycle, `ado/simulation_hooks.js` — the interim
-  `ado/response_trials.js` factories were dissolved into demo code with the
-  controller API); `index.js` → `src/validation.js` + `models/stan_source.js`; the
-  Stan controller's Web Worker transport → `controllers/stan_worker_client.js`,
-  with shared controller scaffolding in `controllers/controller_common.js`.
-- The debug UI (per-trial logs, live posterior/EIG charts, the debrief overlay —
-  ~1,400 lines of chart/SVG code under `src/ado/debug/`) is now **dynamically
-  imported** by the timeline only when debug is enabled. A production bundler
-  splits it into a separate chunk that participants running without `?debug`
-  never download (~18 KB minified out of the main bundle); behavior with debug on
-  is unchanged.
-- Slimmed the `index.js` façade (~780 → ~695 lines) by extracting outcome-label
-  resolution to `src/ado/response_labels.js` and the debug-flag/URL resolver to
-  `src/ado/debug_flag.js` (the sync boolean that decides whether to load the debug
-  chunk above).
+  `ado_timeline.js` → `ado/debug/{ado_trial_log,charts}.js` (plus, later in this cycle,
+  `ado/simulation_hooks.js` — the interim `ado/response_trials.js` factories were
+  dissolved into demo code with the controller API); `index.js` → `src/validation.js`
+  (model validation + the engine adapter) + `models/stan_source.js` +
+  `ado/response_labels.js`; the Stan controller's Web Worker transport →
+  `controllers/stan_worker_client.js`, with shared controller scaffolding in
+  `controllers/controller_common.js`; the abort path shared by the timeline and the
+  preload gate → `ado/abort_experiment.js`.
+- The debug UI (per-trial logs, live posterior/EIG charts, the debrief overlay) is now
+  **dynamically imported** by the timeline only when debug is enabled. A production
+  bundler splits it into a separate chunk that participants running without `?debug`
+  never download; behavior with debug on is unchanged. One inline-SVG line-chart
+  renderer (`ado/debug/charts.js`) now draws both the posterior trajectories and the
+  information-gain trace.
+- The ten browser tests share one runner (`tests/browser/demo_helpers.mjs`
+  `runBrowserTest`) for the server/browser/diagnostics scaffold.
 
 ## [0.2.0] - 2026-06-18
 

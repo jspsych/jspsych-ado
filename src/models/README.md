@@ -85,13 +85,12 @@ stanData: {
 ```
 
 The map is a 1:1 mirror of the `.stan` data block, not a computation DSL. For
-derived/ragged columns, ship an explicit `buildData(trials)` (or the older
-`toStanData(rows)`) instead — both are still supported and take precedence over
-`stanData`.
+derived/ragged columns, ship an explicit `buildData(trials)` instead — it takes
+precedence over `stanData`.
 
 `posterior_display.y_min` and `posterior_display.y_max` are preferred/fallback
-debug-chart ranges, not hard parameter bounds. Use `lower_bound` or `upper_bound`
-only for true model constraints, and `min_y_span` to prevent over-zoomed axes.
+debug-chart ranges, not hard parameter bounds. Use `lower_bound` only for a true
+model constraint, and `min_y_span` to prevent over-zoomed axes.
 
 `designKeys` and `responseSpace` let `createController(jsPsych, { model, design_grid })`
 validate a model against candidate designs before a participant sees the task.
@@ -122,8 +121,8 @@ The compiled module is web/worker-only (`-sENVIRONMENT=web,worker`); it runs in 
 browser and Web Worker, not in plain Node.
 
 > **Committing the artifacts is the production path.** For prototyping you can also
-> compile from Stan source at run time: `await jsPsychADO.prepareModel({ stanCode |
-stanUrl, ... }, { compileServer })` returns a model package with `moduleUrl`
+> compile from Stan source at run time: `await jsPsychADO.prepareModel({ stanCode,
+... }, { compileServer })` returns a model package with `moduleUrl`
 > pointing at the server's `main.js`. That model's wasm is then fetched cross-origin
 > from the compile server, so the server must send `Access-Control-Allow-Origin` and
 > the correct `application/wasm` MIME — and the run depends on that server being up.

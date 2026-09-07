@@ -1,21 +1,31 @@
 import { normalizeStoppingConfig } from "./stopping.js";
-import { normalizeDesignMetric, metricsFromResult } from "./design_metrics.js";
+import { escapeHtml, abortExperimentWithHtml } from "./abort_experiment.js";
 
 // The debug UI (per-trial console logs, live posterior/EIG charts, the debrief
-// overlay — ~1400 lines of chart/SVG code) is only needed when debug is on, so it
-// is DYNAMICALLY imported the first time it's used rather than statically. A
-// production bundler splits it into a separate chunk that participants running
-// without ?debug never download. Cached after first load; module-scoped because
-// the debug code is identical across every timeline on the page.
+// overlay) is only needed when debug is on, so it is DYNAMICALLY imported the first
+// time it's used rather than statically. A production bundler splits it into a
+// separate chunk that participants running without ?debug never download.
 let debugModulePromise = null;
 function loadDebugUi() {
-  if (!debugModulePromise) {
-    debugModulePromise = Promise.all([
-      import("./debug/ado_trial_log.js"),
-      import("./debug/posterior_convergence_charts.js"),
-    ]).then(([log, charts]) => ({ ...log, ...charts }));
-  }
+  debugModulePromise ??= Promise.all([
+    import("./debug/ado_trial_log.js"),
+    import("./debug/charts.js"),
+  ]).then(([log, charts]) => ({ ...log, ...charts }));
   return debugModulePromise;
+}
+
+/** A per-design metric with a numeric-or-null `mutual_info` (non-finite -> null). */
+function normalizeDesignMetric(metric) {
+  return {
+    ...metric,
+    mutual_info: Number.isFinite(metric?.mutual_info) ? metric.mutual_info : null,
+  };
+}
+
+/** Normalized metrics aligned 1:1 with `design_count` designs (null-padded). */
+function metricsFromResult(result, design_count) {
+  const metrics = Array.isArray(result.next_design_metrics) ? result.next_design_metrics : [];
+  return Array.from({ length: design_count }, (_, i) => normalizeDesignMetric(metrics[i]));
 }
 
 // Generic adaptive-design-optimization (ADO) jsPsych timeline.
@@ -158,13 +168,9 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
     const html =
       "<p>The experiment encountered an error and cannot continue.</p>" +
       '<p style="color: #9ca3af; font-size: 0.85rem;">' +
-      message +
+      escapeHtml(message) +
       "</p>";
-    if (jsPsych && typeof jsPsych.abortExperiment === "function") {
-      jsPsych.abortExperiment(html, { ado_event: "error", ado_error: message });
-    } else if (jsPsych && typeof jsPsych.endExperiment === "function") {
-      jsPsych.endExperiment(html, { ado_event: "error", ado_error: message });
-    }
+    abortExperimentWithHtml(jsPsych, html, { ado_event: "error", ado_error: message });
   }
 
   function designsFromResult(result) {
@@ -316,22 +322,25 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
           const result = await adaptive_controller.update(payload);
           setDesignQueue(result);
           stopped = Boolean(result.should_stop);
-          // Load the debug UI lazily (only when on); a no-op for real participants.
-          const dbg = run_context.debug ? await loadDebugUi() : null;
-          if (dbg) {
-            dbg.logAdoTrial(run_context, batch[batch.length - 1], result, config);
-            dbg.appendPosteriorHistory(run_context, result);
-            dbg.appendInformationGainHistory(run_context, batch, result);
-          }
           const next_designs = designsFromResult(result);
           const next_design_metrics = metricsFromResult(result, next_designs.length);
           for (const row of batch) {
             copyPosteriorFields(row, result);
             copyUpdateFields(row, result, batch.length, next_designs, next_design_metrics);
           }
-          if (dbg) {
-            dbg.updateLiveCharts(run_context.param_history || {}, ado_state, run_context);
-            dbg.updateInformationGainPanel(run_context);
+          // Debug UI is display-only: it runs AFTER the rows are stamped, in its own
+          // catch, so a failed chunk load or chart error never aborts the run.
+          if (run_context.debug) {
+            try {
+              const dbg = await loadDebugUi();
+              dbg.logAdoTrial(run_context, batch[batch.length - 1], result, config);
+              dbg.appendPosteriorHistory(run_context, result);
+              dbg.appendInformationGainHistory(run_context, batch, result);
+              dbg.updateLiveCharts(run_context);
+              dbg.updateInformationGainPanel(run_context);
+            } catch (debug_error) {
+              console.warn("ADO debug UI unavailable; continuing without it:", debug_error);
+            }
           }
         } else {
           advanceWithinTestlet();
@@ -434,9 +443,12 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
       // collectable.
       on_timeline_finish: () => {
         if (run_context.debug) {
-          // Fire-and-forget: the debrief overlay appears once the (already-loaded)
-          // debug chunk resolves; nothing downstream depends on its timing.
-          loadDebugUi().then((dbg) => dbg.finalizeDebugUi(run_context));
+          // Fire-and-forget; a load/render failure only costs the overlay.
+          loadDebugUi()
+            .then((dbg) => dbg.finalizeDebugUi(run_context))
+            .catch((error) => {
+              console.warn("ADO debug debrief unavailable:", error);
+            });
         }
         if (typeof hooks.onTimelineFinish === "function") {
           const final_state = ado_state ? { ...ado_state, posterior_draws: null } : null;

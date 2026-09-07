@@ -61,17 +61,16 @@ function responseProbs(design, params) {
 }
 
 /**
- * Optional model-specific diagnostics for the simulator: the hyperbolically
- * discounted subjective values of each option.
+ * Optional simulator audit fields: the hyperbolically discounted subjective values.
  *
  * @param {Object} design - {t_ss, t_ll, r_ss, r_ll}.
  * @param {Object} params - {k}.
- * @returns {{v_ss: number, v_ll: number}} Subjective values.
+ * @returns {{sim_v_ss: number, sim_v_ll: number}}
  */
-function subjectiveValues(design, params) {
+function simulationData(design, params) {
   return {
-    v_ss: getHyperbolicValue(design.r_ss, design.t_ss, params.k),
-    v_ll: getHyperbolicValue(design.r_ll, design.t_ll, params.k),
+    sim_v_ss: getHyperbolicValue(design.r_ss, design.t_ss, params.k),
+    sim_v_ll: getHyperbolicValue(design.r_ll, design.t_ll, params.k),
   };
 }
 
@@ -106,15 +105,7 @@ const hyperbolicModel = {
   },
   posterior_display: {
     // y_min/y_max are preferred fallback ranges; lower_bound is the true Stan constraint.
-    k: {
-      label: "k",
-      y_min: 0,
-      y_max: 0.2,
-      lower_bound: 0,
-      min_y_span: 0.05,
-      histogram_scale: "log10",
-      histogram_label: "log10(k)",
-    },
+    k: { label: "k", y_min: 0, y_max: 0.2, lower_bound: 0, min_y_span: 0.05 },
     tau: { label: "τ", y_min: 0, y_max: 5, lower_bound: 0, min_y_span: 0.5 },
   },
   // Absolute URL of the compiled emscripten module, resolved next to this file so
@@ -128,7 +119,7 @@ const hyperbolicModel = {
   stanData,
   responseProb,
   responseProbs,
-  subjectiveValues,
+  simulationData,
 };
 
 export default hyperbolicModel;

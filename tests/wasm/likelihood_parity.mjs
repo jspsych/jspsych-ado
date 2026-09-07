@@ -1,4 +1,4 @@
-// Foundational inference-correctness smoke: the JS likelihood used by the MI
+// Foundational inference-correctness test: the JS likelihood used by the MI
 // engine AND the simulator (model.responseProb / responseProbs) must match the
 // COMPILED Stan likelihood, not just a hand-written formula. Each .stan exposes
 // its per-trial choice probability as a transformed/generated quantity
@@ -12,7 +12,7 @@
 //
 // Real WASM via a fetch shim, bypasses the Web Worker; NOT part of `node --test`.
 //
-// Run: node tests/js/likelihood_parity.smoke.mjs
+// Run: node tests/wasm/likelihood_parity.mjs
 
 import "./_wasm_node_shim.mjs";
 

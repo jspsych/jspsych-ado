@@ -7,7 +7,7 @@ runs as pure static assets — no compile step at run time.
   model from PR #39 (@xiaohong-cai), unchanged.
 - **Compiler:** stan-playground compile server, <https://stan-wasm.flatironinstitute.org>
 - **Target:** emscripten `-sENVIRONMENT=web,worker` — browser / Web Worker only, not
-  plain Node (the recovery smoke shims `fetch` to load it under Node)
+  plain Node (the recovery test shims `fetch` to load it under Node)
 - **Artifact names:** kept as `main.js` + `main.wasm` (`main.js` hardcodes its sibling
   `main.wasm`); do not rename.
 
@@ -22,5 +22,5 @@ curl -s "https://stan-wasm.flatironinstitute.org/download/$ID/main.js"   -o main
 curl -s "https://stan-wasm.flatironinstitute.org/download/$ID/main.wasm" -o main.wasm
 ```
 
-After regenerating, run `node tests/js/weber_recovery.smoke.mjs` to confirm the model
+After regenerating, run `node tests/wasm/weber_recovery.mjs` to confirm the model
 loads and recovers `w`.

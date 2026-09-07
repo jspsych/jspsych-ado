@@ -1,34 +1,11 @@
-import { formatPosteriorDrawCharts } from "./posterior_debug_charts.js";
-import { normalizeDesignMetric } from "../design_metrics.js";
+// Per-trial ADO debug console logging (DEBUG ONLY, model-agnostic). logAdoTrial prints
+// a readable summary of each finished update — presented design, response, posterior
+// mean/sd per parameter, the next design, MI, and latency — plus a collapsed group of
+// tables.
 
-// Per-trial ADO debug console logging + the small number formatters it uses (DEBUG
-// ONLY, model-agnostic). logAdoTrial prints a readable summary of each finished
-// update — presented design, response, posterior mean/sd per parameter, the next
-// design, MI, and latency — plus a collapsed table with posterior histograms.
-
-function formatDebugNumber(value, digits = 4) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return "NA";
-  }
-  return Number(value).toPrecision(digits);
-}
-
-function formatDebugLatency(value) {
-  if (value === null || value === undefined) {
-    return "not measured";
-  }
-  const number = Number(value);
-  if (!Number.isFinite(number)) {
-    return "not measured";
-  }
-  if (number < 1) {
-    return `${(number * 1000).toPrecision(3)} us`;
-  }
-  if (number < 10) {
-    return `${number.toPrecision(3)} ms`;
-  }
-  return `${Math.round(number)} ms`;
-}
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+const formatDebugNumber = (v) => (isNum(v) ? v.toPrecision(4) : "NA");
+const formatDebugLatency = (v) => (isNum(v) ? `${Math.round(v)} ms` : "not measured");
 
 /**
  * Describe a design for the debug log. Experiments may supply a task-specific
@@ -114,10 +91,10 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
         : [];
       if (next_designs.length) {
         next_designs.forEach(function (design, index) {
-          const metric = normalizeDesignMetric(next_metrics[index]);
+          const mi = next_metrics[index]?.mutual_info;
           design_rows.push({
             when: "next " + (index + 1),
-            mutual_info: metric.mutual_info,
+            mutual_info: isNum(mi) ? mi : null,
             ...design,
           });
         });
@@ -130,14 +107,6 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
           sd: post_sd[param],
         })),
       );
-      const histograms = formatPosteriorDrawCharts(
-        ado_result.posterior_draws,
-        Object.keys(post_mean),
-        run_context.posterior_display,
-      );
-      if (histograms) {
-        console.log(histograms);
-      }
       console.groupEnd();
     }
   } catch (error) {

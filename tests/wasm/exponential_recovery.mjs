@@ -1,21 +1,21 @@
-// Real Stan WASM recovery smoke for the exponential-discounting model — the
+// Real Stan WASM recovery test for the exponential-discounting model — the
 // "bring your own model" demo's model (a new .stan compiled to WASM, reusing the
 // packaged delay-discounting task). Checks:
 //   1. recovery        - k and tau recovered within tolerance at N adaptive trials
 //   2. k ordering      - recovered k rises with the true discount rate
 //   3. precision       - k posterior SD shrinks with more trials
 //
-// Like the other recovery smokes it loads the web-only WASM in node via a fetch
+// Like the other recovery tests it loads the web-only WASM in node via a fetch
 // shim and bypasses the Web Worker; NOT part of `node --test`. Seeds are fixed.
 //
-// Run: node tests/js/exponential_recovery.smoke.mjs
+// Run: node tests/wasm/exponential_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 const exp = (await import("../../demos/byo_model_exponential/model.js")).default;
 const { design_grid } = await import("../../demos/delay_discounting/task.js");
-const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } =
+const { enumerateDesigns, selectOptimalDesigns, summarizeDraws, samplePriorDraws } =
   await import("../../src/ado/mi_engine.js");
 const { createSeededRng, simulateCategoricalChoice } =
   await import("../../src/ado/ado_simulation.js");
@@ -36,7 +36,7 @@ function runRecovery(trueParams, seed, nTrials) {
   const sim_rng = createSeededRng(seed + 1);
   const sim_config = { params: trueParams, rt: { choice: 0 } };
 
-  let { design } = selectOptimalDesign(
+  let [{ design }] = selectOptimalDesigns(
     designs,
     samplePriorDraws(exp.prior, 2000, prior_rng),
     exp.responseProb,
@@ -55,7 +55,7 @@ function runRecovery(trueParams, seed, nTrials) {
     const draws = fit.draws[ki].map((k, s) => ({ k, tau: fit.draws[ti][s] }));
 
     summary = summarizeDraws(draws, exp.params);
-    ({ design } = selectOptimalDesign(designs, draws, exp.responseProb));
+    [{ design }] = selectOptimalDesigns(designs, draws, exp.responseProb);
   }
   return summary;
 }

@@ -1,4 +1,4 @@
-// Type-level smoke test for the public declarations (src/index.d.ts).
+// Type-level test for the public declarations (src/index.d.ts).
 //
 // Exercised by `npm run typecheck` (tsc --noEmit); never executed at runtime. It imports
 // from the package name so it also proves the package.json `types` field + `.` export

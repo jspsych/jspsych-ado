@@ -45,5 +45,5 @@ const ado = jsPsychADO.createController(jsPsych, {
 });
 ```
 
-The exponential model is checked by `tests/js/exponential_recovery.smoke.mjs`,
+The exponential model is checked by `tests/wasm/exponential_recovery.mjs`,
 which loads the compiled WASM and verifies parameter recovery.

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createController, validateModel, buildModelAdapter } from "../../src/index.js";
-import { validateDesignGridForModel } from "../../src/validation.js";
+import { createController, validateModel } from "../../src/index.js";
+import { buildModelAdapter, validateDesignGridForModel } from "../../src/validation.js";
 import { createDesignScorer, gaussianEntropy } from "../../src/ado/mi_engine.js";
 import { simulateContinuousResponse, createSeededRng } from "../../src/ado/ado_simulation.js";
 import { runFragment } from "./_timeline_harness.mjs";

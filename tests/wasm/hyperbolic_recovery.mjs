@@ -1,4 +1,4 @@
-// Manual smoke test: real Stan WASM inference + ADO loop. Three checks:
+// Manual test: real Stan WASM inference + ADO loop. Three checks:
 //   1. recovery across a (k, tau) sweep      — k recovers within a factor of 5
 //   2. tau ordering                          — recovered tau rises with true tau
 //   3. precision improves with more trials   — posterior SD of k shrinks as N grows
@@ -10,7 +10,7 @@
 // selection, and the (model-agnostic) simulator drawing from model.responseProb.
 // All seeds are fixed, so the numbers below are deterministic across runs.
 //
-// Run:  node tests/js/stan_recovery.smoke.mjs
+// Run:  node tests/wasm/hyperbolic_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 
@@ -19,7 +19,7 @@ import "./_wasm_node_shim.mjs";
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 const hyp = (await import("../../src/models/hyperbolic/model.js")).default;
-const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } =
+const { enumerateDesigns, selectOptimalDesigns, summarizeDraws, samplePriorDraws } =
   await import("../../src/ado/mi_engine.js");
 const { createSeededRng, simulateCategoricalChoice } =
   await import("../../src/ado/ado_simulation.js");
@@ -27,7 +27,7 @@ const { design_grid } = await import("../../demos/delay_discounting/task.js");
 
 const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
 // The model declares a stanData map; generate its buildData (the framework does this
-// in buildAdapter — done here directly since this smoke bypasses the facade/worker).
+// in buildAdapter — done here directly since this test bypasses the facade/worker).
 const buildData = makeStanDataBuilder({ stanData: hyp.stanData, responseSpace: hyp.responseSpace });
 
 const createModule = (await import(hyp.moduleUrl)).default;
@@ -46,7 +46,7 @@ function runRecovery(trueParams, seed, nTrials) {
   const sim_rng = createSeededRng(seed + 1);
   const sim_config = { params: trueParams, rt: { choice: 0 } };
 
-  let { design } = selectOptimalDesign(
+  let [{ design }] = selectOptimalDesigns(
     designs,
     samplePriorDraws(hyp.prior, 2000, prior_rng),
     hyp.responseProb,
@@ -64,7 +64,7 @@ function runRecovery(trueParams, seed, nTrials) {
     const draws = fit.draws[ki].map((k, s) => ({ k, tau: fit.draws[ti][s] }));
 
     summary = summarizeDraws(draws, hyp.params);
-    ({ design } = selectOptimalDesign(designs, draws, hyp.responseProb));
+    [{ design }] = selectOptimalDesigns(designs, draws, hyp.responseProb);
   }
   return summary;
 }

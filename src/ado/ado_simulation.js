@@ -11,10 +11,8 @@ import { getResponseProbsFunction, validateResponseProbs } from "./mi_engine.js"
  * @typedef {Object} ModelAdapter
  * @property {Function} [responseProb] - (design, params) => P(response = 1).
  * @property {Function} [responseProbs] - (design, params) => [p0, p1, ...].
- * @property {Function} [subjectiveValues] - Optional (design, params) => model-specific
- *   diagnostics recorded as sim_* audit fields (e.g. a discounting model's subjective values).
  * @property {Function} [simulationData] - Optional (design, params, probs, response)
- *   => extra sim_* audit fields.
+ *   => extra sim_* audit fields (e.g. a discounting model's subjective values).
  */
 
 /**
@@ -65,10 +63,8 @@ function responseLabelSlug(label, index) {
  *
  * Binary is just the 2-category case, so this is the single discrete simulator. The
  * response is drawn from the model's own likelihood (the exact one the MI engine and Stan
- * use). Two optional model hooks contribute sim_* audit fields:
- * simulationData(design, params, probs, response) for response-conditioned diagnostics,
- * and subjectiveValues(design, params) for design-level diagnostics (e.g. a discounting
- * model's subjective values).
+ * use). An optional model hook simulationData(design, params, probs, response) contributes
+ * extra sim_* audit fields (e.g. a discounting model's subjective values).
  *
  * @param {Object} design - Current design shown on screen.
  * @param {Object} simulation_config - Simulation settings with params and rt.
@@ -100,13 +96,6 @@ function simulateCategoricalChoice(design, simulation_config, rng, model, opts =
   }
   if (typeof model.simulationData === "function") {
     Object.assign(data, model.simulationData(design, params, probs, response));
-  }
-  // Optional design-level diagnostics (e.g. a discounting model's subjective values),
-  // recorded as sim_<name>; runs for any discrete model that supplies the hook.
-  if (typeof model.subjectiveValues === "function") {
-    for (const [name, value] of Object.entries(model.subjectiveValues(design, params))) {
-      data["sim_" + name] = value;
-    }
   }
   return data;
 }

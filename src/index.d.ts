@@ -52,7 +52,6 @@ export interface PosteriorDisplay {
     y_min?: number;
     y_max?: number;
     lower_bound?: number;
-    upper_bound?: number;
     min_y_span?: number;
   };
 }
@@ -73,12 +72,14 @@ export interface ModelPackage {
   moduleUrl?: string;
   /** Stan source; compiled via the `compile` server during ado.preload()/ready(). */
   stanCode?: string;
-  /** Compiled wasm URL (so bundlers emit/hash it); `new URL("./main.wasm", import.meta.url).href`. */
-  wasmUrl?: string;
+  /**
+   * Compiled wasm URL (so bundlers emit/hash it); `new URL("./main.wasm", import.meta.url).href`.
+   * `null` opts out for server-hosted artifacts (prepareModel sets it).
+   */
+  wasmUrl?: string | null;
   /** Declarative Stan `data` map (preferred over a hand-written builder). */
   stanData?: Record<string, unknown>;
   buildData?: (trials: Array<Design & { choice: number }>) => Record<string, unknown>;
-  toStanData?: (rows: Array<{ design: Design; response: unknown }>) => Record<string, unknown>;
   /** Binary likelihood: P(outcome = 1). */
   responseProb?: (design: Design, draw: Draw) => number;
   /** Categorical likelihood: [p0, p1, …] summing to 1. */
@@ -201,19 +202,25 @@ export interface AdoController {
     options?: CreateTimelineOptions,
   ): any[];
   /**
-   * Resolves when the model is usable: immediately for committed models, after
-   * compile + artifact download for `stanCode` models.
+   * Resolves once the model is loaded and usable: the Stan worker has imported the
+   * compiled module and instantiated its wasm — for committed models too, after
+   * compile + artifact download for `stanCode` models. Rejects if the compile,
+   * download, or worker load fails. Mock handles resolve immediately (no wasm).
    */
   ready(): Promise<void>;
   /**
-   * A jsPsychPreload-style gate trial: shows a message while ready() resolves,
-   * renders the compiler's error and aborts if it rejects. Optional — without it
-   * the first posterior update awaits readiness.
+   * A jsPsychPreload-style gate trial: shows a message while ready() resolves —
+   * i.e. until the model is compiled (source models), downloaded, and loaded by the
+   * Stan worker — and renders the failure (e.g. the compiler's error) and aborts if
+   * it rejects. Optional — without it the first posterior update awaits readiness.
    */
   preload(opts?: {
     message?: string;
     error_message?: string;
-    /** Like jsPsychPreload's max_load_time: ms before the gate fails (default: wait indefinitely). */
+    /**
+     * Like jsPsychPreload's max_load_time: ms before the gate fails
+     * (default: wait indefinitely; 0 = fail unless already ready).
+     */
     max_load_time?: number;
   }): JsPsychTrial;
 }
@@ -226,13 +233,10 @@ export interface AdoController {
 export function createController(jsPsych: unknown, config: CreateControllerConfig): AdoController;
 
 /**
- * A model authored from Stan source. Provide exactly one of `stanCode`, `stanUrl`, or
- * `moduleUrl`; the prior is parsed from the Stan source unless given explicitly.
+ * A model authored from Stan source. Provide exactly one of `stanCode` or `moduleUrl`;
+ * the prior is parsed from the Stan source unless given explicitly.
  */
-export interface ModelSpec extends Partial<ModelPackage> {
-  /** URL of a .stan file to fetch (alternative to inline stanCode). */
-  stanUrl?: string;
-}
+export type ModelSpec = Partial<ModelPackage>;
 
 /**
  * Compile a source model spec into a model package usable with createController
@@ -286,7 +290,7 @@ export interface JsPsychADO {
 export const jsPsychADO: JsPsychADO;
 export default jsPsychADO;
 
-// --- Advanced / internal (exported for power users + the test suite; NOT part of the
+// --- Advanced (exported for power users; NOT part of the
 // stable façade and may change without a major bump while pre-1.0). ---
 
 /** Derive the JS prior `{ param: { dist, … } }` from a `.stan` source. */
@@ -294,9 +298,3 @@ export function parseStanPriors(
   stanCode: string,
   paramSpecs: Array<string | { name: string; lower?: number }>,
 ): Record<string, Prior>;
-
-/** Convert ["SS","LL"] → {0:"SS",1:"LL"}; pass an object through unchanged. */
-export function labelsToConfig(labels: string[] | Record<number, string>): Record<number, string>;
-
-/** Validate a model package and adapt it to the engine's controller shape. */
-export function buildModelAdapter(model: ModelPackage, context?: string): ModelPackage;

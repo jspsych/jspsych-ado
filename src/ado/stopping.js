@@ -90,49 +90,6 @@ function maxPossibleEig(responseSpace) {
 }
 
 /**
- * Decide whether the adaptive loop should stop after the latest refit.
- *
- * @param {Object} args
- * @param {number}  args.completed_trials - Trials observed so far.
- * @param {?number} args.eig - EIG of the best available NEXT design (grid-max), in nats.
- * @param {?number} args.max_possible_eig - ln(K) for the response space.
- * @param {number}  [args.consecutive_below=0] - Running count of consecutive sub-threshold refits.
- * @param {Object}  args.stopping - A NORMALIZED stopping config (from normalizeStoppingConfig).
- * @returns {{should_stop:boolean, stop_reason:?string, consecutive_below:number}}
- *   stop_reason is "max_trials" or "eig_fraction"; consecutive_below is the updated
- *   sub-threshold streak to feed back in on the next call.
- */
-function evaluateStopping({
-  completed_trials,
-  eig,
-  max_possible_eig,
-  consecutive_below = 0,
-  stopping,
-}) {
-  const cfg = stopping || normalizeStoppingConfig();
-  const completed = toNonNegativeInteger(completed_trials, 0);
-  const eig_value = toFiniteNumberOrNull(eig);
-  const max_eig = toFiniteNumberOrNull(max_possible_eig);
-
-  const threshold = cfg.eig_fraction != null && max_eig != null ? cfg.eig_fraction * max_eig : null;
-  // A trial counts as "below" only once past min_trials (early EIG estimates from a
-  // prior-dominated posterior are unreliable). A non-below trial resets the streak.
-  const below =
-    threshold != null && eig_value != null && completed >= cfg.min_trials && eig_value < threshold;
-  const next_consecutive = below ? consecutive_below + 1 : 0;
-
-  if (cfg.max_trials != null && completed >= cfg.max_trials) {
-    return { should_stop: true, stop_reason: "max_trials", consecutive_below: next_consecutive };
-  }
-  // next_consecutive is only >= 1 when `below`, so this already implies the
-  // threshold + min_trials gates passed.
-  if (next_consecutive >= cfg.consecutive) {
-    return { should_stop: true, stop_reason: "eig_fraction", consecutive_below: next_consecutive };
-  }
-  return { should_stop: false, stop_reason: null, consecutive_below: next_consecutive };
-}
-
-/**
  * A small stateful stopping evaluator: owns the normalized config and the
  * consecutive-below streak so a controller doesn't hand-roll either. Both the Stan
  * and mock controllers use this; the mock passes no max_possible_eig, so its EIG
@@ -143,7 +100,8 @@ function evaluateStopping({
  * @param {?number} [args.default_max_trials] - max_trials fallback (n_trials).
  * @param {?number} [args.max_possible_eig] - ln(K); omit to disable EIG stopping.
  * @returns {{config:Object, reset:Function, evaluate:Function}} `evaluate(completed_trials, eig)`
- *   returns {should_stop, stop_reason}; `reset()` clears the streak for a new run.
+ *   (eig = grid-max EIG of the best NEXT design, nats) returns {should_stop, stop_reason}
+ *   with stop_reason "max_trials" | "eig_fraction" | null; `reset()` clears the streak.
  */
 function makeStoppingEvaluator({
   stopping,
@@ -151,6 +109,9 @@ function makeStoppingEvaluator({
   max_possible_eig = null,
 } = {}) {
   const config = normalizeStoppingConfig(stopping, default_max_trials);
+  const max_eig = toFiniteNumberOrNull(max_possible_eig);
+  const threshold =
+    config.eig_fraction != null && max_eig != null ? config.eig_fraction * max_eig : null;
   let consecutive_below = 0;
   return {
     config,
@@ -158,17 +119,27 @@ function makeStoppingEvaluator({
       consecutive_below = 0;
     },
     evaluate(completed_trials, eig) {
-      const result = evaluateStopping({
-        completed_trials,
-        eig,
-        max_possible_eig,
-        consecutive_below,
-        stopping: config,
-      });
-      consecutive_below = result.consecutive_below;
-      return { should_stop: result.should_stop, stop_reason: result.stop_reason };
+      const completed = toNonNegativeInteger(completed_trials, 0);
+      const eig_value = toFiniteNumberOrNull(eig);
+      // A refit counts as "below" only once past min_trials (early EIG estimates from a
+      // prior-dominated posterior are unreliable). A non-below refit resets the streak.
+      const below =
+        threshold != null &&
+        eig_value != null &&
+        completed >= config.min_trials &&
+        eig_value < threshold;
+      consecutive_below = below ? consecutive_below + 1 : 0;
+
+      if (config.max_trials != null && completed >= config.max_trials) {
+        return { should_stop: true, stop_reason: "max_trials" };
+      }
+      // consecutive_below >= 1 only when `below`, so the threshold + min_trials gates passed.
+      if (consecutive_below >= config.consecutive) {
+        return { should_stop: true, stop_reason: "eig_fraction" };
+      }
+      return { should_stop: false, stop_reason: null };
     },
   };
 }
 
-export { normalizeStoppingConfig, evaluateStopping, maxPossibleEig, makeStoppingEvaluator };
+export { normalizeStoppingConfig, maxPossibleEig, makeStoppingEvaluator };

@@ -8,10 +8,10 @@
 // The first proves the PATCHED glue honors Module.locateFile (a regression where the
 // patch lands but is dead code would make this fail); the second proves the override
 // is actually required under a bundler. This loads the web-only
-// emscripten module in node via a fetch shim, like the recovery smokes, so it is NOT
+// emscripten module in node via a fetch shim, like the recovery tests, so it is NOT
 // part of `node --test`.
 //
-// Run:  node tests/js/locate_file.smoke.mjs
+// Run:  node tests/wasm/locate_file.mjs
 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

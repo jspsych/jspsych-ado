@@ -1,4 +1,4 @@
-// Stan source handling for models supplied as source (stanCode / stanUrl):
+// Stan source handling for models supplied as source (stanCode):
 //   - parseStanPriors derives the engine's JS prior {param:{dist,...}} from the .stan
 //     source, so a source model needs no hand-written `prior`.
 //   - compileToModuleUrl POSTs the source to a stan-playground compile server and
@@ -56,6 +56,14 @@ async function compileToModuleUrl(stanCode, server, authToken) {
  *   normal{mean,sd} | halfnormal{sd} ).
  */
 function parseStanPriors(stanCode, paramSpecs) {
+  // prepareModel/parseStanPriors are directly callable, so a malformed container must
+  // fail readably here, not as a raw TypeError below.
+  if (!Array.isArray(paramSpecs) || paramSpecs.length === 0 || paramSpecs.some((p) => p == null)) {
+    throw new Error(
+      "parseStanPriors: `params` must be a non-empty array of parameter names " +
+        "(strings or { name, lower? } objects).",
+    );
+  }
   const prior = {};
 
   // Strip comments first so a commented-out or stale sampling statement
@@ -67,6 +75,16 @@ function parseStanPriors(stanCode, paramSpecs) {
   for (const p of paramSpecs) {
     const name = typeof p === "string" ? p : p.name;
     const meta = typeof p === "string" ? {} : p;
+
+    // Names are interpolated into regexes below: a metachar name like "k*" would
+    // silently match the WRONG sampling statement and derive a nonsense prior, so
+    // non-identifier names fail here.
+    if (typeof name !== "string" || !/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error(
+        `parseStanPriors: "${String(name)}" is not a valid Stan parameter name ` +
+          `(letters, digits, and underscores, starting with a letter). Check \`params\`.`,
+      );
+    }
 
     const declaredPositive =
       meta.lower === 0 ||
