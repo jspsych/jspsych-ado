@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import model, {
-  responseProb,
-  responseProbs,
-  getHyperbolicValue,
-  logistic,
-} from "../../src/models/hyperbolic/model.js";
+import model, { getHyperbolicValue, logistic } from "../../src/models/hyperbolic/model.js";
+// The likelihood is exposed on the model package object (the public interface);
+// standalone math helpers remain named exports.
+const { responseProb } = model;
 import { makeStanDataBuilder } from "../../src/ado/stan_data.js";
 
 // The model declares a stanData map; the framework generates buildData from it.
@@ -35,13 +33,6 @@ test("responseProb matches the hyperbolic + logit formula (regression guard)", (
   const got = responseProb(design, params);
   assert.ok(got > 0 && got < 1);
   assert.ok(Math.abs(got - expected) < 1e-12, `expected ${expected}, got ${got}`);
-});
-
-test("responseProbs wraps responseProb in response-index order", () => {
-  const design = { t_ss: 0, t_ll: 26, r_ss: 40, r_ll: 80 };
-  const params = { k: 0.01, tau: 0.005 };
-  const p_ll = responseProb(design, params);
-  assert.deepEqual(responseProbs(design, params), [1 - p_ll, p_ll]);
 });
 
 test("changing k: more discounting (larger k) lowers P(LL) when LL is the delayed option", () => {
@@ -111,5 +102,4 @@ test("model adapter exposes the expected metadata", () => {
   assert.equal(typeof model.stanData, "object");
   assert.equal(model.stanData.y, "response");
   assert.equal(typeof model.responseProb, "function");
-  assert.equal(typeof model.responseProbs, "function");
 });

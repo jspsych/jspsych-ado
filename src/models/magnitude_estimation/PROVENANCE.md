@@ -8,7 +8,7 @@ runs as pure static assets — no compile step at run time.
   (slider) magnitude estimation. See issue #110.
 - **Compiler:** stan-playground compile server, <https://stan-wasm.flatironinstitute.org>
 - **Target:** emscripten `-sENVIRONMENT=web,worker` — browser / Web Worker only, not
-  plain Node (the recovery smoke shims `fetch` to load it under Node)
+  plain Node (the recovery test shims `fetch` to load it under Node)
 - **Artifact names:** kept as `main.js` + `main.wasm` (`main.js` hardcodes its sibling
   `main.wasm`); do not rename.
 
@@ -24,5 +24,5 @@ curl -s "https://stan-wasm.flatironinstitute.org/download/$ID/main.wasm" -o main
 ```
 
 After regenerating, run `npm run patch:wasm` (so the glue honors a bundler-emitted
-`wasmUrl` via `locateFile`), then `node tests/js/magnitude_estimation_recovery.smoke.mjs`
+`wasmUrl` via `locateFile`), then `node tests/wasm/magnitude_estimation_recovery.mjs`
 to confirm the model loads and recovers the Stevens exponent `b`.

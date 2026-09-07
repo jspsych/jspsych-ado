@@ -2,16 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createAdoTimeline } from "../../src/ado/ado_timeline.js";
-import {
-  createController,
-  labelsToConfig,
-  parseStanPriors,
-  validateModel,
-} from "../../src/index.js";
+import { createController, parseStanPriors, validateModel } from "../../src/index.js";
+import { labelsToConfig } from "../../src/ado/response_labels.js";
 
-// ---------------------------------------------------------------------------
 // Fixtures
-// ---------------------------------------------------------------------------
 
 // Multi-valued grid ON PURPOSE: several regression tests assert that the design a
 // trial RENDERS is the design its data row RECORDS (a single-design grid can never
@@ -48,59 +42,16 @@ function makeModel(overrides = {}) {
   };
 }
 
-function makeJsPsych() {
-  return {
-    aborted: null,
-    abortExperiment(html, data) {
-      this.aborted = { html, data };
-    },
-  };
-}
+import { runFragment, makeJsPsych, installFakeWorker } from "./_timeline_harness.mjs";
 
-import { runFragment } from "./_timeline_harness.mjs";
-
-// A fake Worker servicing the stan controller's protocol: init -> ack; sample ->
-// posterior draw columns. `gate` (when provided) delays sample responses until
-// released, so tests can assert that on_finish truly awaits the model update.
-function installFakeWorker({ gate = null, capture = null, draws = null } = {}) {
-  const originalWorker = globalThis.Worker;
-  globalThis.Worker = class FakeWorker {
-    postMessage(message) {
-      if (capture) capture.push(message);
-      const respond = () => {
-        if (message.type === "init") {
-          this.onmessage({ data: { type: "inited" } });
-        } else {
-          this.onmessage({
-            data: {
-              type: "draws",
-              draws: draws ?? { k: [0.01, 0.02, 0.03, 0.04], tau: [1, 1.1, 0.9, 1.2] },
-            },
-          });
-        }
-      };
-      if (gate && message.type === "sample") {
-        gate.push(respond);
-      } else {
-        queueMicrotask(respond);
-      }
-    }
-  };
-  return () => {
-    globalThis.Worker = originalWorker;
-  };
-}
-
-// ---------------------------------------------------------------------------
-// parseStanPriors (kept regressions: #6 comments, #7 half-normal bounds)
-// ---------------------------------------------------------------------------
+// parseStanPriors: commented-out statements and half-normal bounds
 
 const STAN_CODE = `
 data { int<lower=0> N; }
 parameters {
   real<lower=0> k;
   real tau;
-  // beta ~ normal(9, 9);  (commented out on purpose, #6)
+  // beta ~ normal(9, 9);  (commented out on purpose)
   real<lower=0> beta;
 }
 model {
@@ -110,6 +61,14 @@ model {
 }
 `;
 
+test("parseStanPriors: rejects a non-identifier parameter name instead of matching the wrong statement", () => {
+  // Unvalidated, "k*" would build \bk*\s*~ and match the FIRST sampling statement
+  // (typically the likelihood), silently deriving a nonsense prior; "k(" would throw
+  // a cryptic RegExp SyntaxError.
+  assert.throws(() => parseStanPriors(STAN_CODE, ["k*"]), /not a valid Stan parameter name/);
+  assert.throws(() => parseStanPriors(STAN_CODE, ["k("]), /not a valid Stan parameter name/);
+});
+
 test("parseStanPriors: derives lognormal / normal / half-normal specs", () => {
   const prior = parseStanPriors(STAN_CODE, ["k", "tau", "beta"]);
   assert.deepEqual(prior.k, { dist: "lognormal", meanlog: -4, sdlog: 2 });
@@ -117,12 +76,12 @@ test("parseStanPriors: derives lognormal / normal / half-normal specs", () => {
   assert.deepEqual(prior.beta, { dist: "halfnormal", sd: 2 }); // <lower=0> + zero-mean normal
 });
 
-test("parseStanPriors: ignores commented-out sampling statements (#6)", () => {
+test("parseStanPriors: ignores commented-out sampling statements", () => {
   const prior = parseStanPriors(STAN_CODE, ["beta"]);
   assert.deepEqual(prior.beta, { dist: "halfnormal", sd: 2 });
 });
 
-test("parseStanPriors: lower=0.5 is NOT half-normal (#7)", () => {
+test("parseStanPriors: lower=0.5 is NOT half-normal", () => {
   const code = `
 parameters { real<lower=0.5> w; }
 model { w ~ normal(0, 1); }
@@ -139,9 +98,7 @@ model { k ~ normal(1); }
   assert.throws(() => parseStanPriors(code, ["k"]), /expects 2 numeric arguments/);
 });
 
-// ---------------------------------------------------------------------------
 // createController validation
-// ---------------------------------------------------------------------------
 
 test("createController: requires model and design_grid", () => {
   assert.throws(() => createController(makeJsPsych(), {}), /provide a model package/);
@@ -195,9 +152,7 @@ test("validateModel: rejects run-policy fields on a model package (model = stati
   }
 });
 
-// ---------------------------------------------------------------------------
 // Core mock-mode flow through the PUBLIC API
-// ---------------------------------------------------------------------------
 
 test("mock run: rendered stimulus always matches the recorded design (stale-design regression)", async () => {
   const jsPsych = makeJsPsych();
@@ -301,9 +256,7 @@ test("response_labels: explicit labels are strict; inference is best-effort with
   }
 });
 
-// ---------------------------------------------------------------------------
 // recordResponse contract
-// ---------------------------------------------------------------------------
 
 test("recordResponse: gated to on_finish, single-shot, and validated against the response space", async () => {
   const jsPsych = makeJsPsych();
@@ -445,9 +398,7 @@ test("user mapping owns raw->outcome: mapped value is the choice, raw response s
   assert.equal(rows[0].choice_label, "LL");
 });
 
-// ---------------------------------------------------------------------------
 // Stan mode through the fake worker
-// ---------------------------------------------------------------------------
 
 test("stan run: on_finish is not resolved until the sample completes; next trial sees the new design", async () => {
   const gate = [];
@@ -495,7 +446,7 @@ test("stan run: on_finish is not resolved until the sample completes; next trial
   }
 });
 
-test("stan run: worker init receives moduleUrl AND wasmUrl (#57 regression)", async () => {
+test("stan run: worker init receives moduleUrl AND wasmUrl", async () => {
   const capture = [];
   const restore = installFakeWorker({ capture });
   try {
@@ -523,9 +474,7 @@ test("stan run: worker init receives moduleUrl AND wasmUrl (#57 regression)", as
   }
 });
 
-// ---------------------------------------------------------------------------
 // Testlets through the PUBLIC API (the in-testlet design advance)
-// ---------------------------------------------------------------------------
 
 test("testlet_size=2: each trial inside a testlet renders its OWN design; one update per boundary", async () => {
   const ado = createController(makeJsPsych(), {
@@ -563,11 +512,9 @@ test("testlet_size=2: each trial inside a testlet renders its OWN design; one up
   assert.equal(rows[2].ado_trial_index, 4);
 });
 
-// ---------------------------------------------------------------------------
-// Early stopping through the timeline (#21 regression, restored)
-// ---------------------------------------------------------------------------
+// Early stopping through the timeline
 
-test("createAdoTimeline skips remaining testlets once the controller signals should_stop (#21)", async () => {
+test("createAdoTimeline skips remaining testlets once the controller signals should_stop", async () => {
   let updates = 0;
   const scripted_controller = {
     start: () => ({
@@ -621,9 +568,7 @@ test("createAdoTimeline skips remaining testlets once the controller signals sho
   assert.equal(rows[1].ado_stop_reason, "eig_below_threshold");
 });
 
-// ---------------------------------------------------------------------------
 // Multi-trial steps, factory form, reuse, cloning
-// ---------------------------------------------------------------------------
 
 test("array form: prelude trials read the design; the LAST trial is the response by default", async () => {
   const ado = createController(makeJsPsych(), {
@@ -717,9 +662,7 @@ test("controller reuse: a second createTimeline run works after the first (pract
   });
 });
 
-// ---------------------------------------------------------------------------
-// Simulation hook (the old ?simulate= contract, re-homed)
-// ---------------------------------------------------------------------------
+// Simulation hook (synthetic-participant runs via jsPsych.simulate())
 
 test("simulate: composes simulation_options drawing responses from the model likelihood", async () => {
   const ado = createController(makeJsPsych(), {
@@ -756,9 +699,7 @@ test("simulate: composes simulation_options drawing responses from the model lik
   assert.equal(data.choice, sim.data.response);
 });
 
-// ---------------------------------------------------------------------------
 // Misc facade helpers
-// ---------------------------------------------------------------------------
 
 test("trials AFTER the response trial still render THIS step's design (feedback screens)", async () => {
   const ado = createController(makeJsPsych(), {
@@ -814,9 +755,9 @@ test("session_id reaches the mock controller (contract parity with stan)", async
   assert.equal(rows[0].ado_session_id, "P-0042");
 });
 
-test("simulate: model audit hooks (subjectiveValues, labeled probabilities) reach the row", async () => {
+test("simulate: model audit hooks (simulationData, labeled probabilities) reach the row", async () => {
   const model = makeModel({
-    subjectiveValues: (design, params) => ({ v_gap: design.r_ll - design.r_ss - params.k }),
+    simulationData: (design, params) => ({ sim_v_gap: design.r_ll - design.r_ss - params.k }),
   });
   const ado = createController(makeJsPsych(), {
     model,
@@ -837,7 +778,7 @@ test("simulate: model audit hooks (subjectiveValues, labeled probabilities) reac
   frag[0].on_timeline_start();
   const t1 = frag[0].timeline[0].timeline[0];
   const sim = t1.simulation_options();
-  assert.equal(typeof sim.data.sim_v_gap, "number", "subjectiveValues audit field present");
+  assert.equal(typeof sim.data.sim_v_gap, "number", "simulationData audit field present");
   assert.equal(typeof sim.data.sim_p_ss, "number", "probability fields named by inferred labels");
   assert.equal(typeof sim.data.sim_p_ll, "number");
 });

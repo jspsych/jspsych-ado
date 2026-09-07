@@ -50,7 +50,7 @@ Normal prototype:
 demos/magnitude_estimation/index.html
 ```
 
-Data-only simulation (fast; what the browser smoke runs):
+Data-only simulation (fast; what the browser test runs):
 
 ```text
 demos/magnitude_estimation/index.html?simulate=data-only&debug=1

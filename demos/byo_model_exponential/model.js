@@ -49,23 +49,17 @@ function responseProb(design, params) {
   return logistic(params.tau * (v_ll - v_ss));
 }
 
-function responseProbs(design, params) {
-  const p_ll = responseProb(design, params);
-  return [1 - p_ll, p_ll];
-}
-
 /**
- * Optional model-specific diagnostics for the simulator: the exponentially
- * discounted subjective values of each option.
+ * Optional simulator audit fields: the exponentially discounted subjective values.
  *
  * @param {Object} design - {t_ss, t_ll, r_ss, r_ll}.
  * @param {Object} params - {k}.
- * @returns {{v_ss: number, v_ll: number}} Subjective values.
+ * @returns {{sim_v_ss: number, sim_v_ll: number}}
  */
-function subjectiveValues(design, params) {
+function simulationData(design, params) {
   return {
-    v_ss: getExponentialValue(design.r_ss, design.t_ss, params.k),
-    v_ll: getExponentialValue(design.r_ll, design.t_ll, params.k),
+    sim_v_ss: getExponentialValue(design.r_ss, design.t_ss, params.k),
+    sim_v_ll: getExponentialValue(design.r_ll, design.t_ll, params.k),
   };
 }
 
@@ -90,15 +84,7 @@ const exponentialModel = {
     tau: { dist: "lognormal", meanlog: 0, sdlog: 1 },
   },
   posterior_display: {
-    k: {
-      label: "k",
-      y_min: 0,
-      y_max: 0.2,
-      lower_bound: 0,
-      min_y_span: 0.05,
-      histogram_scale: "log10",
-      histogram_label: "log10(k)",
-    },
+    k: { label: "k", y_min: 0, y_max: 0.2, lower_bound: 0, min_y_span: 0.05 },
     tau: { label: "τ", y_min: 0, y_max: 5, lower_bound: 0, min_y_span: 0.5 },
   },
   moduleUrl: new URL("./compiled/main.js", import.meta.url).href,
@@ -107,9 +93,8 @@ const exponentialModel = {
   wasmUrl: new URL("./compiled/main.wasm", import.meta.url).href,
   stanData,
   responseProb,
-  responseProbs,
-  subjectiveValues,
+  simulationData,
 };
 
 export default exponentialModel;
-export { responseProb, getExponentialValue, logistic, stanData, responseProbs, subjectiveValues };
+export { responseProb, getExponentialValue, logistic, stanData, simulationData };

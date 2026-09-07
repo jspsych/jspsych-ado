@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   normalizeStoppingConfig,
-  evaluateStopping,
   maxPossibleEig,
   makeStoppingEvaluator,
 } from "../../src/ado/stopping.js";
@@ -10,19 +9,9 @@ import {
 const LN2 = Math.log(2);
 const LN3 = Math.log(3);
 
-// Convenience: evaluate one refit against a fresh-normalized config.
-function evalAt(
-  completed,
-  eig,
-  { max_possible_eig = LN2, consecutive_below = 0, ...stopping } = {},
-) {
-  return evaluateStopping({
-    completed_trials: completed,
-    eig,
-    max_possible_eig,
-    consecutive_below,
-    stopping: normalizeStoppingConfig(stopping),
-  });
+// Convenience: evaluate one refit against a fresh evaluator.
+function evalAt(completed, eig, { max_possible_eig = LN2, ...stopping } = {}) {
+  return makeStoppingEvaluator({ stopping, max_possible_eig }).evaluate(completed, eig);
 }
 
 test("normalizeStoppingConfig fills defaults and the max_trials fallback", () => {
@@ -49,7 +38,7 @@ test("normalizeStoppingConfig rejects junk and turns EIG stopping off for non-po
   assert.equal(n.consecutive, 1);
 });
 
-test("normalizeStoppingConfig keeps eig_fraction == 1 but turns it off for > 1 (#4)", () => {
+test("normalizeStoppingConfig keeps eig_fraction == 1 but turns it off for > 1", () => {
   // A fraction > 1 sets a threshold above the max achievable EIG (ln K), i.e.
   // "always stop at min_trials" — a footgun, so it must disable EIG stopping.
   assert.equal(normalizeStoppingConfig({ eig_fraction: 1 }).eig_fraction, 1);
@@ -67,7 +56,6 @@ test("maxPossibleEig = ln(K)", () => {
 test("never stops before min_trials, even with tiny EIG", () => {
   const r = evalAt(5, 0.0001, { min_trials: 8, max_trials: 42, eig_fraction: 0.1 });
   assert.equal(r.should_stop, false);
-  assert.equal(r.consecutive_below, 0); // below the min gate => streak stays 0
 });
 
 test("always stops at max_trials regardless of EIG (max takes precedence)", () => {
@@ -117,50 +105,14 @@ test("null EIG never triggers an eig stop", () => {
 });
 
 test("de-bounce: consecutive=2 needs two sub-threshold refits in a row; a rebound resets the streak", () => {
-  const cfg = normalizeStoppingConfig({
-    min_trials: 8,
-    max_trials: 42,
-    eig_fraction: 0.1,
-    consecutive: 2,
-  });
-  // first sub-threshold refit: streak -> 1, no stop yet
-  const r1 = evaluateStopping({
-    completed_trials: 10,
-    eig: 0.05,
+  const stopper = makeStoppingEvaluator({
+    stopping: { min_trials: 8, max_trials: 42, eig_fraction: 0.1, consecutive: 2 },
     max_possible_eig: LN2,
-    consecutive_below: 0,
-    stopping: cfg,
   });
-  assert.equal(r1.should_stop, false);
-  assert.equal(r1.consecutive_below, 1);
-  // EIG rebounds above threshold: streak resets
-  const r2 = evaluateStopping({
-    completed_trials: 11,
-    eig: 0.2,
-    max_possible_eig: LN2,
-    consecutive_below: r1.consecutive_below,
-    stopping: cfg,
-  });
-  assert.equal(r2.should_stop, false);
-  assert.equal(r2.consecutive_below, 0);
-  // two sub-threshold refits in a row -> stop
-  const r3 = evaluateStopping({
-    completed_trials: 12,
-    eig: 0.04,
-    max_possible_eig: LN2,
-    consecutive_below: 0,
-    stopping: cfg,
-  });
-  const r4 = evaluateStopping({
-    completed_trials: 13,
-    eig: 0.03,
-    max_possible_eig: LN2,
-    consecutive_below: r3.consecutive_below,
-    stopping: cfg,
-  });
-  assert.equal(r3.should_stop, false);
-  assert.equal(r4.should_stop, true);
-  assert.equal(r4.stop_reason, "eig_fraction");
+  assert.equal(stopper.evaluate(10, 0.05).should_stop, false); // streak 1
+  assert.equal(stopper.evaluate(11, 0.2).should_stop, false); // rebound: streak resets
+  assert.equal(stopper.evaluate(12, 0.04).should_stop, false); // streak 1
+  assert.deepEqual(stopper.evaluate(13, 0.03), { should_stop: true, stop_reason: "eig_fraction" });
 });
 
 test("makeStoppingEvaluator threads the consecutive-below streak and reset() clears it", () => {
@@ -173,7 +125,7 @@ test("makeStoppingEvaluator threads the consecutive-below streak and reset() cle
   // first sub-threshold refit: streak 1, no stop; second in a row: stop.
   assert.deepEqual(stopper.evaluate(5, 0.04), { should_stop: false, stop_reason: null });
   assert.deepEqual(stopper.evaluate(6, 0.03), { should_stop: true, stop_reason: "eig_fraction" });
-  // reset clears the streak, so a single sub-threshold refit no longer stops.
+  // reset clears the streak, so a single sub-threshold refit does not stop.
   stopper.reset();
   assert.deepEqual(stopper.evaluate(7, 0.03), { should_stop: false, stop_reason: null });
 });
@@ -191,18 +143,12 @@ test("a higher eig_fraction stops earlier on the same decreasing EIG trajectory"
   // EIG decays from 0.5 down; find first stop trial for two fractions (min_trials small).
   const trajectory = [0.5, 0.4, 0.3, 0.2, 0.12, 0.08, 0.05, 0.03, 0.02];
   function firstStop(fraction) {
-    const cfg = normalizeStoppingConfig({ min_trials: 1, max_trials: 100, eig_fraction: fraction });
-    let streak = 0;
+    const stopper = makeStoppingEvaluator({
+      stopping: { min_trials: 1, max_trials: 100, eig_fraction: fraction },
+      max_possible_eig: LN2,
+    });
     for (let i = 0; i < trajectory.length; i++) {
-      const r = evaluateStopping({
-        completed_trials: i + 1,
-        eig: trajectory[i],
-        max_possible_eig: LN2,
-        consecutive_below: streak,
-        stopping: cfg,
-      });
-      streak = r.consecutive_below;
-      if (r.should_stop) return i + 1;
+      if (stopper.evaluate(i + 1, trajectory[i]).should_stop) return i + 1;
     }
     return null;
   }

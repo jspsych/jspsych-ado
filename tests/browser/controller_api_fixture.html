@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Controller API Smoke</title>
+    <title>Controller API fixture</title>
     <script src="https://unpkg.com/jspsych@8.2.3"></script>
     <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
     <link href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" rel="stylesheet" type="text/css">
@@ -22,16 +22,16 @@
     const params = new URLSearchParams(window.location.search);
     const controller = params.get("controller") || "stan";
     const design_strategy = params.get("strategy") || "ado";
-    const smoke_id = `controller_api_smoke_${controller}_${design_strategy}`;
+    const run_id = `controller_api_${controller}_${design_strategy}`;
 
-    window.__controllerApiSmoke = { done: false, error: null };
+    window.__controllerApiResult = { done: false, error: null };
 
     try {
       const jsPsych = initJsPsych({
         on_finish: () => {
-          const rows = jsPsych.data.get().filter({ smoke_id }).values();
+          const rows = jsPsych.data.get().filter({ run_id }).values();
           const last = rows[rows.length - 1] || {};
-          window.__controllerApiSmoke = {
+          window.__controllerApiResult = {
             done: true,
             error: null,
             rows: rows.length,
@@ -61,7 +61,7 @@
         stimulus: () =>
           `${ado.evaluateDesignVariable("r_ss")} now or ${ado.evaluateDesignVariable("r_ll")} later?`,
         choices: ["Sooner", "Later"],
-        data: { smoke_id },
+        data: { run_id },
         on_finish: (data) => ado.recordResponse(data.response),
         simulation_options: {
           data: { response: 1 },
@@ -72,7 +72,7 @@
 
       jsPsych.simulate(timeline, "data-only");
     } catch (error) {
-      window.__controllerApiSmoke = {
+      window.__controllerApiResult = {
         done: false,
         error: String((error && error.stack) || error),
       };

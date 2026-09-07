@@ -5,9 +5,9 @@ the experiment runs as **pure static assets** — there is no compile step at ru
 
 - **Source:** `hyperbolic.stan`
 - **Compiler:** stan-playground compile server, <https://stan-wasm.flatironinstitute.org>
-- **Stan version:** 2.39.0 (as reported by `StanModel.stanVersion()` in the recovery smoke)
+- **Stan version:** 2.39.0 (as reported by `StanModel.stanVersion()` in the recovery test)
 - **Target:** emscripten `-sENVIRONMENT=web,worker` — runs in the browser / Web Worker only,
-  **not** in plain Node (the recovery smoke shims `fetch` to load it under Node)
+  **not** in plain Node (the recovery test shims `fetch` to load it under Node)
 - **Artifact names:** kept as `main.js` + `main.wasm` — `main.js` hardcodes loading
   its sibling `main.wasm`, so do not rename them
 
@@ -22,6 +22,6 @@ curl -s "https://stan-wasm.flatironinstitute.org/download/$ID/main.js"   -o main
 curl -s "https://stan-wasm.flatironinstitute.org/download/$ID/main.wasm" -o main.wasm
 ```
 
-After regenerating, run `node tests/js/stan_recovery.smoke.mjs` to confirm the model
-still loads and recovers parameters, and the headless browser smoke
-(`node tests/browser/dd_smoke.mjs`) to confirm it loads in the Web Worker.
+After regenerating, run `node tests/wasm/hyperbolic_recovery.mjs` to confirm the model
+still loads and recovers parameters, and the headless browser test
+(`node tests/browser/dd.mjs`) to confirm it loads in the Web Worker.

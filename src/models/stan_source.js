@@ -1,20 +1,13 @@
-// Stan source handling for models supplied as source (stanCode / stanUrl):
-//   - parseStanPriors derives the engine's JS prior {param:{dist,...}} from the .stan
-//     source, so a source model needs no hand-written `prior`.
-//   - compileToModuleUrl POSTs the source to a stan-playground compile server and
-//     returns the compiled main.js URL.
-// Both serve the prepareModel(...) model-preparation path; committed model packages
-// (precompiled `moduleUrl`) never reach either function.
+// Stan-source helpers for prepareModel: derive the JS prior from a .stan source, and
+// compile the source on a stan-playground compile server.
 
 /**
- * POST a Stan source string to a stan-playground compile server and return the compiled
- * main.js URL (the worker dynamic-imports it). Throws with an actionable message on a
- * network/CORS failure or a non-OK / model_id-less response.
+ * POST Stan source to a compile server and return the compiled main.js URL.
  *
  * @param {string} stanCode - Full .stan source.
  * @param {string} server - Compile server base URL.
  * @param {string} authToken - Bearer token for the compile endpoint.
- * @returns {Promise<string>} The `${server}/download/${model_id}/main.js` URL.
+ * @returns {Promise<string>} `${server}/download/${model_id}/main.js`.
  */
 async function compileToModuleUrl(stanCode, server, authToken) {
   const base = server.replace(/\/+$/, "");
@@ -47,31 +40,40 @@ async function compileToModuleUrl(stanCode, server, authToken) {
 
 /**
  * Derive the engine's JS prior from a .stan source by reading each parameter's sampling
- * statement. Supports normal, lognormal, and normal + <lower=0> (-> half-normal); throws
- * on a missing/unsupported/non-numeric prior so the model fails fast during preparation/validation.
+ * statement. Supports normal, lognormal, and normal + <lower=0> (-> halfnormal); throws
+ * on anything else so the model fails fast.
  *
- * @param {Array<string|{name: string, lower?: number}>} paramSpecs - Parameters to parse.
  * @param {string} stanCode - Full .stan source.
- * @returns {Object} prior map: { [param]: { dist, ... } } (lognormal{meanlog,sdlog} |
- *   normal{mean,sd} | halfnormal{sd} ).
+ * @param {Array<string|{name: string, lower?: number}>} paramSpecs - Parameters to parse.
+ * @returns {Object} { [param]: { dist, ... } }.
  */
 function parseStanPriors(stanCode, paramSpecs) {
+  if (!Array.isArray(paramSpecs) || paramSpecs.length === 0 || paramSpecs.some((p) => p == null)) {
+    throw new Error(
+      "parseStanPriors: `params` must be a non-empty array of parameter names " +
+        "(strings or { name, lower? } objects).",
+    );
+  }
   const prior = {};
 
-  // Strip comments first so a commented-out or stale sampling statement
-  // (e.g. `// k ~ normal(0,1);`) can't be matched instead of the real prior. (#6)
-  const source = stanCode
-    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments
-    .replace(/\/\/[^\n]*/g, " "); // line comments
+  // Strip comments so a commented-out sampling statement can't match.
+  const source = stanCode.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 
   for (const p of paramSpecs) {
     const name = typeof p === "string" ? p : p.name;
     const meta = typeof p === "string" ? {} : p;
 
+    // Names are interpolated into regexes below; a metachar name would match the wrong statement.
+    if (typeof name !== "string" || !/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error(
+        `parseStanPriors: "${String(name)}" is not a valid Stan parameter name ` +
+          `(letters, digits, and underscores, starting with a letter). Check \`params\`.`,
+      );
+    }
+
+    // Lower bound of EXACTLY 0 (not lower=0.5), followed by "," or ">".
     const declaredPositive =
       meta.lower === 0 ||
-      // Match a lower bound of EXACTLY 0 — "lower=0" followed by "," or ">", so a
-      // parameter bounded above 0 (`lower=0.5`, `lower=0.1`) isn't misread as 0. (#7)
       new RegExp(`real\\s*<[^>]*lower\\s*=\\s*0\\s*(?:,[^>]*)?>\\s*${name}\\b`).test(source);
 
     const match = new RegExp(`\\b${name}\\s*~\\s*(\\w+)\\s*\\(([^;]*)\\)\\s*;`).exec(source);
@@ -89,8 +91,6 @@ function parseStanPriors(stanCode, paramSpecs) {
           `Pass an explicit \`prior\`.`,
       );
     }
-    // normal/lognormal each take exactly 2 numeric arguments; a wrong arity would
-    // silently leave sd/sdlog undefined and produce NaN prior draws. (#13)
     if ((dist === "normal" || dist === "lognormal") && args.length !== 2) {
       throw new Error(
         `parseStanPriors: "${name}" prior ${dist}(...) expects 2 numeric arguments but got ` +

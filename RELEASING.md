@@ -3,7 +3,7 @@
 Releases are published to npm automatically by
 [`.github/workflows/release.yml`](.github/workflows/release.yml) when a `vX.Y.Z`
 tag is pushed. The workflow re-runs the publish-critical gates (unit + headless
-Worker/WASM + bundler smokes) and only publishes if they pass and the tag matches
+Worker/WASM + bundler build) and only publishes if they pass and the tag matches
 `package.json`. Cut releases from `main`, which CI keeps green.
 
 ## One-time setup

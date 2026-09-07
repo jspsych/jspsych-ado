@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import model, {
-  predictedLogMean,
+import model, { predictedLogMean } from "../../src/models/magnitude_estimation/model.js";
+const {
   responseDensity,
   responseDensityFactory,
   responseMoments,
   conditionalEntropy,
   responseSampler,
   buildData,
-} from "../../src/models/magnitude_estimation/model.js";
+} = model;
 import { validateModel } from "../../src/index.js";
 import { createDesignScorer, samplePriorDraws } from "../../src/ado/mi_engine.js";
 import { createSeededRng } from "../../src/ado/ado_simulation.js";

@@ -66,6 +66,20 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
 
 ### Added
 
+- Compile-from-source models as a preload step (#137): a model may supply
+  `stanCode` instead of committed `moduleUrl`/`wasmUrl` artifacts. The prior is
+  derived from the Stan source, compilation kicks off eagerly at
+  `createController` against a compile server (`compile: { server, authToken }`,
+  defaulting to the public stan-playground server), and `ado.preload()` — a
+  jsPsychPreload-style gate trial — shows a message until `ado.ready()` resolves,
+  rendering the compiler's error message and aborting if compilation fails. The
+  preload trial is optional: without it the first posterior update awaits
+  readiness. `ado.ready()` / `ado.preload()` resolve only once the model is fully
+  **loadable** — the Stan worker has imported the compiled module and instantiated
+  its wasm (for committed models too, not just compiled ones) — so a green preload
+  certifies the run can actually proceed. Committed artifacts remain the
+  production/reproducibility path; see `demos/byo_model_exponential/from_source.html`
+  and the compile-server CORS notes in #137.
 - TypeScript declarations for the public `jsPsychADO` façade (`src/index.d.ts`, surfaced
   via the `types` field and the `.` export's `types` condition), so consumers get editor
   IntelliSense and type-checking without the library taking on a TypeScript build. The
@@ -80,7 +94,14 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
 ### Changed
 
 - Raised the minimum Node to `>=20` (was `>=18`); CI now runs the unit suite + recovery
-  smokes on a 20.x/22.x matrix instead of only Node 22.
+  tests on a 20.x/22.x matrix instead of only Node 22.
+- `validateModel` no longer warns about a missing `wasmUrl` when it is explicitly
+  `null`: that is the opt-out for server-hosted artifacts (whose `main.js` fetches its
+  sibling wasm), and `prepareModel` sets it, so the documented
+  `prepareModel(...)` → `createController(...)` workflow is warning-free.
+- Test tiers are named by what they check: `npm run test:wasm` (was `test:smoke`) runs
+  all real-WASM recovery/parity tests under `tests/wasm/`; the browser tests live at
+  `tests/browser/<demo>.mjs`.
 - Narrowed the package `exports` to the supported public surface: the façade (`.`),
   `./models/*`, and `./package.json`. The `./ado/*`, `./controllers/*`, and
   `./core/tinystan/*` subpaths are no longer importable — they were internal
@@ -101,16 +122,65 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
   pages. (The `controller=`/`strategy=` URL parameters that replaced it were
   themselves removed later in this cycle with the demo URL runner — both switches
   are now `createController` options; see the controller-API entry above.)
+- `jspsych-ado/models/compile_stan_model.js` (`compileStanModel`) — an unreferenced
+  pre-controller-API helper superseded by `prepareModel(spec, { compileServer })`,
+  which compiles a Stan-source model to a usable package the same way.
+- Redundant named exports from the shipped model files (`jspsych-ado/models/*/model.js`).
+  A model's public interface is its **default export** (the model package object): the
+  likelihood, `stanData`/`buildData`, and simulation hooks are already fields on it, so
+  the duplicate named exports (`responseProb`, `responseProbs`, `stanData`, `buildData`,
+  `responseDensity*`, `responseMoments`, `conditionalEntropy`, `responseSampler`,
+  `subjectiveValues`, `simulationData`) and the default-alias named exports
+  (`lineLengthDiscriminationModel`, `magnitudeEstimationModel`) were removed. Access
+  them as `model.responseProb` etc. Standalone math helpers (`logistic`, `normalCdf`,
+  `softmax`, `normalPdf`, …) remain named exports.
+- `stanUrl` as a model source. A source model is inline `stanCode`; fetch a `.stan` file
+  yourself (`await (await fetch(url)).text()`) before calling `prepareModel`.
+- `toStanData(rows)` — `buildData(trials)` is the one hand-written escape hatch over a
+  declarative `stanData` map.
+- The `subjectiveValues` simulation hook: `simulationData(design, params, probs, response)`
+  is the one audit hook and returns fully-named `sim_*` fields (the shipped models now
+  return `sim_v_ss`/`sim_v_ll` and `sim_n_large`/`sim_n_small` from it — the recorded
+  columns are unchanged).
+- `labelsToConfig` and `buildModelAdapter` from the package entry (test-only
+  conveniences); `posterior_display.upper_bound` (no model used it); the console ASCII
+  posterior histograms in the `?debug=1` log (the tables and on-page charts remain).
+- The `ado_mode` data column: it duplicated `controller_mode` + `design_strategy`, which
+  are recorded on the same row. `validateModel`'s optional `{ sampleDesign, sampleDraw }`
+  probe (the design-grid validation already probes the likelihood). The hand-written
+  `responseProbs` on the binary model packages: the engine derives `[1 - p, p]` from
+  `responseProb` itself.
 
 ### Internal
 
+- Source-model validation is unified behind one `validateSourceSpec` seam shared by
+  `validateModel` and `prepareModel` (exactly one of `moduleUrl` | `stanCode`, no
+  `wasmUrl` on a source spec, URL objects rejected with a pointer to `.href`).
+- `prepareModel` verifies the compiled artifact downloads before returning, and no
+  longer memoizes compiles per page (the compile server is content-addressed).
+- Eager source compilation now starts only after model/grid validation, so an invalid
+  configuration never sends Stan source to the compile server.
+- The Stan Web Worker is now owned by the controller **handle** — one shared,
+  lazily-loaded worker created on first `ready()`/`preload()`/timeline — rather than
+  one per timeline. `createController` stays worker-free until readiness is awaited,
+  and a handle's practice→main timelines reuse the same worker (inited once).
 - Restructured large modules into cohesive units with unchanged public behavior:
-  `ado_timeline.js` → `ado/debug/{ado_trial_log,posterior_convergence_charts}.js`
-  (plus, later in this cycle, `ado/simulation_hooks.js` — the interim
-  `ado/response_trials.js` factories were dissolved into demo code with the
-  controller API); `index.js` → `src/validation.js` + `models/stan_source.js`; the
-  Stan controller's Web Worker transport → `controllers/stan_worker_client.js`,
-  with shared controller scaffolding in `controllers/controller_common.js`.
+  `ado_timeline.js` → `ado/debug/{ado_trial_log,charts}.js` (plus, later in this cycle,
+  `ado/simulation_hooks.js` — the interim `ado/response_trials.js` factories were
+  dissolved into demo code with the controller API); `index.js` → `src/validation.js`
+  (model validation + the engine adapter) + `models/stan_source.js` +
+  `ado/response_labels.js`; the Stan controller's Web Worker transport →
+  `controllers/stan_worker_client.js`, with shared controller scaffolding in
+  `controllers/controller_common.js`; the abort path shared by the timeline and the
+  preload gate → `ado/abort_experiment.js`.
+- The debug UI (per-trial logs, live posterior/EIG charts, the debrief overlay) is now
+  **dynamically imported** by the timeline only when debug is enabled. A production
+  bundler splits it into a separate chunk that participants running without `?debug`
+  never download; behavior with debug on is unchanged. One inline-SVG line-chart
+  renderer (`ado/debug/charts.js`) now draws both the posterior trajectories and the
+  information-gain trace.
+- The ten browser tests share one runner (`tests/browser/demo_helpers.mjs`
+  `runBrowserTest`) for the server/browser/diagnostics scaffold.
 
 ## [0.2.0] - 2026-06-18
 

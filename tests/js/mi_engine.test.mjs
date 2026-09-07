@@ -8,7 +8,6 @@ import {
   realizedInformationGain,
   mutualInfo,
   enumerateDesigns,
-  selectOptimalDesign,
   selectOptimalDesigns,
   summarizeDraws,
   samplePriorDraws,
@@ -122,25 +121,15 @@ test("enumerateDesigns passes a curated array of designs through unchanged", () 
   ]);
 });
 
-test("selectOptimalDesign returns a valid grid member and prefers the discriminating design", () => {
+test("selectOptimalDesigns returns a valid grid member and prefers the discriminating design", () => {
   const designs = enumerateDesigns({ d: [0, 1] });
   // Design d=0 is uninformative (all draws -> p=0.99); d=1 splits the draws.
   const draws = [{ s: 0 }, { s: 1 }, { s: 0 }, { s: 1 }];
   const responseProb = (design, draw) => (design.d === 0 ? 0.99 : draw.s === 1 ? 1 : 0);
-  const { design, mutual_info } = selectOptimalDesign(designs, draws, responseProb);
+  const [{ design, mutual_info }] = selectOptimalDesigns(designs, draws, responseProb);
   assert.deepEqual(design, { d: 1 });
   assert.ok(mutual_info > 0);
   assert.ok(designs.includes(design));
-});
-
-test("selectOptimalDesigns with count 1 matches selectOptimalDesign", () => {
-  const designs = enumerateDesigns({ d: [0, 1] });
-  const draws = [{ s: 0 }, { s: 1 }, { s: 0 }, { s: 1 }];
-  const responseProb = (design, draw) => (design.d === 0 ? 0.99 : draw.s === 1 ? 1 : 0);
-  const single = selectOptimalDesign(designs, draws, responseProb);
-  const [batch_one] = selectOptimalDesigns(designs, draws, responseProb, 1);
-  assert.deepEqual(batch_one.design, single.design);
-  assert.equal(batch_one.mutual_info, single.mutual_info);
 });
 
 test("selectOptimalDesigns returns distinct designs and avoids a redundant second pick", () => {

@@ -44,8 +44,8 @@
   ],
   "scripts": {
     "test": "node --test tests/js/*.test.mjs",
-    "test:smoke": "node tests/js/stan_recovery.smoke.mjs",
-    "test:browser": "node tests/browser/controller_api_smoke.mjs && node tests/browser/dd_tutorial_smoke.mjs && node tests/browser/size_discrimination_smoke.mjs && node tests/browser/dd_smoke.mjs && node tests/browser/line_length_discrimination_smoke.mjs && node tests/browser/halberda_dot_comparison_smoke.mjs && node tests/browser/magnitude_estimation_smoke.mjs && node tests/browser/byo_model_exponential_smoke.mjs && node tests/browser/byo_task_money_choice_smoke.mjs",
+    "test:wasm": "node tests/wasm/hyperbolic_recovery.mjs && node tests/wasm/weber_recovery.mjs && node tests/wasm/exponential_recovery.mjs && node tests/wasm/line_length_3ifc_recovery.mjs && node tests/wasm/magnitude_estimation_recovery.mjs && node tests/wasm/stopping_recovery.mjs && node tests/wasm/likelihood_parity.mjs && node tests/wasm/locate_file.mjs",
+    "test:browser": "node tests/browser/controller_api.mjs && node tests/browser/compile_preload.mjs && node tests/browser/dd_tutorial.mjs && node tests/browser/size_discrimination.mjs && node tests/browser/dd.mjs && node tests/browser/line_length_discrimination.mjs && node tests/browser/halberda_dot_comparison.mjs && node tests/browser/magnitude_estimation.mjs && node tests/browser/byo_model_exponential.mjs && node tests/browser/byo_task_money_choice.mjs",
     "patch:wasm": "node scripts/patch-wasm-glue.mjs",
     "test:bundler": "node tests/bundler/run.mjs",
     "format": "prettier --write .",

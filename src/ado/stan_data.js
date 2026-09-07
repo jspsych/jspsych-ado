@@ -1,31 +1,14 @@
-// Declarative jsPsych-rows -> Stan-data assembly.
-//
-// Models used to hand-write a buildData(trials) that did the same mechanical thing:
-// N = trials.length, map each design column to an array, and map the response to y
-// (with a +1 for 1-indexed categoricals — a convention you had to remember). That is
-// pure boilerplate and the top source of silent shape bugs, so a model now declares a
-// `stanData` MAP that mirrors its .stan `data` block and we generate the builder.
-//
-// The map is keyed by Stan data-block variable name; each value is one of:
-//   "<trialKey>"               -> trials.map(t => t[trialKey])            (copy a column)
-//   "response"                 -> the participant outcome (jsPsych `choice`);
-//                                 auto +1 when responseSpace.type === "categorical"
-//   { from: "<key>", index1: true } -> trials.map(t => Number(t[key]) + 1) (1-indexed Stan int)
-//   { from: "<key>" }          -> trials.map(t => t[key])                 (renamed column)
-// `N` is injected automatically and must NOT appear in the map.
-//
-// The map is a 1:1 mirror of the .stan data block, NOT a computation DSL — derived or
-// ragged columns still belong in a hand-written buildData (or the .stan transformed
-// block). buildData/toStanData remain supported and take precedence.
+// Declarative trials -> Stan-data assembly. A model's `stanData` map mirrors its .stan
+// `data` block, keyed by Stan variable; each value is one of:
+//   "<trialKey>"                    -> trials.map(t => t[trialKey])
+//   "response"                      -> the outcome (jsPsych `choice`), +1 for categorical
+//   { from: "<key>", index1: true } -> trials.map(t => Number(t[key]) + 1)
+//   { from: "<key>" }               -> trials.map(t => t[key])
+// `N` is injected automatically. A hand-written buildData(trials) takes precedence.
 
 const RESPONSE = "response";
 
-/**
- * Validate a stanData spec. Returns an array of error strings (empty if valid).
- *
- * @param {Object} stanData - The model's stanData map.
- * @returns {string[]} Problems, each a human-readable message.
- */
+/** Validate a stanData map; returns error strings (empty if valid). */
 function validateStanDataSpec(stanData) {
   const problems = [];
   if (!stanData || typeof stanData !== "object" || Array.isArray(stanData)) {
@@ -53,14 +36,12 @@ function validateStanDataSpec(stanData) {
 }
 
 /**
- * Build a buildData(trials) function from a stanData map. Output is the Stan data
- * object: { N, ...declared columns }.
+ * Build buildData(trials) -> { N, ...columns } from a stanData map.
  *
  * @param {Object} spec
- * @param {Object} spec.stanData - The stanData map (see module header).
- * @param {Object} [spec.responseSpace] - {type:"binary"|"categorical", ...}; drives the
- *   "response" column's +1 (categorical responses are 1-indexed in Stan).
- * @returns {(trials: Array<Object>) => Object} The generated builder.
+ * @param {Object} spec.stanData - The stanData map.
+ * @param {Object} [spec.responseSpace] - Categorical responses get +1 (Stan is 1-indexed).
+ * @returns {(trials: Array<Object>) => Object}
  */
 function makeStanDataBuilder({ stanData, responseSpace } = {}) {
   const problems = validateStanDataSpec(stanData);

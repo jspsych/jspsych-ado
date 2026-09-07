@@ -35,15 +35,15 @@ jobs:
             echo "::error::tag ${GITHUB_REF_NAME} does not match package.json ($PKG_VERSION)"
             exit 1
           fi
-      - name: Unit tests + real-WASM recovery smokes
+      - name: Unit tests + real-WASM recovery tests
         run: |
           npm test
-          node tests/js/stan_recovery.smoke.mjs
-          node tests/js/weber_recovery.smoke.mjs
-          node tests/js/likelihood_parity.smoke.mjs
-      - name: Headless Worker/WASM smoke
+          node tests/wasm/hyperbolic_recovery.mjs
+          node tests/wasm/weber_recovery.mjs
+          node tests/wasm/likelihood_parity.mjs
+      - name: Browser end-to-end (Worker/WASM)
         run: npm run test:browser
-      - name: Bundler smoke (npm pack -> Vite build -> headless WASM)
+      - name: Bundler build (npm pack -> Vite build -> headless WASM)
         run: npm run test:bundler
       - name: Publish to npm (with provenance)
         run: npm publish --provenance --access public

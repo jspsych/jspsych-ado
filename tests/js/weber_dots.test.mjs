@@ -1,12 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import model, {
-  normalCdf,
-  numerosities,
-  responseProb,
-  responseProbs,
-} from "../../src/models/weber_dots/model.js";
+import model, { normalCdf, numerosities } from "../../src/models/weber_dots/model.js";
+const { responseProb } = model;
 import { makeStanDataBuilder } from "../../src/ado/stan_data.js";
 
 // The model declares a stanData map; the framework generates buildData from it.
@@ -34,14 +30,6 @@ test("responseProb matches the Weber/ANS likelihood", () => {
   assert.ok(got > 0.5 && got < 1);
   assert.ok(Math.abs(got - expected) < 1e-12, `expected ${expected}, got ${got}`);
   assert.ok(Math.abs(got - 0.9632) < 1e-3, `anchored Phi value, got ${got}`);
-});
-
-test("responseProbs returns [P(incorrect), P(correct)]", () => {
-  const probs = responseProbs({ n_blue: 10, n_yellow: 13 }, { w: 0.25 });
-  assert.equal(probs.length, 2);
-  assert.ok(probs[0] > 0 && probs[1] > 0);
-  assert.ok(Math.abs(probs[0] + probs[1] - 1) < 1e-12);
-  assert.equal(probs[1], responseProb({ n_blue: 10, n_yellow: 13 }, { w: 0.25 }));
 });
 
 test("color-symmetric: P(correct) depends only on numerosities", () => {
@@ -91,6 +79,4 @@ test("model adapter exposes the current package metadata", () => {
   assert.equal(typeof model.stanData, "object");
   assert.equal(model.stanData.correct, "response");
   assert.equal(typeof model.responseProb, "function");
-  assert.equal(typeof model.responseProbs, "function");
-  assert.equal(model.choiceProbLL, undefined);
 });

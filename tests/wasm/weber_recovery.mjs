@@ -1,28 +1,28 @@
-// Manual smoke test: real Stan WASM inference + ADO loop for the Weber/ANS dots
+// Manual test: real Stan WASM inference + ADO loop for the Weber/ANS dots
 // model. Two checks:
 //   1. recovery across a w sweep - recovered w within a factor of the true w
 //   2. w ordering                - recovered w rises with true w
 //
-// Like tests/js/stan_recovery.smoke.mjs, this is not part of `node --test`: it
+// Like tests/wasm/hyperbolic_recovery.mjs, this is not part of `node --test`: it
 // loads the browser/worker WASM in Node by shimming `fetch` for file: URLs, and
 // bypasses the Web Worker. It exercises weber_dots.stan, the
 // weber_dots adapter (responseProb/buildData), summarizeDraws, MI design
 // selection, and the model-agnostic simulator. All seeds are fixed.
 //
-// Run: node tests/js/weber_recovery.smoke.mjs
+// Run: node tests/wasm/weber_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 const weber = (await import("../../src/models/weber_dots/model.js")).default;
-const { enumerateDesigns, selectOptimalDesign, summarizeDraws, samplePriorDraws } =
+const { enumerateDesigns, selectOptimalDesigns, summarizeDraws, samplePriorDraws } =
   await import("../../src/ado/mi_engine.js");
 const { createSeededRng, simulateCategoricalChoice } =
   await import("../../src/ado/ado_simulation.js");
 
 const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
 // The model declares a stanData map; generate its buildData (the framework does this
-// in buildAdapter — done here directly since this smoke bypasses the facade/worker).
+// in buildAdapter — done here directly since this test bypasses the facade/worker).
 const buildData = makeStanDataBuilder({
   stanData: weber.stanData,
   responseSpace: weber.responseSpace,
@@ -51,7 +51,7 @@ function runRecovery(trueW, seed, nTrials) {
   const sim_rng = createSeededRng(seed + 1);
   const sim_config = { params: { w: trueW }, rt: { choice: 0 } };
 
-  let { design } = selectOptimalDesign(
+  let [{ design }] = selectOptimalDesigns(
     designs,
     samplePriorDraws(weber.prior, 2000, prior_rng),
     weber.responseProb,
@@ -73,7 +73,7 @@ function runRecovery(trueW, seed, nTrials) {
     const draws = fit.draws[wi].map((w) => ({ w }));
 
     summary = summarizeDraws(draws, weber.params);
-    ({ design } = selectOptimalDesign(designs, draws, weber.responseProb));
+    [{ design }] = selectOptimalDesigns(designs, draws, weber.responseProb);
   }
   return summary;
 }

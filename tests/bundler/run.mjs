@@ -1,4 +1,4 @@
-// Real-bundler smoke for the #57 packaging story. Packs the library, installs the
+// Real-bundler build for the packaging story. Packs the library, installs the
 // tarball into tests/bundler/fixture (a Vite consumer using the PUBLIC API with
 // plugin injection), runs a production build, serves the output, and headlessly
 // confirms:
@@ -7,7 +7,7 @@
 //   - the page loads it with NO failed .wasm request and produces a posterior
 //
 // This is the only check that exercises the fix end-to-end through a real bundler;
-// the node tests bypass the Worker and the browser smokes serve raw source.
+// the node tests bypass the Worker and the browser tests serve raw source.
 //
 // Run:  node tests/bundler/run.mjs        (npm run test:bundler)
 

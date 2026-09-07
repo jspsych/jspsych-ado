@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { listModelMains } from "../../scripts/patch-wasm-glue.mjs";
 
 // Static guards for the source patterns bundlers (Vite/webpack) depend on to emit
-// and resolve the WASM + worker assets (#57). These are cheap and run in plain
+// and resolve the WASM + worker assets. These are cheap and run in plain
 // Node; the full "does a real bundler build load the hashed wasm" check lives in
 // the bundler spike (see PR notes), but these catch the likely regressions — a
 // cleanup that drops a magic comment, turns a `new URL(...)` into a hardcoded
@@ -71,11 +71,20 @@ test("the worker client spawns the worker via new URL(..., import.meta.url) so t
   );
 });
 
-test("the controller forwards model.wasmUrl to the worker client init", async () => {
-  const src = await read("src/controllers/stan_ado_controller.js");
+test("the handle forwards the model's wasmUrl to the worker client init", async () => {
+  const src = await read("src/index.js");
+  // The handle's ensureStanRuntime resolves { moduleUrl: adapter.moduleUrl, wasmUrl:
+  // adapter.wasmUrl } for committed models (source models substitute the compiled URLs)
+  // and hands the pair to client.init — the guarantee that the bundler-emitted wasm URL
+  // reaches the worker. Behaviorally asserted in tests/js/compile_preload.test.mjs.
   assert.match(
     src,
-    /client\.init\(\s*model\.moduleUrl,\s*model\.wasmUrl\s*\)/,
-    "stan_ado_controller.js must forward model.moduleUrl/model.wasmUrl to client.init().",
+    /\{\s*moduleUrl:\s*adapter\.moduleUrl,\s*wasmUrl:\s*adapter\.wasmUrl\s*\}/,
+    "index.js must source moduleUrl/wasmUrl from the model package (adapter).",
+  );
+  assert.match(
+    src,
+    /client\.init\(\s*moduleUrl,\s*wasmUrl\s*\)/,
+    "index.js must forward the resolved moduleUrl/wasmUrl to client.init().",
   );
 });

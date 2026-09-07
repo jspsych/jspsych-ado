@@ -52,26 +52,34 @@ export interface PosteriorDisplay {
     y_min?: number;
     y_max?: number;
     lower_bound?: number;
-    upper_bound?: number;
     min_y_span?: number;
   };
 }
 
-/** A model package: parameters, prior, likelihood, Stan data boundary, and compiled artifacts. */
+/**
+ * A model package: parameters, prior, likelihood, Stan data boundary, and its
+ * compiled artifacts (`moduleUrl`, the production path) OR its Stan source
+ * (`stanCode`, compiled at preload time via a compile server) — exactly one.
+ */
 export interface ModelPackage {
   id: string;
   params: string[];
   designKeys: string[];
   responseSpace: ResponseSpace;
+  /** Required with `moduleUrl`; derived from the source for `stanCode` models. */
   prior?: Record<string, Prior>;
   /** Compiled module URL, e.g. `new URL("./main.js", import.meta.url).href`. */
-  moduleUrl: string;
-  /** Compiled wasm URL (so bundlers emit/hash it); `new URL("./main.wasm", import.meta.url).href`. */
-  wasmUrl?: string;
+  moduleUrl?: string;
+  /** Stan source; compiled via the `compile` server during ado.preload()/ready(). */
+  stanCode?: string;
+  /**
+   * Compiled wasm URL (so bundlers emit/hash it); `new URL("./main.wasm", import.meta.url).href`.
+   * `null` opts out for server-hosted artifacts (prepareModel sets it).
+   */
+  wasmUrl?: string | null;
   /** Declarative Stan `data` map (preferred over a hand-written builder). */
   stanData?: Record<string, unknown>;
   buildData?: (trials: Array<Design & { choice: number }>) => Record<string, unknown>;
-  toStanData?: (rows: Array<{ design: Design; response: unknown }>) => Record<string, unknown>;
   /** Binary likelihood: P(outcome = 1). */
   responseProb?: (design: Design, draw: Draw) => number;
   /** Categorical likelihood: [p0, p1, …] summing to 1. */
@@ -127,12 +135,22 @@ export interface AdoRunOptions {
   simulate?: SimulateConfig | null;
 }
 
+/** Compile-server settings for `stanCode` models. */
+export interface CompileConfig {
+  /** Stan-to-WASM compile server base URL (defaults to the public stan-playground server). */
+  server?: string;
+  /** Bearer token for the compile endpoint. */
+  authToken?: string;
+}
+
 /** Config for {@link createController}. */
 export interface CreateControllerConfig extends AdoRunOptions {
   /** A model package (committed under `jspsych-ado/models/*` or authored locally). */
   model: ModelPackage;
   /** Candidate designs: an object of value arrays (cartesian product) or an array of designs. */
   design_grid: Record<string, unknown[]> | Design[];
+  /** Compile-server settings, used only for `stanCode` models. */
+  compile?: CompileConfig;
 }
 
 /** Per-timeline overrides for {@link AdoController.createTimeline}. */
@@ -183,6 +201,28 @@ export interface AdoController {
       JsPsychTrial | JsPsychTrial[] | ((ctx: AdoTrialContext) => JsPsychTrial | JsPsychTrial[]),
     options?: CreateTimelineOptions,
   ): any[];
+  /**
+   * Resolves once the model is loaded and usable: the Stan worker has imported the
+   * compiled module and instantiated its wasm — for committed models too, after
+   * compile + artifact download for `stanCode` models. Rejects if the compile,
+   * download, or worker load fails. Mock handles resolve immediately (no wasm).
+   */
+  ready(): Promise<void>;
+  /**
+   * A jsPsychPreload-style gate trial: shows a message while ready() resolves —
+   * i.e. until the model is compiled (source models), downloaded, and loaded by the
+   * Stan worker — and renders the failure (e.g. the compiler's error) and aborts if
+   * it rejects. Optional — without it the first posterior update awaits readiness.
+   */
+  preload(opts?: {
+    message?: string;
+    error_message?: string;
+    /**
+     * Like jsPsychPreload's max_load_time: ms before the gate fails
+     * (default: wait indefinitely; 0 = fail unless already ready).
+     */
+    max_load_time?: number;
+  }): JsPsychTrial;
 }
 
 /**
@@ -193,14 +233,10 @@ export interface AdoController {
 export function createController(jsPsych: unknown, config: CreateControllerConfig): AdoController;
 
 /**
- * A model authored from Stan source. Provide exactly one of `stanCode`, `stanUrl`, or
- * `moduleUrl`; the prior is parsed from the Stan source unless given explicitly.
+ * A model authored from Stan source. Provide exactly one of `stanCode` or `moduleUrl`;
+ * the prior is parsed from the Stan source unless given explicitly.
  */
-export interface ModelSpec extends Partial<Omit<ModelPackage, "moduleUrl">> {
-  stanCode?: string;
-  stanUrl?: string;
-  moduleUrl?: string;
-}
+export type ModelSpec = Partial<ModelPackage>;
 
 /**
  * Compile a source model spec into a model package usable with createController
@@ -222,10 +258,7 @@ export interface ValidationResult {
 }
 
 /** Validate a model package's shape (optionally probing the likelihood at a sample design/draw). */
-export function validateModel(
-  model: unknown,
-  opts?: { sampleDesign?: Design; sampleDraw?: Draw },
-): ValidationResult;
+export function validateModel(model: unknown): ValidationResult;
 
 /** Half-open design-grid axis [start, stop) with the given step. */
 export function arange(start: number, stop: number, step?: number): number[];
@@ -254,7 +287,7 @@ export interface JsPsychADO {
 export const jsPsychADO: JsPsychADO;
 export default jsPsychADO;
 
-// --- Advanced / internal (exported for power users + the test suite; NOT part of the
+// --- Advanced (exported for power users; NOT part of the
 // stable façade and may change without a major bump while pre-1.0). ---
 
 /** Derive the JS prior `{ param: { dist, … } }` from a `.stan` source. */
@@ -262,9 +295,3 @@ export function parseStanPriors(
   stanCode: string,
   paramSpecs: Array<string | { name: string; lower?: number }>,
 ): Record<string, Prior>;
-
-/** Convert ["SS","LL"] → {0:"SS",1:"LL"}; pass an object through unchanged. */
-export function labelsToConfig(labels: string[] | Record<number, string>): Record<number, string>;
-
-/** Validate a model package and adapt it to the engine's controller shape. */
-export function buildModelAdapter(model: ModelPackage, context?: string): ModelPackage;

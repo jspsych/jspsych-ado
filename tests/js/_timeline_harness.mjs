@@ -38,4 +38,63 @@ async function runFragment(fragment, respond) {
   return { rows, rendered };
 }
 
-export { runFragment };
+/**
+ * A jsPsych stub capturing abortExperiment/finishTrial calls (superset of what the
+ * facade and the preload plugin touch).
+ */
+function makeJsPsych() {
+  return {
+    aborted: null,
+    finished: null,
+    abortExperiment(html, data) {
+      this.aborted = { html, data };
+    },
+    finishTrial(data) {
+      this.finished = data;
+    },
+  };
+}
+
+/**
+ * A fake Worker servicing the stan controller's protocol: init -> ack; sample ->
+ * posterior draw columns. `gate` (when provided) delays sample responses until
+ * released, so tests can assert that on_finish truly awaits the model update;
+ * `capture` records every posted message; `draws` overrides the canned columns.
+ */
+function installFakeWorker({ gate = null, capture = null, draws = null, fail = null } = {}) {
+  const originalWorker = globalThis.Worker;
+  globalThis.Worker = class FakeWorker {
+    postMessage(message) {
+      if (capture) capture.push(message);
+      if (fail) {
+        // Simulate a worker script/load failure: onerror fires, no message is posted
+        // (the client terminates the worker and rejects the in-flight request).
+        queueMicrotask(() => this.onerror && this.onerror({ message: fail }));
+        return;
+      }
+      const respond = () => {
+        if (message.type === "init") {
+          this.onmessage({ data: { type: "inited" } });
+        } else {
+          this.onmessage({
+            data: {
+              type: "draws",
+              draws: draws ?? { k: [0.01, 0.02, 0.03, 0.04], tau: [1, 1.1, 0.9, 1.2] },
+            },
+          });
+        }
+      };
+      if (gate && message.type === "sample") {
+        gate.push(respond);
+      } else {
+        queueMicrotask(respond);
+      }
+    }
+    terminate() {}
+  };
+  return () => {
+    globalThis.Worker = originalWorker;
+  };
+}
+
+export { runFragment, makeJsPsych, installFakeWorker };
