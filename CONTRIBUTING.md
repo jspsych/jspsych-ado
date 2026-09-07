@@ -60,8 +60,8 @@ The library is organized around a single coupling point — the **controller con
   `prepareModel` covers the compile-from-source prototyping path.
 - `src/controllers/` — an adaptive **controller** exposing a synchronous `start(context)` and an
   async `update(trial_data)`. This `start`/`update` contract is the _only_ coupling between the
-  timeline and inference, so `stan_ado_controller.js` (live; Stan compiled to WASM, run in a Web
-  Worker) and `mock_ado_controller.js` (no-WASM dev) are interchangeable behind it.
+  timeline and inference (`stan_ado_controller.js`: Stan compiled to WASM, run in a Web Worker);
+  unit tests drive it through a fake Worker (`tests/js/_timeline_harness.mjs`).
 - `src/ado/` — the model- and task-agnostic engine: mutual-information design selection
   (`mi_engine.js`), the Stan Web Worker (`stan_worker.js`), the generic timeline
   (`ado_timeline.js`, which composes the controller update into the response trial's awaited

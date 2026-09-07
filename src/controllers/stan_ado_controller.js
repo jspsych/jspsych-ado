@@ -1,7 +1,6 @@
-// The in-browser adaptive controller: accumulates trials, samples the Stan posterior off
-// the main thread via the shared worker client, summarizes the draws, and picks the
-// MI-optimal next design (or a random one under the recovery baseline). Same
-// start/update contract as the mock controller.
+// The adaptive controller: accumulates trials, samples the Stan posterior off the main
+// thread via the shared worker client, summarizes the draws, and picks the MI-optimal
+// next design (or a random one under the recovery baseline). Sync start(), async update().
 
 import {
   createDesignScorer,
@@ -11,7 +10,6 @@ import {
 } from "../ado/mi_engine.js";
 import { createSeededRng } from "../ado/ado_simulation.js";
 import { maxPossibleEig, makeStoppingEvaluator } from "../ado/stopping.js";
-import { nullDesignMetrics, makeBlockSizer } from "./controller_common.js";
 
 // Prior draws used to pick the first design (before any data exist).
 const PRIOR_DRAWS = 2000;
@@ -145,7 +143,7 @@ function createStanAdoController({
 
   function scoreSelectedDesigns(next_designs, draws) {
     if (!draws || draws.length === 0) {
-      return nullDesignMetrics(next_designs.length);
+      return next_designs.map(() => ({ mutual_info: null }));
     }
     return next_designs.map((design) => ({
       mutual_info: scorer.mutualInfo(design, draws),
@@ -196,7 +194,12 @@ function createStanAdoController({
     };
   }
 
-  const nextBlockSize = makeBlockSizer(stopper, testlet_size);
+  // Designs the next testlet needs, capped by the stopping max_trials so
+  // `stopping: { max_trials > n_trials }` cannot underflow the queue.
+  function nextBlockSize(from_index) {
+    const cap = stopper.config.max_trials;
+    return Math.min(testlet_size, cap == null ? testlet_size : Math.max(0, cap - from_index));
+  }
 
   return {
     /** Reset run state and choose the first design from JS prior draws (no worker needed). */

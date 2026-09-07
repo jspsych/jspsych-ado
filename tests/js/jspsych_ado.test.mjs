@@ -44,6 +44,9 @@ function makeModel(overrides = {}) {
 
 import { runFragment, makeJsPsych, installFakeWorker } from "./_timeline_harness.mjs";
 
+// Every facade run below samples through the fake Worker (canned k/tau draws).
+installFakeWorker();
+
 // parseStanPriors: commented-out statements and half-normal bounds
 
 const STAN_CODE = `
@@ -152,14 +155,13 @@ test("validateModel: rejects run-policy fields on a model package (model = stati
   }
 });
 
-// Core mock-mode flow through the PUBLIC API
+// Core flow through the PUBLIC API
 
-test("mock run: rendered stimulus always matches the recorded design (stale-design regression)", async () => {
+test("run: rendered stimulus always matches the recorded design (stale-design regression)", async () => {
   const jsPsych = makeJsPsych();
   const ado = createController(jsPsych, {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const trial = {
     type: "html-button-response",
@@ -180,16 +182,15 @@ test("mock run: rendered stimulus always matches the recorded design (stale-desi
       `trial ${i} rendered the design its row recorded`,
     );
   });
-  // The mock walks the grid deterministically; designs must actually change.
+  // Designs must actually change across trials.
   assert.ok(new Set(rendered.map((r) => r.stimulus)).size > 1, "designs advance across trials");
   assert.equal(jsPsych.aborted, null);
 });
 
-test("mock run: rows carry the ADO data schema", async () => {
+test("run: rows carry the ADO data schema", async () => {
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const trial = {
     type: "html-button-response",
@@ -207,8 +208,7 @@ test("mock run: rows carry the ADO data schema", async () => {
   const row = rows[0];
   assert.equal(row.choice, 0);
   assert.equal(row.choice_label, "SS"); // inferred from the trial's static choices
-  assert.equal(row.controller_mode, "mock");
-  assert.equal(row.design_strategy, null);
+  assert.equal(row.design_strategy, "ado");
   assert.equal(row.model_id, "test_hyperbolic");
   assert.equal(row.ado_event, "update");
   assert.equal(typeof row.ado_trial_index, "number");
@@ -224,7 +224,6 @@ test("response_labels: explicit labels are strict; inference is best-effort with
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const trial = { type: "x", stimulus: "s", choices: ["a", "b"], on_finish: () => {} };
   // EXPLICIT labels state the model's outcome coding — a mismatch is a hard error.
@@ -263,7 +262,6 @@ test("recordResponse: gated to on_finish, single-shot, and validated against the
   const ado = createController(jsPsych, {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
 
   // Outside any trial: throws.
@@ -291,7 +289,6 @@ test("recordResponse: gated to on_finish, single-shot, and validated against the
     const ado2 = createController(makeJsPsych(), {
       model: makeModel(),
       design_grid: DESIGN_GRID,
-      controller: "mock",
     });
     const t = {
       type: "x",
@@ -314,7 +311,6 @@ test("forgotten recordResponse: on_finish rejects AND the experiment aborts visi
   const ado = createController(jsPsych, {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const trial = { type: "x", stimulus: "s", choices: ["a", "b"], on_finish: () => {} };
   const frag = ado.createTimeline(trial, { n_trials: 1, debug: false });
@@ -344,7 +340,6 @@ test("categorical run: K=3 outcomes flow through the public API; out-of-range re
   const ado = createController(makeJsPsych(), {
     model: categorical_model,
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const trial = {
     type: "html-button-response",
@@ -363,7 +358,6 @@ test("categorical run: K=3 outcomes flow through the public API; out-of-range re
   const ado2 = createController(makeJsPsych(), {
     model: categorical_model,
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const f = ado2.createTimeline(
     { ...trial, on_finish: (d) => ado2.recordResponse(d.response) },
@@ -380,7 +374,6 @@ test("user mapping owns raw->outcome: mapped value is the choice, raw response s
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   // A keyboard-ish trial whose raw response is a key string, mapped in user code.
   const keymap = { f: 0, j: 1 };
@@ -480,7 +473,6 @@ test("testlet_size=2: each trial inside a testlet renders its OWN design; one up
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const trial = {
     type: "html-button-response",
@@ -504,7 +496,7 @@ test("testlet_size=2: each trial inside a testlet renders its OWN design; one up
     assert.equal(row.testlet_position, i % 2);
     assert.equal(row.ado_testlet_size, 2);
   });
-  // The mock's testlet designs differ within a batch — the in-testlet advance is real.
+  // Testlet designs differ within a batch — the in-testlet advance is real.
   assert.notEqual(rendered[0].stimulus, rendered[1].stimulus);
   // Update fields land on BOTH rows of a batch, with the same post-update index.
   assert.equal(rows[0].ado_trial_index, rows[1].ado_trial_index);
@@ -574,7 +566,6 @@ test("array form: prelude trials read the design; the LAST trial is the response
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const fixation = { type: "fixation", stimulus: "+" };
   const show = { type: "canvas", stimulus: () => `see ${ado.evaluateDesignVariable("t_ll")}` };
@@ -598,7 +589,6 @@ test("factory form: the factory runs per adaptive step and can read ctx", async 
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const seen_trial_numbers = [];
   const factory = (ctx) => {
@@ -624,7 +614,6 @@ test("createTimeline does not mutate the user's trial objects", async () => {
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const user_on_finish = (d) => ado.recordResponse(d.response);
   const trial = { type: "x", stimulus: "s", choices: ["a", "b"], on_finish: user_on_finish };
@@ -640,7 +629,6 @@ test("controller reuse: a second createTimeline run works after the first (pract
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const make_trial = () => ({
     type: "x",
@@ -668,7 +656,6 @@ test("simulate: composes simulation_options drawing responses from the model lik
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const trial = {
     type: "html-button-response",
@@ -705,7 +692,6 @@ test("trials AFTER the response trial still render THIS step's design (feedback 
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const respond = {
     type: "response",
@@ -733,11 +719,10 @@ test("trials AFTER the response trial still render THIS step's design (feedback 
   });
 });
 
-test("session_id reaches the mock controller (contract parity with stan)", async () => {
+test("session_id reaches the controller", async () => {
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
     session_id: "P-0042",
   });
   const trial = {
@@ -762,7 +747,6 @@ test("simulate: model audit hooks (simulationData, labeled probabilities) reach 
   const ado = createController(makeJsPsych(), {
     model,
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const trial = {
     type: "html-button-response",
@@ -802,7 +786,6 @@ test("getState exposes the live controller state to user code", async () => {
   const ado = createController(makeJsPsych(), {
     model: makeModel(),
     design_grid: DESIGN_GRID,
-    controller: "mock",
   });
   const states = [];
   const trial = {

@@ -81,7 +81,6 @@ await runBrowserTest("delay-discounting demo", async ({ page, base, note }) => {
     note(r.choiceRows === TRIALS, `${TRIALS} choice trials recorded (got ${r.choiceRows})`);
     note(r.updateRows === TRIALS, `${TRIALS} update rows recorded (got ${r.updateRows})`);
     note(r.modelId === "hyperbolic", `model_id is hyperbolic (got ${r.modelId})`);
-    note(r.controllerMode === "stan", `controller_mode is stan (got ${r.controllerMode})`);
     note(r.designStrategy === "ado", `design_strategy is ado (got ${r.designStrategy})`);
     note(r.hasAdoDesign, "last row carries ado_design");
     note(r.hasChoiceMi, "choice row carries ado_mutual_info");

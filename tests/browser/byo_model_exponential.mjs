@@ -23,7 +23,6 @@ await runBrowserTest("byo-model demo", async ({ page, base, note }) => {
   if (!r.errored) {
     note(r.choiceRows === TRIALS, `${TRIALS} choice trials recorded (got ${r.choiceRows})`);
     note(r.modelId === "exponential", `model_id is exponential (got ${r.modelId})`);
-    note(r.controllerMode === "stan", `controller_mode is stan (got ${r.controllerMode})`);
     note(r.hasAdoDesign, "last row carries ado_design");
     note(
       typeof r.postMeanK === "number" &&

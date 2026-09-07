@@ -23,7 +23,6 @@ await runBrowserTest("byo-task demo", async ({ page, base, note }) => {
   if (!r.errored) {
     note(r.choiceRows === TRIALS, `${TRIALS} choice trials recorded (got ${r.choiceRows})`);
     note(r.modelId === "hyperbolic", `model_id is hyperbolic (got ${r.modelId})`);
-    note(r.controllerMode === "stan", `controller_mode is stan (got ${r.controllerMode})`);
     note(r.hasAdoDesign, "last row carries ado_design");
     note(r.choice === 0 || r.choice === 1, `choice is 0/1 (got ${r.choice})`);
     note(

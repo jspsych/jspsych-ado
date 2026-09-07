@@ -237,29 +237,6 @@ test("worker load failure: ado.ready() rejects and preload aborts (compile OK, w
   }
 });
 
-test("mock handles: ready() resolves immediately and preload is a no-op gate", async () => {
-  const jsPsych = makeJsPsych();
-  const ado = createController(jsPsych, {
-    model: makeSourceModel({
-      id: "committed",
-      stanCode: undefined,
-      moduleUrl: "https://example.test/main.js",
-      wasmUrl: "https://example.test/main.wasm",
-      prior: {
-        k: { dist: "lognormal", meanlog: -4, sdlog: 2 },
-        tau: { dist: "lognormal", meanlog: 0, sdlog: 1 },
-      },
-    }),
-    design_grid: DESIGN_GRID,
-    controller: "mock",
-  });
-  await ado.ready();
-  const plugin = new (ado.preload().type)(jsPsych);
-  plugin.trial({ innerHTML: "" });
-  await new Promise((r) => setTimeout(r, 0));
-  assert.equal(jsPsych.finished.ado_preload_ok, true);
-});
-
 test("controller reuse (stan): two timelines from one handle share a single worker init", async () => {
   const server = installFakeCompileServer();
   const messages = [];
@@ -297,7 +274,7 @@ test("controller reuse (stan): two timelines from one handle share a single work
 });
 
 test("committed models (stan): ready() loads the worker and forwards the committed wasmUrl", async () => {
-  // A committed (non-mock) model: ready() now goes through ensureStanRuntime -> client.init
+  // A committed model: ready() goes through ensureStanRuntime -> client.init
   // with the committed moduleUrl/wasmUrl (no compile). Certifies the #57 guarantee that the
   // bundler-emitted wasmUrl reaches the worker, and that ready() gates on the worker load.
   const messages = [];
@@ -340,35 +317,6 @@ test("a non-object prior on a stanCode model is rejected, not silently kept", ()
   const { valid, problems } = validateModel(makeSourceModel({ prior: "auto" }));
   assert.equal(valid, false);
   assert.ok(problems.some((p) => /prior.*must be an object/s.test(p.message)));
-});
-
-test("mock-mode handles never contact the compile server; ready() resolves immediately", async () => {
-  const server = installFakeCompileServer();
-  try {
-    const ado = createController(makeJsPsych(), {
-      model: makeSourceModel({ id: "src_mock", variant: "mock" }),
-      design_grid: DESIGN_GRID,
-      controller: "mock",
-    });
-    await ado.ready();
-    assert.equal(server.calls.length, 0, "no network traffic in the mock dev loop");
-    // The mock run itself works end-to-end without WASM.
-    const trial = {
-      type: "x",
-      stimulus: "s",
-      choices: ["SS", "LL"],
-      on_finish: (d) => ado.recordResponse(d.response),
-    };
-    const { rows } = await runFragment(
-      ado.createTimeline(trial, { n_trials: 1, debug: false }),
-      () => ({
-        response: 1,
-      }),
-    );
-    assert.equal(rows.length, 1);
-  } finally {
-    server.restore();
-  }
 });
 
 test("ready() rejects when the compiled artifact cannot be downloaded", async () => {
@@ -535,38 +483,6 @@ test("a URL-object source names the real problem instead of 'provide exactly one
     () => prepareModel({ moduleUrl: url_like, params: ["k"] }, {}),
     /`moduleUrl` must be a string/,
   );
-});
-
-test("ready() gates on a per-timeline stan override once its timeline is built (mock-default handle)", async () => {
-  const messages = [];
-  const restoreWorker = installFakeWorker({ capture: messages });
-  try {
-    const ado = createController(makeJsPsych(), {
-      model: makeSourceModel({
-        id: "committed_override",
-        stanCode: undefined,
-        moduleUrl: "https://example.test/override/main.js",
-        wasmUrl: "https://example.test/override/main.wasm",
-        prior: {
-          k: { dist: "lognormal", meanlog: -4, sdlog: 2 },
-          tau: { dist: "lognormal", meanlog: 0, sdlog: 1 },
-        },
-      }),
-      design_grid: DESIGN_GRID,
-      controller: "mock",
-    });
-    const trial = {
-      type: "html-button-response",
-      stimulus: () => `${ado.evaluateDesignVariable("t_ll")}`,
-      choices: ["SS", "LL"],
-      on_finish: (d) => ado.recordResponse(d.response),
-    };
-    ado.createTimeline(trial, { controller: "stan", debug: false }); // build only, never run
-    await ado.ready(); // gated on the override's worker load, not the mock short-circuit
-    assert.equal(messages.filter((m) => m.type === "init").length, 1);
-  } finally {
-    restoreWorker();
-  }
 });
 
 test("prepareModel -> createController: no bundler wasmUrl warning for server-hosted artifacts", async () => {

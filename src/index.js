@@ -3,7 +3,6 @@
 // parsing + remote compile) in models/stan_source.js.
 
 import { createStanAdoController } from "./controllers/stan_ado_controller.js";
-import { createMockAdoController } from "./controllers/mock_ado_controller.js";
 import { createStanWorkerClient } from "./controllers/stan_worker_client.js";
 import { createAdoTimeline, normalizeTestletSize } from "./ado/ado_timeline.js";
 import { enumerateDesigns } from "./ado/mi_engine.js";
@@ -55,7 +54,6 @@ function resolveDebug(value) {
  * @param {number} [config.n_trials=42] - Adaptive trial count.
  * @param {number} [config.testlet_size=1] - Choice trials shown between Stan refits.
  * @param {Object} [config.stopping] - EIG-based early stopping; omit for fixed length.
- * @param {string} [config.controller="stan"] - "stan" (live inference) or "mock" (no-WASM dev).
  * @param {string} [config.design_strategy="ado"] - "ado" (MI-optimal) or "random" (recovery baseline).
  * @param {?number} [config.design_seed] - Optional seed for prior/random design selection.
  * @param {string} [config.session_id] - Session id saved into the data.
@@ -132,16 +130,19 @@ function createController(jsPsych, config = {}) {
     stan_runtime = { client, ready };
     return stan_runtime;
   }
-  const handle_controller = normalizeControllerMode(config.controller);
+  if (config.controller != null) {
+    throw new Error(
+      'createController: the `controller` option was removed (there is no "mock" controller); ' +
+        "use a small `stan` budget for fast iteration.",
+    );
+  }
 
   const candidate_designs = enumerateDesigns(config.design_grid);
   validateDesignGridForModel(candidate_designs, adapter, adapter.id);
 
   // Start the compile eagerly so it overlaps instruction screens — after validation, so
-  // an invalid config never sends Stan source to the server. Mock handles stay offline.
-  if (handle_controller !== "mock") {
-    ensureModuleReady();
-  }
+  // an invalid config never sends Stan source to the server.
+  ensureModuleReady();
 
   // The state below belongs to the active run (one createTimeline call); each timeline
   // re-activates itself at on_timeline_start, so sequential reuse (practice -> main) works.
@@ -191,13 +192,9 @@ function createController(jsPsych, config = {}) {
 
     /**
      * Resolves once the Stan worker has imported the model and instantiated its wasm
-     * (after compile + download for source models); rejects if any step fails. A mock
-     * handle resolves immediately unless a stan-override timeline already built its runtime.
+     * (after compile + download for source models); rejects if any step fails.
      */
     ready() {
-      if (!stan_runtime && handle_controller === "mock") {
-        return Promise.resolve();
-      }
       return ensureStanRuntime().ready.then(() => undefined);
     },
 
@@ -246,11 +243,7 @@ function createController(jsPsych, config = {}) {
         timeline_config.testlet_size ?? config.testlet_size,
       );
       const stopping = timeline_config.stopping ?? config.stopping ?? null;
-      const controller_mode = normalizeControllerMode(
-        timeline_config.controller ?? config.controller,
-      );
       const design_strategy = timeline_config.design_strategy ?? config.design_strategy ?? "ado";
-      const effective_design_strategy = controller_mode === "mock" ? null : design_strategy;
       const debug = resolveDebug(timeline_config.debug ?? config.debug ?? "url");
       const response_labels = resolveResponseLabels(
         timeline_config.response_labels ?? config.response_labels,
@@ -260,35 +253,24 @@ function createController(jsPsych, config = {}) {
       const stan = { ...DEFAULT_STAN, ...config.stan, ...timeline_config.stan };
       const simulate = timeline_config.simulate ?? config.simulate ?? null;
 
-      const stan_runtime_for_timeline = controller_mode === "mock" ? null : ensureStanRuntime();
-      const adaptive_controller =
-        controller_mode === "mock"
-          ? createMockAdoController({
-              grid_design: candidate_designs,
-              params: adapter.params,
-              n_trials,
-              testlet_size,
-              stopping,
-              session_id: timeline_config.session_id ?? config.session_id,
-            })
-          : createStanAdoController({
-              model: adapter,
-              worker_client: stan_runtime_for_timeline.client,
-              worker_ready: stan_runtime_for_timeline.ready,
-              grid_design: candidate_designs,
-              stan,
-              n_trials,
-              testlet_size,
-              stopping,
-              session_id: timeline_config.session_id ?? config.session_id,
-              design_strategy: effective_design_strategy,
-              design_seed: timeline_config.design_seed ?? config.design_seed ?? null,
-            });
+      const runtime = ensureStanRuntime();
+      const adaptive_controller = createStanAdoController({
+        model: adapter,
+        worker_client: runtime.client,
+        worker_ready: runtime.ready,
+        grid_design: candidate_designs,
+        stan,
+        n_trials,
+        testlet_size,
+        stopping,
+        session_id: timeline_config.session_id ?? config.session_id,
+        design_strategy,
+        design_seed: timeline_config.design_seed ?? config.design_seed ?? null,
+      });
 
       const run_context = {
         debug,
-        controller_mode,
-        design_strategy: effective_design_strategy,
+        design_strategy,
         model_id: adapter.id,
         posterior_display: config.model.posterior_display,
       };
@@ -451,16 +433,6 @@ async function prepareModel(spec, { compileServer, authToken = DEFAULT_TOKEN } =
 
   // wasmUrl: null — the server-hosted main.js fetches its sibling wasm (no bundler asset).
   return { ...rest, prior, moduleUrl, wasmUrl: null };
-}
-
-function normalizeControllerMode(value) {
-  if (value == null) {
-    return "stan";
-  }
-  if (!["stan", "mock"].includes(value)) {
-    throw new Error(`createController: controller must be "stan" or "mock", got "${value}".`);
-  }
-  return value;
 }
 
 function validateRecordedResponse(response, responseSpace) {

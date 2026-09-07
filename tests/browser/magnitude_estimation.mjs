@@ -47,7 +47,6 @@ await runBrowserTest("magnitude-estimation demo", async ({ page, base, note }) =
           postMeanB: last.post_mean_b ?? null,
           postSdB: last.post_sd_b ?? null,
           postMeanSigma: last.post_mean_sigma ?? null,
-          controllerMode: last.controller_mode,
           designStrategy: last.design_strategy ?? null,
         };
       },
@@ -88,7 +87,6 @@ await runBrowserTest("magnitude-estimation demo", async ({ page, base, note }) =
       ),
       "continuous posterior fields (loga, b, sigma) are numeric",
     );
-    note(r.controllerMode === "stan", `controller_mode is stan (got ${r.controllerMode})`);
     note(r.designStrategy === "ado", `design_strategy is ado (got ${r.designStrategy})`);
   }
 });

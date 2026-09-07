@@ -39,7 +39,6 @@ await runBrowserTest("line-length demo", async ({ page, base, note }) => {
       r.modelId === "line_length_discrimination_3ifc",
       `model_id is line_length_discrimination_3ifc (got ${r.modelId})`,
     );
-    note(r.controllerMode === "stan", `controller_mode is stan (got ${r.controllerMode})`);
     note(r.hasAdoDesign, "last row carries ado_design");
     note([0, 1, 2].includes(r.choice), `choice is 0/1/2 (got ${r.choice})`);
     note(["A", "B", "C"].includes(r.choiceLabel), `choice label is A/B/C (got ${r.choiceLabel})`);

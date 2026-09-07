@@ -25,7 +25,7 @@ const TYPES = {
  * @param {number} [port=0] - Port (0 = ephemeral, recommended for tests).
  * @param {Function} [handleRoute] - Optional async (req, res) => boolean pre-route
  *   hook; return true when the request was handled (lets a test add API endpoints
- *   — e.g. a mock compile server — without re-implementing the file serving).
+ *   — e.g. a fake compile server — without re-implementing the file serving).
  * @returns {Promise<{url: string, port: number, close: () => Promise<void>}>}
  */
 export function startStaticServer(root, port = 0, handleRoute = null) {
