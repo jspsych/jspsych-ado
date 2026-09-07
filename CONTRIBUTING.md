@@ -94,10 +94,12 @@ looks non-idiomatic, this is usually why:
   asset. So instead of a `src/` → `dist/` build, the source under `src/` _is_ what
   ships. Consumers who bundle (Vite/webpack) get correct asset emission via each
   model's `new URL("./main.{js,wasm}", import.meta.url)` (see the `#57` notes).
-- **Compiling a model is offline + committed.** There is no in-browser compilation,
-  and the public compile server blocks browser cross-origin requests, so you compile a
-  `.stan` once (stan-playground server, local Docker, or the web app) and commit
-  `main.js` + `main.wasm`. The full recipe lives in [src/models/README.md](src/models/README.md).
+- **Compiling a model is offline + committed.** Stan is never compiled in the browser:
+  you compile a `.stan` once (stan-playground server, local Docker, or the web app) and
+  commit `main.js` + `main.wasm`. The full recipe lives in
+  [src/models/README.md](src/models/README.md). The `stanCode` + `prepareModel` /
+  `ado.preload()` path is for prototyping only — it sends the source to a compile server
+  at run time, which must allow the page's origin (CORS).
 - **Re-run `npm run patch:wasm` after (re)compiling a model.** The compile toolchain
   emits glue that ignores `Module.locateFile`; the patch makes it honor the
   bundler-hashed `wasmUrl`. CI fails if any committed `main.js` is left unpatched.
@@ -121,10 +123,9 @@ Changes should pass the relevant layer(s):
 - `npm run test:bundler` — a Vite build of a small experiment; verifies `.wasm` asset
   emission and `wasmUrl` routing.
 
-The one surface not covered by automated tests is the in-browser Web Worker path under
-a live Stan run; after touching the worker, controller, or model glue, sanity-check a
-demo manually with `?debug=1` (per-trial console summaries + live posterior/EIG
-charts + the end-of-run debrief overlay).
+The browser tests assert data rows and the presence of the debug panels, not how the
+charts look; after touching the debug UI, open a demo with `?debug=1` (per-trial console
+summaries + live posterior/EIG charts + the end-of-run debrief overlay) and eyeball it.
 
 ## Code of Conduct
 
