@@ -125,7 +125,6 @@ function createAdoTimeline(jsPsych, adaptive_controller, config, run_context = {
     data.ado_session_id = result.session_id;
     data.ado_trial_index = result.trial_index;
     data.ado_testlet_size = batch_length;
-    data.controller_mode = run_context.controller_mode;
     data.design_strategy = run_context.design_strategy;
     data.ado_next_design = result.next_design;
     data.ado_next_designs = next_designs;

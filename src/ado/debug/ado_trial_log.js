@@ -23,11 +23,7 @@ function logAdoTrial(run_context, trial_data, ado_result, config) {
   const post_mean = ado_result.post_mean || {};
   const post_sd = ado_result.post_sd || {};
   const total_trials = config && config.n_trials ? config.n_trials : "?";
-  const mode_label =
-    run_context.controller_mode === "stan" && run_context.design_strategy
-      ? `${run_context.controller_mode}/${run_context.design_strategy}`
-      : run_context.controller_mode;
-  const label = `ADO update ${trial_data.trial_number}/${total_trials} | ${mode_label} | response: ${trial_data.choice_label}`;
+  const label = `ADO update ${trial_data.trial_number}/${total_trials} | ${run_context.design_strategy} | response: ${trial_data.choice_label}`;
   console.log(
     [
       `${label} | latency: ${formatDebugLatency(ado_result.api_latency_ms)}`,

@@ -61,14 +61,14 @@ the halberda demo builds a canvas task this way.
 - `ado.recordResponse(outcome)` — record the model outcome from the adaptive trial's
   `on_finish` (validated against the model's response space).
 - `ado.createTimeline(trialOrTrials, options)` — wrap your trial(s) into the adaptive
-  loop; `options` can override `n_trials`, `stopping`, `testlet_size`, `controller`,
+  loop; `options` can override `n_trials`, `stopping`, `testlet_size`,
   `design_strategy`, `debug`, `response_labels`, `simulate`, ….
 - `ado.getState()` — the live posterior summaries and selection diagnostics.
 - `ado.preload(opts)` / `ado.ready()` — a jsPsychPreload-style gate trial (and the
   underlying promise) that waits until the model is fully **loadable**: compiled on a
   compile server and downloaded (for `stanCode` models), then imported and its wasm
   instantiated by the Stan worker (committed models too — a broken artifact fails the
-  gate rather than the first trial). Mock handles resolve immediately. See
+  gate rather than the first trial). See
   [`demos/byo_model_exponential/from_source.html`](../demos/byo_model_exponential/from_source.html).
 - `prepareModel(spec, { compileServer })` — compile a Stan-source model spec into a model
   package yourself (the lower-level path `stanCode` models use internally).
@@ -119,19 +119,18 @@ drove the decision is the grid-max MI in `ado_max_mutual_info`.
 response, posterior mean/sd for the active parameters, the next selected design, and the
 local sampling time — with a collapsed details group of tables in DevTools.
 
-With the Stan controller it also renders an on-page information-gain panel and a
-dismissible posterior debrief overlay at the end. The panel
-plots the mutual information of the design actually selected each trial, plus realized
-information gain after the response. (The fast `controller: "mock"` path skips these
-quantitative metrics; it exists for timeline/UI testing without WASM.)
+It also renders an on-page information-gain panel and a dismissible posterior debrief
+overlay at the end. The panel plots the mutual information of the design actually
+selected each trial, plus realized information gain after the response. For fast UI
+iteration, shrink the sampler (`stan: { num_warmup: 50, num_samples: 50 }`).
 
 ## How it works
 
 The timeline talks to an **adaptive controller** with two methods — a synchronous
 `start(context)` (the first design comes from JS prior draws while the WASM loads in the
 background) and an async `update(trial_data)` — each returning the next design plus the
-current posterior. Swapping the deterministic mock controller for the in-browser Stan
-controller is the entire abstraction; the timeline never sees Stan or WASM. Scheduling
+current posterior. That contract is the entire abstraction; the timeline never sees Stan
+or WASM. Scheduling
 rides on jsPsych 8: the response trial's `on_finish` is composed with the controller
 update and awaited, so the next trial can't render until the next design is ready — no
 hidden plugin trials are injected.
@@ -139,7 +138,7 @@ hidden plugin trials are injected.
 - **`src/ado/mi_engine.js`** — model-agnostic mutual-information design selection.
 - **`src/ado/stan_worker.js`** — one generic Web Worker that runs NUTS off the main thread.
 - **`src/ado/ado_timeline.js`** — the generic, stimulus-agnostic timeline.
-- **`src/controllers/`** — the in-browser Stan controller and the mock controller.
+- **`src/controllers/`** — the Stan controller and its Web Worker client.
 - **`src/index.js`** — the `jsPsychADO` façade (`createController`).
 
 ## Adding tasks and models

@@ -119,8 +119,6 @@ export interface AdoRunOptions {
   n_trials?: number;
   testlet_size?: number;
   stopping?: StoppingConfig | null;
-  /** "stan" (live in-browser inference, default) or "mock" (deterministic, no WASM). */
-  controller?: "stan" | "mock";
   /** "ado" for MI-optimal designs (default), "random" for the recovery baseline. */
   design_strategy?: "ado" | "random";
   design_seed?: number | null;
@@ -205,7 +203,7 @@ export interface AdoController {
    * Resolves once the model is loaded and usable: the Stan worker has imported the
    * compiled module and instantiated its wasm — for committed models too, after
    * compile + artifact download for `stanCode` models. Rejects if the compile,
-   * download, or worker load fails. Mock handles resolve immediately (no wasm).
+   * download, or worker load fails.
    */
   ready(): Promise<void>;
   /**

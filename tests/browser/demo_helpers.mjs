@@ -19,7 +19,7 @@ function isBenign(url) {
  *
  * @param {string} label - Printed name.
  * @param {Function} body - async ({ page, base, note }) => void.
- * @param {Object} [opts] - { routes }: static_server pre-route hook (mock endpoints).
+ * @param {Object} [opts] - { routes }: static_server pre-route hook (fake endpoints).
  */
 async function runBrowserTest(label, body, { routes } = {}) {
   const server = await startStaticServer(ROOT, 0, routes);
@@ -242,7 +242,6 @@ async function collectDemoResult(page, expectedRows) {
           choice: last.choice,
           choiceLabel: last.choice_label,
           modelId: last.model_id ?? null,
-          controllerMode: last.controller_mode ?? null,
           designStrategy: last.design_strategy ?? null,
           hasChoiceMi: Object.prototype.hasOwnProperty.call(last, "ado_mutual_info"),
           hasChoiceSelectionTime: Object.prototype.hasOwnProperty.call(

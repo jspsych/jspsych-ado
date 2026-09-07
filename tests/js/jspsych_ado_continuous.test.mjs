@@ -4,7 +4,9 @@ import { createController, validateModel } from "../../src/index.js";
 import { buildModelAdapter, validateDesignGridForModel } from "../../src/validation.js";
 import { createDesignScorer, gaussianEntropy } from "../../src/ado/mi_engine.js";
 import { simulateContinuousResponse, createSeededRng } from "../../src/ado/ado_simulation.js";
-import { runFragment } from "./_timeline_harness.mjs";
+import { runFragment, installFakeWorker } from "./_timeline_harness.mjs";
+
+installFakeWorker({ draws: { theta: [0.5, 1, 1.5, 2] } });
 
 // End-to-end facade support for a continuous (pseudo-continuous) response: a model
 // supplies a density + moments instead of a probability vector, and the trials carry
@@ -102,7 +104,6 @@ test("createController: a continuous model builds a controller handle without er
   const ado = createController(jsPsychStub, {
     model: continuousModelPackage({ id: "cont_est_ctrl" }),
     design_grid: CONT_GRID,
-    controller: "mock",
   });
   assert.equal(typeof ado.createTimeline, "function");
 });
@@ -122,7 +123,6 @@ test("controller API run: a continuous response records a numeric choice with no
   const ado = createController(jsPsychStub, {
     model: continuousModelPackage({ id: "cont_run" }),
     design_grid: CONT_GRID,
-    controller: "mock",
   });
   const trial = {
     type: "canvas-slider-response",
@@ -146,7 +146,6 @@ test("controller API run: a non-finite continuous response is rejected", async (
   const ado = createController(jsPsychStub, {
     model: continuousModelPackage({ id: "cont_nan" }),
     design_grid: CONT_GRID,
-    controller: "mock",
   });
   const trial = { type: "x", stimulus: "s", on_finish: (d) => ado.recordResponse(d.response) };
   const root = ado.createTimeline(trial, { n_trials: 1, debug: false })[0];

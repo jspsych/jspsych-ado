@@ -130,7 +130,7 @@ test("makeStoppingEvaluator threads the consecutive-below streak and reset() cle
   assert.deepEqual(stopper.evaluate(7, 0.03), { should_stop: false, stop_reason: null });
 });
 
-test("makeStoppingEvaluator with no max_possible_eig (mock) only ever max_trials-stops", () => {
+test("makeStoppingEvaluator with no max_possible_eig only ever max_trials-stops", () => {
   const stopper = makeStoppingEvaluator({
     stopping: { eig_fraction: 0.1, max_trials: 3 },
     default_max_trials: 3,

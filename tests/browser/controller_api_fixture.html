@@ -20,9 +20,8 @@
     };
 
     const params = new URLSearchParams(window.location.search);
-    const controller = params.get("controller") || "stan";
     const design_strategy = params.get("strategy") || "ado";
-    const run_id = `controller_api_${controller}_${design_strategy}`;
+    const run_id = `controller_api_${design_strategy}`;
 
     window.__controllerApiResult = { done: false, error: null };
 
@@ -39,7 +38,6 @@
             choice_label: last.choice_label,
             has_design: Boolean(last.ado_design && typeof last.ado_design === "object"),
             model_id: last.model_id ?? null,
-            controller_mode: last.controller_mode ?? null,
             design_strategy: last.design_strategy ?? null,
             post_mean_k: last.post_mean_k ?? null,
             selection_time_ms: last.ado_selection_time_ms ?? null,
@@ -51,7 +49,6 @@
         model: hyperbolic,
         design_grid,
         n_trials: 2,
-        controller,
         design_strategy,
         stan: { num_chains: 1, num_warmup: 100, num_samples: 200, seed: 11 },
       });

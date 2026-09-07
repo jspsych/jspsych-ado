@@ -1,4 +1,4 @@
-// Browser test for the compile-from-source preload path: a mock compile server is
+// Browser test for the compile-from-source preload path: a fake compile server is
 // layered onto the shared static server (same origin => no CORS in the test).
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
@@ -12,7 +12,7 @@ const PAGE = "/tests/browser/compile_preload_fixture.html";
 
 let compile_posts = 0;
 
-// Mock compile-server endpoints; everything else falls through to repo file serving.
+// Fake compile-server endpoints; everything else falls through to repo file serving.
 async function compileRoutes(req, res) {
   const url = new URL(req.url, "http://127.0.0.1");
   if (req.method === "POST" && url.pathname === "/compile") {
@@ -25,10 +25,10 @@ async function compileRoutes(req, res) {
     }
     res
       .writeHead(200, { "Content-Type": "application/json" })
-      .end(JSON.stringify({ model_id: "mock-exponential" }));
+      .end(JSON.stringify({ model_id: "fake-exponential" }));
     return true;
   }
-  if (url.pathname.startsWith("/download/mock-exponential/")) {
+  if (url.pathname.startsWith("/download/fake-exponential/")) {
     const file = join(ARTIFACTS, url.pathname.split("/").pop());
     const type = extname(file) === ".wasm" ? "application/wasm" : "text/javascript";
     res.writeHead(200, { "Content-Type": type }).end(await readFile(file));

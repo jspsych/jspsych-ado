@@ -6,12 +6,6 @@
 //   1. recovery        - all three params recovered within tolerance at N trials
 //   2. sensitivity ordering - recovered sensitivity rises with the true value
 //   3. precision-vs-trials  - sensitivity posterior SD shrinks with more trials
-//
-// Like the other recovery tests it loads the web-only WASM in node by shimming
-// `fetch` for file: URLs and bypasses the Web Worker, so it is NOT part of
-// `node --test`. All seeds are fixed.
-//
-// Run: node tests/wasm/line_length_3ifc_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 

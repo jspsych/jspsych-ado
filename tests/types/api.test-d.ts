@@ -26,7 +26,6 @@ const config: CreateControllerConfig = {
   stan: { num_chains: 1, num_warmup: 100, num_samples: 200 },
   n_trials: 20,
   stopping: { eig_fraction: 0.1, min_trials: 8 },
-  controller: "stan",
   design_strategy: "ado",
 };
 

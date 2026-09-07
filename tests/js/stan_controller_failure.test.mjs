@@ -49,9 +49,7 @@ function installScriptedWorker(handler) {
 
 const baseArgs = (model) => ({ model, grid_design: { d: [0, 1] }, n_trials: 2 });
 
-// The handle now owns worker init; a controller adopts a shared client + worker_ready.
-// Kick the load off against the currently-installed (scripted) Worker, then build the
-// controller around that shared client — mirroring index.js's ensureStanRuntime.
+// A controller adopts the handle-owned client + worker_ready (mirrors ensureStanRuntime).
 function makeControllerWithClient(model = makeModel()) {
   const client = createStanWorkerClient();
   const worker_ready = client.init(model.moduleUrl, model.wasmUrl);

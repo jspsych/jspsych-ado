@@ -9,10 +9,6 @@
 //
 // Also checks fixed-seed determinism: the same data + seed yields identical draws
 // (so a missing/mis-threaded seed can't silently make runs irreproducible).
-//
-// Real WASM via a fetch shim, bypasses the Web Worker; NOT part of `node --test`.
-//
-// Run: node tests/wasm/likelihood_parity.mjs
 
 import "./_wasm_node_shim.mjs";
 

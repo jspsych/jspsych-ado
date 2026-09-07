@@ -145,8 +145,14 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
 - `labelsToConfig` and `buildModelAdapter` from the package entry (test-only
   conveniences); `posterior_display.upper_bound` (no model used it); the console ASCII
   posterior histograms in the `?debug=1` log (the tables and on-page charts remain).
+- The mock controller (`controller: "mock"`) and, with it, the `controller` option on
+  `createController` / `createTimeline` and the `controller_mode` data column (always
+  `"stan"` once the mock is gone; `design_strategy` still records `"ado"` | `"random"`).
+  For fast UI iteration shrink the sampler instead
+  (`stan: { num_warmup: 50, num_samples: 50 }`); the unit tests drive the real controller
+  through a fake Worker. Passing `controller` now throws with that guidance.
 - The `ado_mode` data column: it duplicated `controller_mode` + `design_strategy`, which
-  are recorded on the same row. `validateModel`'s optional `{ sampleDesign, sampleDraw }`
+  were recorded on the same row. `validateModel`'s optional `{ sampleDesign, sampleDraw }`
   probe (the design-grid validation already probes the likelihood). The hand-written
   `responseProbs` on the binary model packages: the engine derives `[1 - p, p]` from
   `responseProb` itself.

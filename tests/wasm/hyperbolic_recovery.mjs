@@ -1,21 +1,9 @@
-// Manual test: real Stan WASM inference + ADO loop. Three checks:
+// Real Stan WASM inference + ADO loop. Three checks:
 //   1. recovery across a (k, tau) sweep      — k recovers within a factor of 5
 //   2. tau ordering                          — recovered tau rises with true tau
 //   3. precision improves with more trials   — posterior SD of k shrinks as N grows
-//
-// This is NOT part of `node --test` because it loads the BROWSER wasm module
-// (compiled with -sENVIRONMENT=web) in node by shimming `fetch` for file: URLs.
-// It exercises the full pipeline the browser uses minus the Web Worker: the
-// hyperbolic.stan model, buildData, paramName extraction, summarizeDraws, MI design
-// selection, and the (model-agnostic) simulator drawing from model.responseProb.
-// All seeds are fixed, so the numbers below are deterministic across runs.
-//
-// Run:  node tests/wasm/hyperbolic_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
-
-// Make the web-only emscripten module loadable in node: pretend we are in a web
-// environment and teach fetch to read the sibling .wasm from disk.
 
 const StanModel = (await import("../../core/tinystan/index.mjs")).default;
 const hyp = (await import("../../src/models/hyperbolic/model.js")).default;
@@ -26,8 +14,7 @@ const { createSeededRng, simulateCategoricalChoice } =
 const { design_grid } = await import("../../demos/delay_discounting/task.js");
 
 const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
-// The model declares a stanData map; generate its buildData (the framework does this
-// in buildAdapter — done here directly since this test bypasses the facade/worker).
+// buildData from the model's stanData map (the facade does this in buildModelAdapter).
 const buildData = makeStanDataBuilder({ stanData: hyp.stanData, responseSpace: hyp.responseSpace });
 
 const createModule = (await import(hyp.moduleUrl)).default;
@@ -75,7 +62,7 @@ const fail = (msg) => {
   failures++;
 };
 
-// --- 1. Recovery across a (k, tau) sweep ------------------------------------
+// 1. Recovery across a (k, tau) sweep
 const SWEEP_TRIALS = 30;
 const settings = [
   { sweep: "k", k: 1e-4, tau: 2.5 },
@@ -104,7 +91,7 @@ for (const s of settings) {
   );
 }
 
-// --- 2. tau ordering: recovered tau rises with true tau ---------------------
+// 2. tau ordering: recovered tau rises with true tau
 console.log("\n[2] tau ordering (k fixed at 5e-3): recovered tau should rise with true tau");
 const tau_rows = results.filter((r) => r.sweep === "tau").sort((a, b) => a.tau - b.tau);
 console.log("  true tau: " + tau_rows.map((r) => r.tau).join(" < "));
@@ -118,7 +105,7 @@ for (let i = 1; i < tau_rows.length; i++) {
   }
 }
 
-// --- 3. Precision improves with more trials --------------------------------
+// 3. Precision improves with more trials
 console.log("\n[3] Precision vs trials (true k=5e-3, tau=2.5): posterior SD of k should shrink");
 const trial_counts = [8, 24, 40];
 const sds = trial_counts.map((n) => runRecovery({ k: 5e-3, tau: 2.5 }, 500, n).post_sd.k);

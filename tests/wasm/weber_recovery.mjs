@@ -1,15 +1,7 @@
-// Manual test: real Stan WASM inference + ADO loop for the Weber/ANS dots
+// Real Stan WASM inference + ADO loop for the Weber/ANS dots
 // model. Two checks:
 //   1. recovery across a w sweep - recovered w within a factor of the true w
 //   2. w ordering                - recovered w rises with true w
-//
-// Like tests/wasm/hyperbolic_recovery.mjs, this is not part of `node --test`: it
-// loads the browser/worker WASM in Node by shimming `fetch` for file: URLs, and
-// bypasses the Web Worker. It exercises weber_dots.stan, the
-// weber_dots adapter (responseProb/buildData), summarizeDraws, MI design
-// selection, and the model-agnostic simulator. All seeds are fixed.
-//
-// Run: node tests/wasm/weber_recovery.mjs
 
 import "./_wasm_node_shim.mjs";
 
@@ -21,8 +13,7 @@ const { createSeededRng, simulateCategoricalChoice } =
   await import("../../src/ado/ado_simulation.js");
 
 const { makeStanDataBuilder } = await import("../../src/ado/stan_data.js");
-// The model declares a stanData map; generate its buildData (the framework does this
-// in buildAdapter — done here directly since this test bypasses the facade/worker).
+// buildData from the model's stanData map (the facade does this in buildModelAdapter).
 const buildData = makeStanDataBuilder({
   stanData: weber.stanData,
   responseSpace: weber.responseSpace,
