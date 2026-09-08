@@ -9,6 +9,8 @@ model-package and controller APIs.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-07
+
 ### Changed — controller-first authoring API (#135)
 
 **Breaking.** The registry API is replaced by a controller API that makes the
@@ -33,8 +35,8 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
   Also removed: `registerTask`, `registerModel`, `registerModelPackage`, `validateTask`,
   `prepareModels`, the task/model registries, the `createTimeline(jsPsych, { task, model })`
   form, the packaged `src/tasks/*` (task code now lives with each demo), the
-  `demos/_shared/experiment_shell.js` URL runner (`controller=`/`strategy=` become
-  `createController` options), and the response-trial factories
+  `demos/_shared/experiment_shell.js` URL runner (`strategy=` becomes the
+  `design_strategy` option), and the response-trial factories
   (`htmlButtonChoice`/`canvasFrame`/`canvasResponse`/`canvasSliderChoice` — user code
   authors its own trials).
 - **Added:** `createController` (design accessors `evaluateDesignVariable` /
@@ -120,8 +122,8 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
 
 - The legacy `ado=stan|mock|random` URL alias (and `allow_legacy_ado`) on the demo
   pages. (The `controller=`/`strategy=` URL parameters that replaced it were
-  themselves removed later in this cycle with the demo URL runner — both switches
-  are now `createController` options; see the controller-API entry above.)
+  themselves removed later in this cycle with the demo URL runner — `strategy=` became
+  the `design_strategy` option and `controller=` went with the mock controller.)
 - `jspsych-ado/models/compile_stan_model.js` (`compileStanModel`) — an unreferenced
   pre-controller-API helper superseded by `prepareModel(spec, { compileServer })`,
   which compiles a Stan-source model to a usable package the same way.
@@ -171,14 +173,10 @@ jsPsych.run([intro, ...ado.createTimeline(trial), end]);
   one per timeline. `createController` stays worker-free until readiness is awaited,
   and a handle's practice→main timelines reuse the same worker (inited once).
 - Restructured large modules into cohesive units with unchanged public behavior:
-  `ado_timeline.js` → `ado/debug/{ado_trial_log,charts}.js` (plus, later in this cycle,
-  `ado/simulation_hooks.js` — the interim `ado/response_trials.js` factories were
-  dissolved into demo code with the controller API); `index.js` → `src/validation.js`
-  (model validation + the engine adapter) + `models/stan_source.js` +
-  `ado/response_labels.js`; the Stan controller's Web Worker transport →
-  `controllers/stan_worker_client.js`, with shared controller scaffolding in
-  `controllers/controller_common.js`; the abort path shared by the timeline and the
-  preload gate → `ado/abort_experiment.js`.
+  `ado_timeline.js` → `ado/debug/{ado_trial_log,charts}.js`; `index.js` →
+  `src/validation.js` (model validation + the engine adapter) +
+  `models/stan_source.js` + `ado/response_labels.js`; the Stan controller's Web Worker
+  transport → `controllers/stan_worker_client.js`.
 - The debug UI (per-trial logs, live posterior/EIG charts, the debrief overlay) is now
   **dynamically imported** by the timeline only when debug is enabled. A production
   bundler splits it into a separate chunk that participants running without `?debug`
@@ -248,7 +246,8 @@ server and no Python).
   fallback for static pages.
 - Per-task CSS, committed compiled models, and the vendored tinystan sampler.
 
-[Unreleased]: https://github.com/jspsych/jspsych-ado/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jspsych/jspsych-ado/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jspsych/jspsych-ado/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jspsych/jspsych-ado/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jspsych/jspsych-ado/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jspsych/jspsych-ado/releases/tag/v0.1.0
